@@ -573,6 +573,25 @@ void IRAM_ATTR memory_init() {
 
     uintptr_t framebuffer_page = page_allocate(SOC_MMU_PAGE_SIZE);
 
+    uintptr_t *tmp = calloc(1, sizeof(uintptr_t) * 512);
+
+    for (int i = 0; i < 510; ++i) {
+        uintptr_t t = page_allocate(1);
+        if (t == 0x00070000) {
+            ESP_LOGE(TAG, "reserved page 0x70000");
+            break;
+        }
+
+        tmp[i] = t;
+    }
+
+    for (int i = 0; i < 510; ++i) {
+        if (! tmp[i]) break;
+        page_deallocate(tmp[i]);
+    }
+
+    free(tmp);
+
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Disabling caches and interrupts");
     spi_flash_disable_interrupts_caches_and_other_cpu();
 
