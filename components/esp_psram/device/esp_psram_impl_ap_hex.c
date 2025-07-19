@@ -54,7 +54,11 @@
 #define AP_HEX_PSRAM_CS_ECC_HOLD_TIME      4
 #define AP_HEX_PSRAM_CS_HOLD_DELAY         3
 
+#if CONFIG_SPIRAM_SPEED_80M
+#define AP_HEX_PSRAM_MPLL_DEFAULT_FREQ_MHZ 320
+#else
 #define AP_HEX_PSRAM_MPLL_DEFAULT_FREQ_MHZ 400
+#endif
 
 typedef struct {
     union {
