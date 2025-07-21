@@ -105,7 +105,7 @@ add_custom_target(generated_symbols
 add_dependencies(${COMPONENT_LIB} generated_symbols)
 target_link_libraries(${COMPONENT_LIB} PRIVATE m g 
 	-Wl,--wrap=esp_panic_handler
-	-Wl,--wrap=esp_cache_msync
+	# -Wl,--wrap=esp_cache_msync
 	-Wl,--wrap=xt_unhandled_exception
 	-Wl,--wrap=heap_caps_malloc_base
 	-Wl,--wrap=heap_caps_realloc_base
@@ -120,14 +120,14 @@ target_link_libraries(${COMPONENT_LIB} PRIVATE m g
 	-Wl,--wrap=heap_caps_aligned_free
 	-Wl,--wrap=heap_caps_aligned_calloc
 
-	-Wl,--wrap=cache_hal_disable
-	-Wl,--wrap=cache_hal_enable
-	-Wl,--wrap=cache_hal_suspend
-	-Wl,--wrap=cache_hal_resume
-	-Wl,--wrap=cache_hal_invalidate_addr
-	-Wl,--wrap=cache_hal_writeback_addr
-	-Wl,--wrap=cache_hal_freeze
-	-Wl,--wrap=cache_hal_unfreeze
+	#-Wl,--wrap=cache_hal_disable
+	#-Wl,--wrap=cache_hal_enable
+	#-Wl,--wrap=cache_hal_suspend
+	#-Wl,--wrap=cache_hal_resume
+	#-Wl,--wrap=cache_hal_invalidate_addr
+	#-Wl,--wrap=cache_hal_writeback_addr
+	#-Wl,--wrap=cache_hal_freeze
+	#-Wl,--wrap=cache_hal_unfreeze
 
 	#-Wl,--wrap=heap_caps_get_total_size
 	#-Wl,--wrap=heap_caps_get_free_size

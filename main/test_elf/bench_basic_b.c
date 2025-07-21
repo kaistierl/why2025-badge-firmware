@@ -6,8 +6,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define NUM_ITERATIONS 10000
-#define ALLOC_SIZE     4096
+#define NUM_ITERATIONS 100
+#define ALLOC_SIZE     4096 * 10
 
 int volatile should_exit = 0;
 

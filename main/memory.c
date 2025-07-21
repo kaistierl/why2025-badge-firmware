@@ -122,19 +122,12 @@ IRAM_ATTR void dump_mmu() {
 static volatile bool scheduler_was_started = false;
 __attribute__((always_inline)) static inline void critical_enter() {
     portENTER_CRITICAL_SAFE(&cache_mmu_mutex);
-    if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
-        scheduler_was_started = true;
-        // vTaskSuspendAll();
-    }
-    //spi_flash_disable_interrupts_caches_and_other_cpu();
+    spi_flash_disable_interrupts_caches_and_other_cpu();
 }
 
 __attribute__((always_inline)) static inline void critical_exit() {
-    if (scheduler_was_started) {
-        // xTaskResumeAll();
-    }
+    spi_flash_enable_interrupts_caches_and_other_cpu();
     portEXIT_CRITICAL_SAFE(&cache_mmu_mutex);
-    //spi_flash_enable_interrupts_caches_and_other_cpu();
 }
 
 void __wrap_cache_hal_disable(uint32_t cache_level, cache_type_t type) {
@@ -251,26 +244,12 @@ __attribute__((always_inline)) static inline void
 }
 
 __attribute__((always_inline)) static inline void invalidate_caches(uintptr_t vaddr_start, uint32_t len) {
-    cache_bus_mask_t bus_mask = cache_ll_l1_get_bus(0, vaddr_start, len);
-    cache_ll_l1_enable_bus(0, bus_mask);
-    bus_mask = cache_ll_l1_get_bus(1, vaddr_start, len);
-    cache_ll_l1_enable_bus(1, bus_mask);
-
-    cache_ll_l1_invalidate_icache_addr(CACHE_LL_ID_ALL, vaddr_start, len);
-    cache_ll_l1_invalidate_dcache_addr(CACHE_LL_ID_ALL, vaddr_start, len);
-    cache_ll_l2_invalidate_cache_addr(CACHE_LL_ID_ALL, vaddr_start, len);
+    esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+    esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
 }
 
 __attribute__((always_inline)) static inline void writeback_caches(uintptr_t vaddr_start, uint32_t len) {
-    cache_ll_writeback_addr(CACHE_LL_LEVEL_ALL, CACHE_TYPE_DATA, CACHE_LL_ID_ALL, vaddr_start, len);
-    invalidate_caches(vaddr_start, len);
-}
-
-IRAM_ATTR esp_err_t __wrap_esp_cache_msync(void *addr, size_t size, int flags) {
-    critical_enter();
-    esp_err_t ret = __real_esp_cache_msync(addr, size, flags);
-    critical_exit();
-    return ret;
+    esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
 }
 
 __attribute__((always_inline)) static inline void
@@ -331,8 +310,6 @@ void IRAM_ATTR remap_task(task_info_t *task_info) {
         // ESP_DRAM_LOGW(DRAM_STR("remap_task"), "Mapping task %u on core %u", task_info->pid, esp_cpu_get_core_id());
     }
 
-    critical_enter();
-
     uint32_t mmu_id   = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
     uint32_t entry_id = mmu_ll_get_entry_id(mmu_id, VADDR_TASK_START);
 
@@ -355,8 +332,6 @@ void IRAM_ATTR remap_task(task_info_t *task_info) {
         invalidate_caches(r->vaddr_start, r->size);
         r = r->next;
     }
-
-    critical_exit();
 }
 
 IRAM_ATTR void pages_deallocate(allocation_range_t *head_range) {
