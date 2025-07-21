@@ -29,6 +29,8 @@
 #include "khash.h"
 #include "memory.h"
 
+#include "esp_private/esp_cpu_internal.h"
+
 #include <stdatomic.h>
 
 #include <iconv.h>
@@ -158,13 +160,17 @@ static void process_table_remove_task(task_info_t *task_info) {
     xSemaphoreGive(process_table_lock);
 }
 
-static void task_killed(int idx, void *ti) {
-    task_info_t *task_info = ti;
+void vTaskPreDeletionHook(TaskHandle_t handle) {
+    if (xPortInIsrContext()) {
+        ESP_DRAM_LOGE(DRAM_STR("TASK KILLED"), "vTaskPreDeletionHook from ISR");
+        return;
+    }
 
-    BaseType_t higher_priority_task_woken = pdFALSE;
-    pid_t      pid                        = task_info->pid;
-    xQueueSendFromISR(hades_queue, &pid, &higher_priority_task_woken);
-    portYIELD_FROM_ISR(higher_priority_task_woken);
+    task_info_t *task_info = pvTaskGetThreadLocalStoragePointer(handle, 0);
+    if (task_info) {
+        pid_t pid = task_info->pid;
+        xQueueSend(hades_queue, &pid, portMAX_DELAY);
+    }
 }
 
 static task_info_t *task_info_init() {
@@ -261,9 +267,45 @@ void IRAM_ATTR cerberos() {
 }
 
 void IRAM_ATTR __wrap_xt_unhandled_exception(void *frame) {
-#if 0
-    task_info_t *task_info = get_task_info();
+    bool should_retry = false;
+    task_info_t *task_info = NULL;
+
+    task_info = get_task_info();
     if (task_info && task_info->pid) {
+        esp_rom_printf("*************** PID %u  MCAUSE 0x%02lx ******************\n", task_info->pid, ((RvExcFrame *)frame)->mcause);
+
+        // Define which exceptions you want to retry
+        switch (((RvExcFrame *)frame)->mcause) {
+            case 1:   /* Instruction access fault */
+            case 5:   /* Load access fault */
+            case 7:   /* Store/AMO access fault */
+            case 12:  /* Instruction page fault */
+            case 13:  /* Load page fault */
+            case 15:  /* Store/AMO page fault */
+                should_retry = true;
+                break;
+            case 0:   /* Instruction address misaligned */
+            case 2:   /* Illegal instruction */
+            case 3:   /* Breakpoint */
+            case 4:   /* Load address misaligned */
+            case 6:   /* Store/AMO address misaligned */
+            case 8:   /* Environment call from U-mode */
+            case 9:   /* Environment call from S-mode */
+            // case 10:  /* Reserved */
+            case 11:  /* Environment call from M-mode */
+            // case 14:  /* Reserved */
+                break;
+        };
+
+        if (should_retry) {
+            esp_rom_printf("*************** RETRYING AFTER PAUSE FOR PID %u ******************\n", task_info->pid);
+            __builtin_riscv_pause();
+            __builtin_riscv_pause();
+            __builtin_riscv_pause();
+            // lets give love a chance
+            __asm__ volatile("mret\n\t");
+        }
+
         esp_rom_printf("Task %u caused an unhandled exception, Cerberos will deal with it\n", task_info->pid);
         __asm__ volatile("csrw mepc, %0\n\t" // Set return address
                          "mret\n\t"
@@ -271,7 +313,6 @@ void IRAM_ATTR __wrap_xt_unhandled_exception(void *frame) {
                          : "r"(cerberos)
                          : "t0", "memory");
     }
-#endif
     __real_xt_unhandled_exception(frame);
 }
 
@@ -311,7 +352,7 @@ static void IRAM_ATTR NOINLINE_ATTR hades(void *ignored) {
 static void elf_task(task_info_t *task_info) {
     int ret;
 
-    esp_elf_t *elf = malloc(sizeof(esp_elf_t));
+    esp_elf_t *elf = calloc(1, sizeof(esp_elf_t));
     if (!elf) {
         ESP_LOGE(TAG, "Out of memory trying to allocate elf structure");
         return;
@@ -391,7 +432,7 @@ pid_t run_task(void *buffer, int stack_size, task_type_t type, int argc, char *a
 
     task_info_t *task_info = task_info_init();
     if (!task_info) {
-        return -1;
+        goto error;
     }
 
     task_info->heap_start = (uintptr_t)VADDR_TASK_START;
@@ -414,8 +455,7 @@ pid_t run_task(void *buffer, int stack_size, task_type_t type, int argc, char *a
     task_info->argv = malloc(argv_size);
     if (!task_info->argv) {
         ESP_LOGE(TAG, "Out of memory trying to allocate argv buffer");
-        free(task_info);
-        return -1;
+        goto error;
     }
 
     // In case someone tries something clever
@@ -438,8 +478,7 @@ pid_t run_task(void *buffer, int stack_size, task_type_t type, int argc, char *a
             break;
         default:
             ESP_LOGE(TAG, "Unknown task type %i", type);
-            free(task_info);
-            return -1;
+            goto error;
     }
 
 #if (NUM_PIDS > 999)
@@ -453,13 +492,21 @@ pid_t run_task(void *buffer, int stack_size, task_type_t type, int argc, char *a
     // xTaskCreate(generic_task, task_name, stack_size, (void *)task_info, 5, NULL);
     ++num_tasks;
     TaskHandle_t new_task;
-    xTaskCreatePinnedToCore(generic_task, task_name, stack_size, (void *)task_info, 5, &new_task, 1);
-    vTaskSuspend(new_task);
-    task_info->handle = new_task;
-    process_table_add_task(task_info);
-    vTaskSetThreadLocalStoragePointerAndDelCallback(new_task, 0, task_info, task_killed);
-    vTaskResume(new_task);
-    return pid;
+    BaseType_t res = xTaskCreatePinnedToCore(generic_task, task_name, stack_size, (void *)task_info, 5, &new_task, 1);
+    if (res == pdPASS) {
+        vTaskSuspend(new_task);
+        task_info->handle = new_task;
+        process_table_add_task(task_info);
+        // vTaskSetThreadLocalStoragePointerAndDelCallback(new_task, 0, task_info, task_killed);
+        vTaskSetThreadLocalStoragePointer(new_task, 0, task_info);
+        vTaskResume(new_task);
+        return pid;
+    }
+
+error:
+    free(task_info);
+    pid_free(pid);
+    return -1;
 }
 
 void IRAM_ATTR task_switched_in_hook(TaskHandle_t volatile *handle) {

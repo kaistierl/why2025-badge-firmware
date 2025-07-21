@@ -14,6 +14,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "sdkconfig.h"
 #include "memory.h"
 
 #include "dlmalloc.h"
@@ -22,6 +23,7 @@
 #include "esp_mmu_map.h"
 #include "esp_psram.h"
 #include "freertos/portmacro.h"
+#include "freertos/FreeRTOS.h"
 #include "hal/cache_hal.h"
 #include "hal/cache_ll.h"
 #include "hal/cache_types.h"
@@ -55,15 +57,33 @@ extern mmu_mem_region_t const g_mmu_mem_regions[SOC_MMU_LINEAR_ADDRESS_REGION_NU
 extern void spi_flash_enable_interrupts_caches_and_other_cpu(void);
 extern void spi_flash_disable_interrupts_caches_and_other_cpu(void);
 
-extern void      spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_state);
-extern void      spi_flash_disable_cache(uint32_t cpuid, uint32_t saved_state);
+extern void spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_state);
+extern void spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_state);
+
 extern esp_err_t __real_esp_cache_msync(void *addr, size_t size, int flags);
+
+extern void __real_cache_hal_disable(uint32_t cache_level, cache_type_t type);
+extern void __real_cache_hal_enable(uint32_t cache_level, cache_type_t type);
+extern void __real_cache_hal_suspend(uint32_t cache_level, cache_type_t type);
+extern void __real_cache_hal_resume(uint32_t cache_level, cache_type_t type);
+extern bool __real_cache_hal_invalidate_addr(uint32_t vaddr, uint32_t size);
+extern bool __real_cache_hal_writeback_addr(uint32_t vaddr, uint32_t size);
+extern void __real_cache_hal_freeze(uint32_t cache_level, cache_type_t type);
+extern void __real_cache_hal_unfreeze(uint32_t cache_level, cache_type_t type);
 
 extern void        init_memory_heap_caps();
 static char const *TAG = "memory";
 
+static portMUX_TYPE cache_mmu_mutex = portMUX_INITIALIZER_UNLOCKED;
+
+// Copied from ESP-IDF 5.4.2 for speed
+__attribute__((always_inline)) static inline
+uint32_t why_mmu_hal_get_id_from_target(mmu_target_t target) {
+    return (target == MMU_TARGET_FLASH0) ? MMU_LL_FLASH_MMU_ID : MMU_LL_PSRAM_MMU_ID;
+}
+
 IRAM_ATTR void dump_mmu() {
-    uint32_t mmu_id = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+    uint32_t mmu_id = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
     for (pid_t pid = 0; pid < MAX_PID; ++pid) {
         task_info_t *task_info = get_taskinfo_for_pid(pid);
@@ -97,6 +117,74 @@ IRAM_ATTR void dump_mmu() {
         }
     }
     esp_rom_printf("*********** MMU DUMP END   ***********\n");
+}
+
+static volatile bool scheduler_was_started = false;
+__attribute__((always_inline)) static inline void critical_enter() {
+    portENTER_CRITICAL_SAFE(&cache_mmu_mutex);
+    if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
+        scheduler_was_started = true;
+        // vTaskSuspendAll();
+    }
+    //spi_flash_disable_interrupts_caches_and_other_cpu();
+}
+
+__attribute__((always_inline)) static inline void critical_exit() {
+    if (scheduler_was_started) {
+        // xTaskResumeAll();
+    }
+    portEXIT_CRITICAL_SAFE(&cache_mmu_mutex);
+    //spi_flash_enable_interrupts_caches_and_other_cpu();
+}
+
+void __wrap_cache_hal_disable(uint32_t cache_level, cache_type_t type) {
+    critical_enter(); 
+    __real_cache_hal_disable(cache_level, type);
+    critical_exit();
+}
+
+void __wrap_cache_hal_enable(uint32_t cache_level, cache_type_t type) {
+    critical_enter(); 
+    __real_cache_hal_enable(cache_level, type);
+    critical_exit();
+}
+
+void __wrap_cache_hal_suspend(uint32_t cache_level, cache_type_t type) {
+    critical_enter(); 
+    __real_cache_hal_enable(cache_level, type);
+    critical_exit();
+}
+
+void __wrap_cache_hal_resume(uint32_t cache_level, cache_type_t type) {
+    critical_enter(); 
+    __real_cache_hal_resume(cache_level, type);
+    critical_exit();
+}
+
+bool __wrap_cache_hal_invalidate_addr(uint32_t vaddr, uint32_t size) {
+    critical_enter(); 
+    bool ret = __real_cache_hal_invalidate_addr(vaddr, size);
+    critical_exit();
+    return ret;
+}
+
+bool __wrap_cache_hal_writeback_addr(uint32_t vaddr, uint32_t size) {
+    critical_enter(); 
+    bool ret = __real_cache_hal_writeback_addr(vaddr, size);
+    critical_exit();
+    return ret;
+}
+
+void __wrap_cache_hal_freeze(uint32_t cache_level, cache_type_t type) {
+    critical_enter(); 
+    __real_cache_hal_freeze(cache_level, type);
+    critical_exit();
+}
+
+void __wrap_cache_hal_unfreeze(uint32_t cache_level, cache_type_t type) {
+    critical_enter(); 
+    __real_cache_hal_unfreeze(cache_level, type);
+    critical_exit();
 }
 
 // Copied from ESP-IDF 5.4.2 for speed
@@ -175,12 +263,13 @@ __attribute__((always_inline)) static inline void invalidate_caches(uintptr_t va
 
 __attribute__((always_inline)) static inline void writeback_caches(uintptr_t vaddr_start, uint32_t len) {
     cache_ll_writeback_addr(CACHE_LL_LEVEL_ALL, CACHE_TYPE_DATA, CACHE_LL_ID_ALL, vaddr_start, len);
+    invalidate_caches(vaddr_start, len);
 }
 
 IRAM_ATTR esp_err_t __wrap_esp_cache_msync(void *addr, size_t size, int flags) {
-    spi_flash_disable_interrupts_caches_and_other_cpu();
+    critical_enter();
     esp_err_t ret = __real_esp_cache_msync(addr, size, flags);
-    spi_flash_enable_interrupts_caches_and_other_cpu();
+    critical_exit();
     return ret;
 }
 
@@ -207,7 +296,7 @@ __attribute__((always_inline)) static inline void
 
 __attribute__((always_inline)) static inline void
     map_regions(allocation_range_t *head_range, allocation_range_t *tail_range) {
-    uint32_t            mmu_id     = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+    uint32_t            mmu_id     = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
     uintptr_t           start      = tail_range->vaddr_start;
     uintptr_t           total_size = 0;
     allocation_range_t *r          = head_range;
@@ -226,25 +315,25 @@ __attribute__((always_inline)) static inline void
         );
 
         why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
+        invalidate_caches(r->vaddr_start, r->size);
         total_size += r->size;
         r           = r->next;
     }
-
-    // Invalidate all caches at once
-    invalidate_caches(start, total_size);
 }
 
 static pid_t current_mapped_task = 0;
 
 void IRAM_ATTR remap_task(task_info_t *task_info) {
     if (current_mapped_task == task_info->pid) {
-        // ESP_DRAM_LOGW(DRAM_STR("remap_task"), "Current task already mapped?");
+        ESP_DRAM_LOGW(DRAM_STR("remap_task"), "Current task already mapped?");
         return;
     } else {
         // ESP_DRAM_LOGW(DRAM_STR("remap_task"), "Mapping task %u on core %u", task_info->pid, esp_cpu_get_core_id());
     }
 
-    uint32_t mmu_id   = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+    critical_enter();
+
+    uint32_t mmu_id   = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
     uint32_t entry_id = mmu_ll_get_entry_id(mmu_id, VADDR_TASK_START);
 
     // Unmap and write back whatever was in our address space
@@ -263,12 +352,11 @@ void IRAM_ATTR remap_task(task_info_t *task_info) {
     allocation_range_t *r = task_info->allocations;
     while (r) {
         why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
+        invalidate_caches(r->vaddr_start, r->size);
         r = r->next;
     }
 
-    // Invalidate all caches at once
-    invalidate_caches(task_info->heap_start, task_info->heap_size);
-    current_mapped_task = task_info->pid;
+    critical_exit();
 }
 
 IRAM_ATTR void pages_deallocate(allocation_range_t *head_range) {
@@ -291,6 +379,9 @@ IRAM_ATTR void pages_deallocate(allocation_range_t *head_range) {
 IRAM_ATTR bool pages_allocate(
     uintptr_t vaddr_start, uintptr_t pages, allocation_range_t **head_range, allocation_range_t **tail_range
 ) {
+    *head_range = NULL;
+    *tail_range = NULL;
+
     if (pages > buddy_get_free_pages(&page_allocator)) {
         return false;
     }
@@ -312,9 +403,15 @@ IRAM_ATTR bool pages_allocate(
         allocation_range_t *new_range = malloc(sizeof(allocation_range_t));
         if (new_range) {
             new_page = page_allocate(allocate_size * SOC_MMU_PAGE_SIZE);
+        } else {
+            // bail
+            ESP_LOGE(TAG, "Failed to allocate range structure");
+            allocate_size = 1;
         }
 
         if (!new_page) {
+            free(new_range);
+
             if (allocate_size == 1) {
                 // No more memory
                 allocation_range_t *r = *head_range;
@@ -324,6 +421,8 @@ IRAM_ATTR bool pages_allocate(
                     free(r);
                     r = n;
                 }
+                *head_range = NULL;
+                *tail_range = NULL;
                 return false;
             }
             // Try again
@@ -337,7 +436,6 @@ IRAM_ATTR bool pages_allocate(
             *tail_range = new_range;
         }
         new_range->vaddr_start = vaddr_start;
-        // The allocator doesn't know the physical ranges
         new_range->paddr_start = new_page;
         new_range->size        = allocate_size * SOC_MMU_PAGE_SIZE;
         new_range->next        = *head_range;
@@ -379,9 +477,9 @@ void IRAM_ATTR framebuffer_vaddr_deallocate(uintptr_t start_address) {
 }
 
 void IRAM_ATTR framebuffer_map_pages(allocation_range_t *head_range, allocation_range_t *tail_range) {
-    spi_flash_disable_interrupts_caches_and_other_cpu();
+    critical_enter();
     map_regions(head_range, tail_range);
-    spi_flash_enable_interrupts_caches_and_other_cpu();
+    critical_exit();
 }
 
 void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
@@ -422,20 +520,22 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
         );
 
         // Map our new page table entries in one atomic operation
-        spi_flash_disable_interrupts_caches_and_other_cpu();
-        map_regions(head_range, tail_range);
+        critical_enter();
+        {
+            map_regions(head_range, tail_range);
 
-        tail_range->next       = task_info->allocations;
-        task_info->allocations = head_range;
+            tail_range->next       = task_info->allocations;
+            task_info->allocations = head_range;
 
-        task_info->heap_size += increment;
-        task_info->heap_end  += increment;
-        spi_flash_enable_interrupts_caches_and_other_cpu();
+            task_info->heap_size += increment;
+            task_info->heap_end  += increment;
+        }
+        critical_exit();
     } else {
         // increment is negative
         int32_t  decrement_amount = task_info->heap_size + increment;
         int32_t  to_decrement     = decrement_amount;
-        uint32_t mmu_id           = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+        uint32_t mmu_id           = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
         allocation_range_t *r = task_info->allocations;
         while (r && to_decrement) {
@@ -454,10 +554,12 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
                 allocation_range_t *n = r->next;
 
                 // Unmap and change the page table entries in one atomic operation
-                spi_flash_disable_interrupts_caches_and_other_cpu();
-                why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
-                task_info->allocations = n;
-                spi_flash_enable_interrupts_caches_and_other_cpu();
+                critical_enter();
+                {
+                    why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
+                    task_info->allocations = n;
+                }
+                critical_exit();
 
                 to_decrement -= r->size;
                 free(r);
@@ -474,13 +576,15 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
                 );
 
                 // Write back, unmap, remap, and invalidate in one atomic operation
-                spi_flash_disable_interrupts_caches_and_other_cpu();
-                writeback_caches(r->vaddr_start, r->size - to_decrement);
-                why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
-                r->size -= to_decrement;
-                why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
-                invalidate_caches(r->vaddr_start, r->size);
-                spi_flash_enable_interrupts_caches_and_other_cpu();
+                critical_enter();
+                {
+                    writeback_caches(r->vaddr_start, r->size - to_decrement);
+                    why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
+                    r->size -= to_decrement;
+                    why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
+                    invalidate_caches(r->vaddr_start, r->size);
+                }
+                critical_exit();
 
                 page_deallocate(r->paddr_start + to_decrement);
                 to_decrement = 0;
@@ -622,7 +726,7 @@ static IRAM_ATTR bool test_psram(intptr_t v_start, size_t size) {
 }
 
 uint32_t vaddr_to_paddr(uint32_t vaddr) {
-    uint32_t mmu_id = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+    uint32_t mmu_id = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
     uint32_t     paddr;
     mmu_target_t target;
@@ -644,7 +748,7 @@ void IRAM_ATTR memory_init() {
 
     size_t psram_size = esp_psram_get_size();
 
-    uint32_t mmu_id = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+    uint32_t mmu_id = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
     uint32_t out_len;
 
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Disabling caches and interrupts");
