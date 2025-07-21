@@ -51,7 +51,7 @@ static ssize_t tty_write(void *dev, int fd, void const *buf, size_t count) {
     return 0;
 }
 
-static ssize_t tty_read(void *dev, int fd, void const *buf, size_t count) {
+static ssize_t tty_read(void *dev, int fd, void *buf, size_t count) {
     tty_device_t *device = dev;
 
     if (device->is_stdin) {

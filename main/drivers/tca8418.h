@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <stdint.h>
+#include "../device.h"
 
-void     die(char const *reason);
-uint32_t vaddr_to_paddr(uint32_t vaddr);
+device_t *tca8418_keyboard_create();

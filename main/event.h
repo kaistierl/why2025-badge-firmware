@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
-void     die(char const *reason);
-uint32_t vaddr_to_paddr(uint32_t vaddr);
+typedef enum event_type {
+    EVENT_KEY_DOWN,
+    EVENT_KEY_UP,
+} event_type_t;

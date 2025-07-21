@@ -17,6 +17,7 @@
 #include "compositor.h"
 
 #include "device.h"
+#include "drivers/keyboard.h"
 #include "driver/ppa.h"
 #include "esp_cache.h"
 #include "esp_log.h"
@@ -31,6 +32,7 @@
 static TaskHandle_t  compositor_handle;
 static QueueHandle_t compositor_queue;
 static lcd_device_t *lcd_device;
+static device_t     *keyboard_device;
 
 typedef struct {
     framebuffer_t       framebuffer;
@@ -41,6 +43,9 @@ typedef struct {
     task_info_t        *task_info;
     SemaphoreHandle_t   ready;
 } managed_framebuffer_t;
+
+typedef struct {
+} keyboard_state_t;
 
 static int fb_count = 0;
 
@@ -215,6 +220,11 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
             sleep_time  = sleep_time < 0 ? 0 : sleep_time;
 
         } else {
+            keyboard_event_ll_t c;
+            ssize_t res = keyboard_device->_read(keyboard_device, 0, &c, sizeof(keyboard_event_ll_t));
+            if (res > 0) {
+                ESP_LOGE(TAG, "Got keyboard scancode 0x%08x, down: %i", c.scancode, c.down);
+            }
             // Timeout, time to update the screen
             if (changes) {
                 lcd_device->_draw(lcd_device, 0, 0, FRAMEBUFFER_MAX_W, FRAMEBUFFER_MAX_H, framebuffers[cur_fb]);
@@ -227,11 +237,17 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
     }
 }
 
-void compositor_init(char const *device) {
+void compositor_init(char const *lcd_device_name, char const *keyboard_device_name) {
     ESP_LOGI(TAG, "Initializing");
-    lcd_device = (lcd_device_t *)device_get(device);
+    lcd_device = (lcd_device_t *)device_get(lcd_device_name);
     if (!lcd_device) {
-        ESP_LOGE(TAG, "Unable to access the LCD device");
+        ESP_LOGE(TAG, "Unable to access the LCD device '%s'", lcd_device_name);
+        return;
+    }
+
+    keyboard_device = (device_t *)device_get(keyboard_device_name);
+    if (!lcd_device) {
+        ESP_LOGE(TAG, "Unable to access the keyboard device '%s'", keyboard_device_name);
         return;
     }
 

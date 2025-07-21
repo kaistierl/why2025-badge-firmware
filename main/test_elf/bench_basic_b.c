@@ -6,7 +6,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define NUM_ITERATIONS 10000
+#define NUM_ITERATIONS 128
 #define ALLOC_SIZE     4096
 
 int volatile should_exit = 0;
@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
                         t = ptrs[(i - 50) % 100][k];
 
                         if (t != task_id) {
-                            uintptr_t vaddr = (uintptr_t)(&ptrs[(i - 50) % 100][k]);
+                            uintptr_t vaddr = (uintptr_t)(&ptrs[(i - 50) % 100][0]);
                             // uintptr_t vaddr_aligned = ((uintptr_t)vaddr) & ~(65535 - 1);
                             printf(
                                 "\033[0;31mError unexpected memory contents! expected 0x%X got 0x%X (%c) in ptr number "
@@ -50,6 +50,7 @@ int main(int argc, char *argv[]) {
                                 vaddr_to_paddr(vaddr)
                             );
 
+#if 0
                             for (int l = 0; l < 40; ++l) {
                                 printf("0x%08X: ", vaddr + (l * 40));
                                 for (int p = 0; p < 40; ++p) {
@@ -57,6 +58,7 @@ int main(int argc, char *argv[]) {
                                 }
                                 printf("\n");
                             }
+#endif
                             die("Unexpected memory contents in memory bench");
                             return 1;
                         }

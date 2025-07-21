@@ -10,6 +10,8 @@ dependencies:
     override_path: ../components/esp_psram
   esp_hw_support:
     override_path: ../components/esp_hw_support
+  esp_tca8418:
+    override_path: ../components/esp_tca8418
   freertos:
     override_path: ../components/freertos
   why_stdio:

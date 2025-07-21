@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "drivers/keyboard.h"
 #include "khash.h"
 #include "pathfuncs.h"
 
@@ -29,6 +30,7 @@ KHASH_MAP_INIT_STR(devtable, void *);
 typedef enum {
     DEVICE_TYPE_BLOCK,
     DEVICE_TYPE_LCD,
+    DEVICE_TYPE_KEYBOARD,
 } device_type_t;
 
 typedef struct {
@@ -36,13 +38,9 @@ typedef struct {
     int (*_open)(void *dev, path_t *path, int flags, mode_t mode);
     int (*_close)(void *dev, int fd);
     ssize_t (*_write)(void *dev, int fd, void const *buf, size_t count);
-    ssize_t (*_read)(void *dev, int fd, void const *buf, size_t count);
+    ssize_t (*_read)(void *dev, int fd, void *buf, size_t count);
     ssize_t (*_lseek)(void *dev, int fd, off_t offset, int whence);
 } device_t;
-
-typedef struct {
-    void *pixels;
-} lcd_framebuffer_t;
 
 typedef struct lcd_device_s {
     device_t device;
@@ -50,6 +48,11 @@ typedef struct lcd_device_s {
     void (*_getfb)(void *dev, int num, void **pixels);
     void (*_set_refresh_cb)(void *dev, void *user_data, void (*callback)(void *user_data));
 } lcd_device_t;
+
+typedef struct keyboard_device_s {
+    device_t device;
+
+} keyboard_device_t;
 
 void      device_init();
 int       device_register(char const *name, device_t *device);

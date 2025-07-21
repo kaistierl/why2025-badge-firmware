@@ -47,7 +47,7 @@ static ssize_t fatfs_write(void *dev, int fd, void const *buf, size_t count) {
     return write(fd, buf, count);
 }
 
-static ssize_t fatfs_read(void *dev, int fd, void const *buf, size_t count) {
+static ssize_t fatfs_read(void *dev, int fd, void *buf, size_t count) {
     return read(fd, buf, count);
 }
 

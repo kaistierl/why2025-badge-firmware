@@ -19,8 +19,8 @@
 #include "device.h"
 #include "drivers/fatfs.h"
 #include "drivers/st7703.h"
+#include "drivers/tca8418.h"
 #include "drivers/tty.h"
-// #include "drivers/tca8418.h"
 #include "elf_symbols.h"
 #include "esp_debug_helpers.h"
 #include "esp_log.h"
@@ -98,14 +98,13 @@ int app_main(void) {
     device_init();
     logical_names_system_init();
 
-    // device_register("KEYBOARD0", tca8418_keyboard_create());
+    device_register("KEYBOARD0", tca8418_keyboard_create());
     device_register("PANEL0", st7703_create());
     device_register("TT01", tty_create(true, true));
     device_register("FLASH0", fatfs_create_spi("FLASH0", "storage", true));
     logical_name_set("SEARCH", "FLASH0:[SUBDIR], FLASH0:[SUBDIR.ANOTHER]", false);
 
-    // compositor_init("PANEL0", "KEYBOARD0");
-    compositor_init("PANEL0");
+    compositor_init("PANEL0", "KEYBOARD0");
 
     printf("BadgeVMS is ready\n");
     free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
