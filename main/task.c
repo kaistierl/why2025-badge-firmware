@@ -313,6 +313,9 @@ static void elf_task(task_info_t *task_info) {
         free(task_info->buffer);
     }
 
+    ESP_LOGI(TAG, "Writing back and invalidating our address space");
+    writeback_and_invalidate_task(task_info);
+
     ESP_LOGI(TAG, "Start ELF file entrypoint");
 
     esp_elf_request(elf, 0, task_info->argc, task_info->argv);

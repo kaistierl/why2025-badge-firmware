@@ -113,7 +113,7 @@ extern "C" {
  */
 #define ST7703_720_720_PANEL_60HZ_DPI_CONFIG()                                                                         \
     {.dpi_clk_src        = MIPI_DSI_DPI_CLK_SRC_DEFAULT,                                                               \
-     .dpi_clock_freq_mhz = 23,                                                                                         \
+     .dpi_clock_freq_mhz = 46,                                                                                         \
      .virtual_channel    = 0,                                                                                          \
      .pixel_format       = (FRAMEBUFFER_BPP == 2 ? LCD_COLOR_PIXEL_FORMAT_RGB565 : LCD_COLOR_PIXEL_FORMAT_RGB888),     \
      .num_fbs            = 2,                                                                                          \

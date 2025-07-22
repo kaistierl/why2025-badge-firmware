@@ -890,6 +890,15 @@ uint32_t vaddr_to_paddr(uint32_t vaddr) {
     return paddr;
 }
 
+void  writeback_and_invalidate_task(task_info_t *task_info) {
+    critical_enter();
+    {
+        writeback_caches(task_info->heap_start, task_info->heap_size);
+        invalidate_caches(task_info->heap_start, task_info->heap_size);
+    }
+    critical_exit();
+}
+
 void IRAM_ATTR memory_init() {
     for (int i = 0; i < SOC_MMU_LINEAR_ADDRESS_REGION_NUM; i++) {
         ESP_LOGI(TAG, "MMU Region  %u", i);
