@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -84,9 +84,7 @@ struct esp_lcd_i80_bus_t {
     lcd_hal_context_t hal; // Hal object
     size_t bus_width;      // Number of data lines
     intr_handle_t intr;    // LCD peripheral interrupt handle
-#if CONFIG_PM_ENABLE
     esp_pm_lock_handle_t pm_lock; // Power management lock
-#endif
     uint8_t *format_buffer;  // The driver allocates an internal buffer for DMA to do data format transformer
     uint8_t *format_buffer_nc; // Non-cacheable version of format buffer
     size_t resolution_hz;    // LCD_CLK resolution, determined by selected clock source
@@ -199,9 +197,7 @@ esp_err_t esp_lcd_new_i80_bus(const esp_lcd_i80_bus_config_t *bus_config, esp_lc
                                     (uint32_t)lcd_ll_get_interrupt_status_reg(bus->hal.dev),
                                     LCD_LL_EVENT_TRANS_DONE, i80_lcd_default_isr_handler, bus, &bus->intr);
     ESP_GOTO_ON_ERROR(ret, err, TAG, "install interrupt failed");
-    PERIPH_RCC_ATOMIC() {
-        lcd_ll_enable_interrupt(bus->hal.dev, LCD_LL_EVENT_TRANS_DONE, false); // disable all interrupts
-    }
+    lcd_ll_enable_interrupt(bus->hal.dev, LCD_LL_EVENT_TRANS_DONE, false); // disable all interrupts
     lcd_ll_clear_interrupt_status(bus->hal.dev, UINT32_MAX); // clear pending interrupt
     // install DMA service
     bus->max_transfer_bytes = bus_config->max_transfer_bytes;
@@ -217,10 +213,8 @@ esp_err_t esp_lcd_new_i80_bus(const esp_lcd_i80_bus_config_t *bus_config, esp_lc
     lcd_ll_set_swizzle_mode(bus->hal.dev, LCD_LL_SWIZZLE_AB2BA);
     // number of data cycles is controlled by DMA buffer size
     lcd_ll_enable_output_always_on(bus->hal.dev, true);
-    PERIPH_RCC_ATOMIC() {
-        // enable trans done interrupt
-        lcd_ll_enable_interrupt(bus->hal.dev, LCD_LL_EVENT_TRANS_DONE, true);
-    }
+    // enable trans done interrupt
+    lcd_ll_enable_interrupt(bus->hal.dev, LCD_LL_EVENT_TRANS_DONE, true);
     // trigger a quick "trans done" event, and wait for the interrupt line goes active
     // this could ensure we go into ISR handler next time we call `esp_intr_enable`
     lcd_periph_trigger_quick_trans_done_event(bus);
@@ -257,11 +251,9 @@ err:
         if (bus->format_buffer) {
             free(bus->format_buffer);
         }
-#if CONFIG_PM_ENABLE
         if (bus->pm_lock) {
             esp_pm_lock_delete(bus->pm_lock);
         }
-#endif
         free(bus);
     }
     return ret;
@@ -283,11 +275,9 @@ esp_err_t esp_lcd_del_i80_bus(esp_lcd_i80_bus_handle_t bus)
     gdma_del_channel(bus->dma_chan);
     esp_intr_free(bus->intr);
     free(bus->format_buffer);
-#if CONFIG_PM_ENABLE
     if (bus->pm_lock) {
         esp_pm_lock_delete(bus->pm_lock);
     }
-#endif
     gdma_del_link_list(bus->dma_link);
     free(bus);
     ESP_LOGD(TAG, "del i80 bus(%d)", bus_id);
@@ -507,21 +497,17 @@ static esp_err_t panel_io_i80_tx_param(esp_lcd_panel_io_t *io, int lcd_cmd, cons
         }
     };
     gdma_link_mount_buffers(bus->dma_link, 0, &mount_config, 1, NULL);
-#if CONFIG_PM_ENABLE
     // increase the pm lock reference count before starting a new transaction
     if (bus->pm_lock) {
         esp_pm_lock_acquire(bus->pm_lock);
     }
-#endif
     lcd_start_transaction(bus, trans_desc);
     // polling the trans done event, but don't clear the event status
     while (!(lcd_ll_get_interrupt_status(bus->hal.dev) & LCD_LL_EVENT_TRANS_DONE)) {}
-#if CONFIG_PM_ENABLE
     // decrease pm lock reference count
     if (bus->pm_lock) {
         esp_pm_lock_release(bus->pm_lock);
     }
-#endif
     return ESP_OK;
 }
 
@@ -531,16 +517,19 @@ static esp_err_t panel_io_i80_tx_color(esp_lcd_panel_io_t *io, int lcd_cmd, cons
     esp_lcd_i80_bus_t *bus = i80_device->bus;
     lcd_i80_trans_descriptor_t *trans_desc = NULL;
     assert(color_size <= bus->max_transfer_bytes && "color bytes too long, enlarge max_transfer_bytes");
+    uint32_t cache_line_size = 0;
     if (esp_ptr_external_ram(color)) {
         // check alignment
         ESP_RETURN_ON_FALSE(((uint32_t)color & (bus->ext_mem_align - 1)) == 0, ESP_ERR_INVALID_ARG, TAG, "color address not aligned");
         ESP_RETURN_ON_FALSE((color_size & (bus->ext_mem_align - 1)) == 0, ESP_ERR_INVALID_ARG, TAG, "color size not aligned");
+        cache_line_size = cache_hal_get_cache_line_size(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_DATA);
     } else {
         // check alignment
         ESP_RETURN_ON_FALSE(((uint32_t)color & (bus->int_mem_align - 1)) == 0, ESP_ERR_INVALID_ARG, TAG, "color address not aligned");
         ESP_RETURN_ON_FALSE((color_size & (bus->int_mem_align - 1)) == 0, ESP_ERR_INVALID_ARG, TAG, "color size not aligned");
+        cache_line_size = cache_hal_get_cache_line_size(CACHE_LL_LEVEL_INT_MEM, CACHE_TYPE_DATA);
     }
-    if (esp_cache_get_line_size_by_addr(color) > 0) {
+    if (cache_line_size > 0) {
         // flush data from cache to the physical memory
         esp_cache_msync((void *)color, color_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     }
@@ -583,7 +572,7 @@ static esp_err_t lcd_i80_select_periph_clock(esp_lcd_i80_bus_handle_t bus, lcd_c
     ESP_RETURN_ON_ERROR(esp_clk_tree_src_get_freq_hz((soc_module_clk_t)clk_src, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &src_clk_hz),
                         TAG, "get clock source frequency failed");
 
-    ESP_RETURN_ON_ERROR(esp_clk_tree_enable_src((soc_module_clk_t)clk_src, true), TAG, "clock source enable failed");
+    esp_clk_tree_enable_src((soc_module_clk_t)clk_src, true);
     LCD_CLOCK_SRC_ATOMIC() {
         lcd_ll_select_clk_src(bus->hal.dev, clk_src);
         // force to use integer division, as fractional division might lead to clock jitter
@@ -763,12 +752,10 @@ IRAM_ATTR static void i80_lcd_default_isr_handler(void *args)
         // process finished transaction
         if (trans_desc) {
             assert(trans_desc->i80_device == cur_device && "transaction device mismatch");
-#if CONFIG_PM_ENABLE
             // decrease pm lock reference count
             if (bus->pm_lock) {
                 esp_pm_lock_release(bus->pm_lock);
             }
-#endif
             // device callback
             if (trans_desc->trans_done_cb) {
                 if (trans_desc->trans_done_cb(&cur_device->base, NULL, trans_desc->user_ctx)) {
@@ -815,12 +802,10 @@ IRAM_ATTR static void i80_lcd_default_isr_handler(void *args)
                 gdma_link_mount_buffers(bus->dma_link, 0, &mount_config, 1, NULL);
                 // enable interrupt again, because the new transaction can trigger new trans done event
                 esp_intr_enable(bus->intr);
-#if CONFIG_PM_ENABLE
                 // increase the pm lock reference count before starting a new transaction
                 if (bus->pm_lock) {
                     esp_pm_lock_acquire(bus->pm_lock);
                 }
-#endif
                 lcd_start_transaction(bus, trans_desc);
                 break; // exit for-each loop
             }
