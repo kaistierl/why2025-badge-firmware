@@ -131,7 +131,7 @@ static void panel_init(st7703_device_t *device) {
     ESP_ERROR_CHECK(esp_lcd_panel_init(device->disp_panel));
 
     esp_lcd_dpi_panel_event_callbacks_t cbs = {
-        .on_refresh_done = on_refresh_done,
+        // .on_refresh_done = on_refresh_done,
         // .on_color_trans_done = on_color_trans_done,
     };
     esp_lcd_dpi_panel_register_event_callbacks(device->disp_panel, &cbs, NULL);

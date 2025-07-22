@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "soc/soc_caps.h"
 #include "soc/rtc.h"
+#include "hal/mspi_ll.h"
 #include "hal/clk_tree_ll.h"
 #include "esp_private/mspi_timing_tuning.h"
 #include "esp_private/esp_clk_utils.h"
@@ -19,7 +20,7 @@
 #if !CONFIG_APP_BUILD_TYPE_PURE_RAM_APP
 void esp_clk_utils_mspi_speed_mode_sync_before_cpu_freq_switching(uint32_t target_cpu_src_freq, uint32_t target_cpu_freq)
 {
-#if CONFIG_IDF_TARGET_ESP32S3
+#if MSPI_TIMING_LL_FLASH_CPU_CLK_SRC_BINDED
     (void) target_cpu_freq;
     if (target_cpu_src_freq <= clk_ll_xtal_load_freq_mhz()) {
         mspi_timing_change_speed_mode_cache_safe(true);
@@ -45,7 +46,7 @@ void esp_clk_utils_mspi_speed_mode_sync_before_cpu_freq_switching(uint32_t targe
 
 void esp_clk_utils_mspi_speed_mode_sync_after_cpu_freq_switching(uint32_t target_cpu_src_freq, uint32_t target_cpu_freq)
 {
-#if CONFIG_IDF_TARGET_ESP32S3
+#if MSPI_TIMING_LL_FLASH_CPU_CLK_SRC_BINDED
     (void) target_cpu_freq;
     if (target_cpu_src_freq > clk_ll_xtal_load_freq_mhz()) {
         mspi_timing_change_speed_mode_cache_safe(false);

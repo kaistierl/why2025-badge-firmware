@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,7 +9,10 @@
 #include <sys/param.h>
 #include <sys/lock.h>
 
+#if !NON_OS_BUILD
 #include "freertos/FreeRTOS.h"
+#endif
+
 #include "esp_attr.h"
 #include "soc/rtc.h"
 #include "soc/soc_caps.h"
@@ -18,41 +21,25 @@
 #include "esp_private/esp_clk.h"
 #include "hal/clk_tree_ll.h"
 
-#if CONFIG_IDF_TARGET_ESP32
-#include "esp32/rom/rtc.h"
-#include "esp32/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32S2
-#include "esp32s2/rom/rtc.h"
-#include "esp32s2/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32S3
-#include "esp32s3/rom/rtc.h"
-#include "esp32s3/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32C3
-#include "esp32c3/rom/rtc.h"
-#include "esp32c3/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32C2
-#include "esp32c2/rom/rtc.h"
-#include "esp32c2/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32C6
-#include "esp32c6/rom/rtc.h"
-#include "esp32c6/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32C61    //TODO: IDF-9526, refactor this
-#include "esp32c61/rom/rtc.h"
-#include "esp32c61/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32H2
-#include "esp32h2/rom/rtc.h"
-#include "esp32h2/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32P4
-#include "esp32p4/rom/rtc.h"
-#include "esp32p4/rtc.h"
-#endif
+#include "rom/rtc.h"
+#include "esp_rtc_time.h"
 
 #define MHZ (1000000)
+
+#if CONFIG_PM_SLP_IRAM_OPT
+# define ESP_CLK_FN_ATTR    IRAM_ATTR
+#else
+# define ESP_CLK_FN_ATTR
+#endif
 
 // g_ticks_us defined in ROMs for PRO and APP CPU
 extern uint32_t g_ticks_per_us_pro;
 
+// Any code utilizing locks, which depend on FreeRTOS, should be omitted
+// when building for Non-OS environments
+#if !NON_OS_BUILD
 static portMUX_TYPE s_esp_rtc_time_lock = portMUX_INITIALIZER_UNLOCKED;
+#endif
 
 #if SOC_RTC_MEM_SUPPORTED
 typedef struct {
@@ -64,9 +51,10 @@ typedef struct {
 _Static_assert(sizeof(retain_mem_t) == 24, "retain_mem_t must be 24 bytes");
 _Static_assert(offsetof(retain_mem_t, checksum) == sizeof(retain_mem_t) - sizeof(uint32_t), "Wrong offset for checksum field in retain_mem_t structure");
 
+#if !NON_OS_BUILD
 static __attribute__((section(".rtc_timer_data_in_rtc_mem"))) retain_mem_t s_rtc_timer_retain_mem;
 
-static uint32_t calc_checksum(void)
+static ESP_CLK_FN_ATTR uint32_t calc_checksum(void)
 {
     uint32_t checksum = 0;
     uint32_t *data = (uint32_t*) &s_rtc_timer_retain_mem;
@@ -77,6 +65,7 @@ static uint32_t calc_checksum(void)
     return checksum;
 }
 #define IS_RETAIN_MEM_VALID() (s_rtc_timer_retain_mem.checksum == calc_checksum())
+#endif // NON_OS_BUILD
 #endif // SOC_RTC_MEM_SUPPORTED
 
 inline static int IRAM_ATTR s_get_cpu_freq_mhz(void)
@@ -108,6 +97,7 @@ int IRAM_ATTR esp_clk_xtal_freq(void)
     return rtc_clk_xtal_freq_get() * MHZ;
 }
 
+#if !NON_OS_BUILD
 uint64_t esp_rtc_get_time_us(void)
 {
     portENTER_CRITICAL_SAFE(&s_esp_rtc_time_lock);
@@ -161,6 +151,7 @@ uint64_t esp_rtc_get_time_us(void)
     return esp_rtc_time_us;
 #endif
 }
+#endif
 
 void esp_clk_slowclk_cal_set(uint32_t new_cal)
 {
@@ -214,6 +205,7 @@ uint64_t esp_clk_rtc_time(void)
 #endif
 }
 
+#if !NON_OS_BUILD
 void esp_clk_private_lock(void)
 {
     portENTER_CRITICAL(&s_esp_rtc_time_lock);
@@ -223,3 +215,4 @@ void esp_clk_private_unlock(void)
 {
     portEXIT_CRITICAL(&s_esp_rtc_time_lock);
 }
+#endif

@@ -37,11 +37,12 @@ int main(int argc, char *argv[]) {
                         t = ptrs[(i - 50) % 100][k];
 
                         if (t != task_id) {
-                            uintptr_t vaddr = (uintptr_t)(&ptrs[(i - 50) % 100][k]);
+                            uintptr_t vaddr = (uintptr_t)(&ptrs[(i - 50) % 100][k > 20 ? k - 20 : 0]);
                             // uintptr_t vaddr_aligned = ((uintptr_t)vaddr) & ~(65535 - 1);
                             printf(
-                                "\033[0;31mError unexpected memory contents! expected 0x%X got 0x%X (%c) in ptr number "
+                                "\033[0;31mError unexpected memory contents! expected 0x%X (%i) got 0x%X (%i) in ptr number "
                                 "%i, vaddr %p, paddr 0x%08lx\033[0m\n",
+                                task_id,
                                 task_id,
                                 t,
                                 t,
@@ -50,17 +51,20 @@ int main(int argc, char *argv[]) {
                                 vaddr_to_paddr(vaddr)
                             );
 
-                            for (int l = 0; l < 40; ++l) {
-                                printf("0x%08X: ", vaddr + (l * 40));
-                                for (int p = 0; p < 40; ++p) {
-                                    printf("%02x ", ((char*)(vaddr))[(l * 40) + p]);
+                            for (int z = 0; z < 3 ;++z) {
+                                for (int l = 0; l < 1; ++l) {
+                                    printf("0x%08X: ", vaddr + (l * 40));
+                                    for (int p = 0; p < 40; ++p) {
+                                        printf("%02x ", ((char*)(vaddr))[(l * 40) + p]);
+                                    }
+                                    printf("\n");
                                 }
-                                printf("\n");
+                                usleep(10000);
                             }
                             die("Unexpected memory contents in memory bench");
                             return 1;
                         }
-                        ptrs[(i - 50) % 100][k] = '$';
+                        ptrs[(i - 50) % 100][k] = -task_id;
                     }
                     free(ptrs[(i - 50) % 100]);
                     ptrs[(i - 50) % 100] = NULL;
@@ -68,10 +72,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Force context switch every few iterations
-        if (i % 10 == 0) {
-            usleep(1);
-        }
+        usleep(1);
     }
 
     // Clean up remaining allocations

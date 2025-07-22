@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "esp_mmu_map.h"
 #include "esp_psram.h"
+#include "esp_ipc.h"
 #include "freertos/portmacro.h"
 #include "freertos/FreeRTOS.h"
 #include "hal/cache_hal.h"
@@ -33,6 +34,9 @@
 #include "soc/ext_mem_defs.h"
 #include "soc/soc.h"
 #include "task.h"
+
+#include "esp_private/esp_ipc.h"
+#include "esp_private/esp_cache_private.h"
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -56,6 +60,9 @@ extern mmu_mem_region_t const g_mmu_mem_regions[SOC_MMU_LINEAR_ADDRESS_REGION_NU
 
 extern void spi_flash_enable_interrupts_caches_and_other_cpu(void);
 extern void spi_flash_disable_interrupts_caches_and_other_cpu(void);
+
+extern void spi_flash_enable_caches_and_other_cpu(void);
+extern void spi_flash_disable_caches_and_other_cpu(void);
 
 extern void spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_state);
 extern void spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_state);
@@ -119,15 +126,48 @@ IRAM_ATTR void dump_mmu() {
     esp_rom_printf("*********** MMU DUMP END   ***********\n");
 }
 
+static volatile bool spinning = false;
+IRAM_ATTR static void spin(void *s) {
+    while (!spinning) {
+    }
+}
+
+IRAM_ATTR static void start_spin() {
+    if (esp_cpu_get_core_id() == 0) return;
+
+    spinning = true;
+    bool sent = esp_ipc_call_nonblocking(0, &spin, NULL) == ESP_OK;
+    if (!sent) {
+        esp_rom_printf("sending failed?\n");
+    }
+}
+
+IRAM_ATTR static void stop_spin() {
+    spinning = false;
+}
+
 static volatile bool scheduler_was_started = false;
 __attribute__((always_inline)) static inline void critical_enter() {
     portENTER_CRITICAL_SAFE(&cache_mmu_mutex);
+    // start_spin();
     spi_flash_disable_interrupts_caches_and_other_cpu();
+    // esp_cache_freeze_ext_mem_cache();
+    // esp_cache_freeze_caches_disable_interrupts();
 }
 
 __attribute__((always_inline)) static inline void critical_exit() {
+    // esp_cache_unfreeze_caches_enable_interrupts();
     spi_flash_enable_interrupts_caches_and_other_cpu();
+    // esp_cache_unfreeze_ext_mem_cache();
+    // stop_spin();
     portEXIT_CRITICAL_SAFE(&cache_mmu_mutex);
+}
+
+IRAM_ATTR esp_err_t __wrap_esp_cache_msync(void *addr, size_t size, int flags) {
+    // critical_enter();
+    esp_err_t err = __real_esp_cache_msync(addr, size, flags);
+    // critical_exit();
+    return err;
 }
 
 void __wrap_cache_hal_disable(uint32_t cache_level, cache_type_t type) {
@@ -210,20 +250,26 @@ __attribute__((always_inline)) static inline uint32_t why_mmu_hal_pages_to_bytes
     return page_num << shift_code;
 }
 
+__attribute__((always_inline))
+static inline bool why_mmu_hal_check_valid_ext_vaddr_region(uint32_t mmu_id, uint32_t vaddr_start, uint32_t len, mmu_vaddr_t type) {
+    return mmu_ll_check_valid_ext_vaddr_region(mmu_id, vaddr_start, len, type);
+}
+
 // Copied from ESP-IDF 5.4.2 for speed
-__attribute__((always_inline)) static inline void
+__attribute__((always_inline)) static inline uint32_t 
     why_mmu_hal_map_region(uint32_t mmu_id, mmu_target_t mem_type, uint32_t vaddr, uint32_t paddr, uint32_t len) {
     uint32_t page_size_in_bytes = why_mmu_hal_pages_to_bytes(mmu_id, 1);
-    // HAL_ASSERT(vaddr % page_size_in_bytes == 0);
-    // HAL_ASSERT(paddr % page_size_in_bytes == 0);
-    // HAL_ASSERT(mmu_ll_check_valid_paddr_region(mmu_id, paddr, len));
-    // HAL_ASSERT(mmu_hal_check_valid_ext_vaddr_region(mmu_id, vaddr, len, MMU_VADDR_DATA | MMU_VADDR_INSTRUCTION));
+    HAL_ASSERT(vaddr % page_size_in_bytes == 0);
+    HAL_ASSERT(paddr % page_size_in_bytes == 0);
+    HAL_ASSERT(why_mmu_ll_check_valid_paddr_region(mmu_id, paddr, len));
+    HAL_ASSERT(why_mmu_hal_check_valid_ext_vaddr_region(mmu_id, vaddr, len, MMU_VADDR_DATA | MMU_VADDR_INSTRUCTION));
 
     uint32_t page_num = (len + page_size_in_bytes - 1) / page_size_in_bytes;
     uint32_t entry_id = 0;
     uint32_t mmu_val; // This is the physical address in the format that MMU supported
 
     mmu_val = mmu_ll_format_paddr(mmu_id, paddr, mem_type);
+    uint32_t count = 0;
 
     while (page_num) {
         entry_id       = mmu_ll_get_entry_id(mmu_id, vaddr);
@@ -237,29 +283,46 @@ __attribute__((always_inline)) static inline void
             esp_system_abort("Unexpected mmu state");
         }
         mmu_ll_write_entry(mmu_id, entry_id, mmu_val, mem_type);
+
+        while (1) {
+            uint32_t entry = mmu_ll_read_entry(mmu_id, entry_id);
+            if (entry) {
+                break;
+            }
+            ++count;
+            __builtin_riscv_pause();
+        } 
+        if (count) {
+            ESP_DRAM_LOGW(DRAM_STR("why_mmu_hal_map_region"), "MMU map succeeded after %lu tries", count);
+        }
         vaddr += page_size_in_bytes;
         mmu_val++;
         page_num--;
     }
+
+    return count;
 }
 
 __attribute__((always_inline)) static inline void invalidate_caches(uintptr_t vaddr_start, uint32_t len) {
-    esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
-    esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
+    __real_esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+    __real_esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
 }
 
 __attribute__((always_inline)) static inline void writeback_caches(uintptr_t vaddr_start, uint32_t len) {
-    esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
+    __real_esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA);
+    // __real_esp_cache_msync((void*)vaddr_start, len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
 }
 
 __attribute__((always_inline)) static inline void
     why_mmu_hal_unmap_region(uint32_t mmu_id, uint32_t vaddr, uint32_t len) {
     uint32_t page_size_in_bytes = why_mmu_hal_pages_to_bytes(mmu_id, 1); // Already inline
-    // HAL_ASSERT(vaddr % page_size_in_bytes == 0);
-    // HAL_ASSERT(mmu_hal_check_valid_ext_vaddr_region(mmu_id, vaddr, len, MMU_VADDR_DATA | MMU_VADDR_INSTRUCTION));
+    HAL_ASSERT(vaddr % page_size_in_bytes == 0);
+    HAL_ASSERT(why_mmu_hal_check_valid_ext_vaddr_region(mmu_id, vaddr, len, MMU_VADDR_DATA | MMU_VADDR_INSTRUCTION));
 
     uint32_t page_num = (len + page_size_in_bytes - 1) / page_size_in_bytes;
     uint32_t entry_id = 0;
+    uint32_t count = 0;
+
     while (page_num) {
         entry_id       = mmu_ll_get_entry_id(mmu_id, vaddr);
         uint32_t entry = mmu_ll_read_entry(mmu_id, entry_id);
@@ -267,7 +330,21 @@ __attribute__((always_inline)) static inline void
             esp_rom_printf("Entry %u was not mapped\n", entry_id);
             esp_system_abort("Unexpected mmu state");
         }
+
         mmu_ll_set_entry_invalid(mmu_id, entry_id);
+
+        while (1) {
+            uint32_t entry = mmu_ll_read_entry(mmu_id, entry_id);
+            if (!entry) {
+                break;
+            }
+            ++count;
+            __builtin_riscv_pause();
+        } 
+
+        if (count) {
+            ESP_DRAM_LOGW(DRAM_STR("why_mmu_hal_unmap_region"), "MMU unmap succeeded after %lu tries", count);
+        }
         vaddr += page_size_in_bytes;
         page_num--;
     }
@@ -300,19 +377,41 @@ __attribute__((always_inline)) static inline void
     }
 }
 
-static pid_t current_mapped_task = 0;
+IRAM_ATTR static void invalidate_core_caches(void *arg) {
+    __asm__ volatile("fence rw,rw" ::: "memory");
+    __asm__ volatile("fence rw,rw" ::: "memory");
+}
 
+void IRAM_ATTR flush_caches() {
+    esp_ipc_call_blocking(0, invalidate_core_caches, NULL);
+    invalidate_core_caches(NULL);
+    __asm__ volatile("fence rw,rw" ::: "memory");
+    __asm__ volatile("fence rw,rw" ::: "memory");
+}
+
+IRAM_ATTR static volatile pid_t current_mapped_task = 0;
 void IRAM_ATTR remap_task(task_info_t *task_info) {
+    //esp_rom_printf("1\n");
+    // start_spin();
+    //esp_rom_printf("2\n");
     if (current_mapped_task == task_info->pid) {
-        ESP_DRAM_LOGW(DRAM_STR("remap_task"), "Current task already mapped?");
+        //esp_rom_printf("a\n");
+        //esp_rom_printf("3\n");
+        // writeback_caches(task_info->heap_start, task_info->heap_size);
         return;
     } else {
         // ESP_DRAM_LOGW(DRAM_STR("remap_task"), "Mapping task %u on core %u", task_info->pid, esp_cpu_get_core_id());
-    }
+    } 
 
+    // esp_rom_printf("Mapping %u Previous task was %u\n", task_info->pid, current_mapped_task);
+
+    // critical_enter();
+
+    //esp_rom_printf("b\n");
     uint32_t mmu_id   = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
-    uint32_t entry_id = mmu_ll_get_entry_id(mmu_id, VADDR_TASK_START);
 
+#if 0
+    uint32_t entry_id = mmu_ll_get_entry_id(mmu_id, VADDR_TASK_START);
     // Unmap and write back whatever was in our address space
     for (int i = entry_id; i < SOC_MMU_ENTRY_NUM; i++) {
         uint32_t entry = mmu_ll_read_entry(mmu_id, i);
@@ -325,13 +424,61 @@ void IRAM_ATTR remap_task(task_info_t *task_info) {
         writeback_caches(SOC_EXTRAM_LOW + (i * SOC_MMU_PAGE_SIZE), SOC_MMU_PAGE_SIZE);
         mmu_ll_set_entry_invalid(mmu_id, i);
     }
+#endif
 
+    //esp_rom_printf("c\n");
     allocation_range_t *r = task_info->allocations;
+    //esp_rom_printf("d\n");
     while (r) {
+        //esp_rom_printf("e\n");
         why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
+        //esp_rom_printf("f\n");
         invalidate_caches(r->vaddr_start, r->size);
+        //esp_rom_printf("g\n");
         r = r->next;
     }
+
+    //esp_rom_printf("h\n");
+    current_mapped_task = task_info->pid;
+    //esp_rom_printf("4\n");
+    // stop_spin();
+    //esp_rom_printf("5\n");
+}
+
+void IRAM_ATTR unmap_task(task_info_t *task_info) {
+    //esp_rom_printf("6\n");
+    // start_spin();
+    //esp_rom_printf("7\n");
+    if (current_mapped_task != task_info->pid) {
+        esp_system_abort("Task info does not match");
+    }
+                
+    // esp_rom_printf("Unmappingg %u\n", task_info->pid);
+    allocation_range_t *r = task_info->allocations;
+    for (int i = 0; i < 10; ++i) {
+        asm volatile ("fence");
+        asm volatile ("nop");
+    }
+
+    if (!r) {
+        // Nothing to do, whatever is in ram is still in ram
+        goto out;
+    }
+
+    uint32_t mmu_id   = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
+
+    writeback_caches(task_info->heap_start, task_info->heap_size);
+
+    while (r) {
+        why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
+        r = r->next;
+    }
+
+    current_mapped_task = 0;
+    //esp_rom_printf("8\n");
+out:
+    // stop_spin();
+    //esp_rom_printf("9\n");
 }
 
 IRAM_ATTR void pages_deallocate(allocation_range_t *head_range) {
@@ -635,6 +782,37 @@ void reserve_bad_pages(size_t psram_size) {
     free(pages);
 }
 
+void reserve_ecc_pages(size_t psram_size) {
+    size_t     total_pages = buddy_get_free_pages(&page_allocator);
+    uintptr_t *pages       = calloc(1, total_pages * sizeof(uintptr_t));
+    if (!pages) {
+        ESP_LOGE("memory_init", "Couldn't allocate memory for free page pointers");
+        return;
+    }
+    // Allocate all free pages
+    for (int i = 0; i < total_pages - 1; ++i) {
+        pages[i] = page_allocate(SOC_MMU_PAGE_SIZE);
+    }
+
+    for (int i = 0; i < total_pages - 1; ++i) {
+        bool found = false;
+
+        for (int k = 0; k < bad_pages_num; ++k) {
+            if (bad_pages[k] == i * SOC_MMU_PAGE_SIZE) {
+                found = true;
+                break;
+            }
+        }
+
+        if (found) {
+            ESP_LOGW("memory_init", "Reserving bad page 0x%08X", i * SOC_MMU_PAGE_SIZE);
+        } else {
+            page_deallocate(pages[i]);
+        }
+    }
+    free(pages);
+}
+
 static IRAM_ATTR bool test_psram(intptr_t v_start, size_t size) {
     int volatile *spiram = (int volatile *)v_start;
     size_t        p;
@@ -667,7 +845,9 @@ static IRAM_ATTR bool test_psram(intptr_t v_start, size_t size) {
             if (!found) {
                 if (bad_pages_num == BAD_PAGES_MAX) {
                     ESP_DRAM_LOGE(DRAM_STR("memory_test"), "Too many bad pages");
-                    esp_system_abort("Too many bad pages in memory test");
+                    // esp_system_abort("Too many bad pages in memory test");
+                    spi_flash_enable_interrupts_caches_and_other_cpu();
+                    esp_restart();
                 }
                 ESP_DRAM_LOGE(
                     DRAM_STR("memory_test"),
@@ -726,12 +906,15 @@ void IRAM_ATTR memory_init() {
     uint32_t mmu_id = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
     uint32_t out_len;
 
+    dump_mmu();
+
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Disabling caches and interrupts");
     spi_flash_disable_interrupts_caches_and_other_cpu();
 
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Unmapping all of our address space");
     mmu_ll_unmap_all(mmu_id);
 
+#if 0
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Mapping all pages for memory test");
     mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, VADDR_START, 0x0, psram_size, &out_len);
 
@@ -742,6 +925,8 @@ void IRAM_ATTR memory_init() {
     if (!test_psram(VADDR_START, out_len)) {
         ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Found bad pages");
     }
+
+#endif
 
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Unmapping all of our address space");
     mmu_ll_unmap_all(mmu_id);
@@ -758,9 +943,11 @@ void IRAM_ATTR memory_init() {
     ESP_DRAM_LOGW(DRAM_STR("memory_init"), "Initialzing memory pool");
     init_pool(&page_allocator, (void *)VADDR_START, (void *)VADDR_START + psram_size, 0);
 
+#if 0
     if (bad_pages_num) {
         reserve_bad_pages(psram_size);
     }
+#endif
 
     uintptr_t framebuffer_page = page_allocate(SOC_MMU_PAGE_SIZE);
 

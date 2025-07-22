@@ -1,4 +1,4 @@
-image: espressif/idf:v5.4.2
+image: espressif/idf:v5.5
 
 stages:
   - build_and_merge

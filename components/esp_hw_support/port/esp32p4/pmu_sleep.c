@@ -150,6 +150,7 @@ static inline pmu_sleep_param_config_t * pmu_sleep_param_config_default(
 const pmu_sleep_config_t* pmu_sleep_config_default(
         pmu_sleep_config_t *config,
         uint32_t sleep_flags,
+        uint32_t clk_flags,
         uint32_t adjustment,
         soc_rtc_slow_clk_src_t slowclk_src,
         uint32_t slowclk_period,
@@ -168,6 +169,11 @@ const pmu_sleep_config_t* pmu_sleep_config_default(
         pmu_sleep_analog_config_t analog_default = PMU_SLEEP_ANALOG_DSLP_CONFIG_DEFAULT(sleep_flags);
         analog_default.hp_sys.analog.xpd_0p1a = 0;
         config->analog = analog_default;
+
+        if (sleep_flags & RTC_SLEEP_POWER_BY_VBAT) {
+            power_default.lp_sys[PMU_MODE_LP_SLEEP].dig_power.vddbat_mode = 1;
+            power_default.lp_sys[PMU_MODE_LP_SLEEP].dig_power.bod_source_sel = 1;
+        }
     } else {
         // Get light sleep digital_default
         pmu_sleep_digital_config_t digital_default = PMU_SLEEP_DIGITAL_LSLP_CONFIG_DEFAULT(sleep_flags);

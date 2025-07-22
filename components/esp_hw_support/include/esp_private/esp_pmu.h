@@ -47,6 +47,7 @@ typedef enum {
 #define RTC_SLEEP_PD_MODEM              PMU_SLEEP_PD_MODEM      //!< Power down modem(include wifi, ble and 15.4)
 
 //These flags are not power domains, but will affect some sleep parameters
+#define RTC_SLEEP_POWER_BY_VBAT         BIT(26)
 #define RTC_SLEEP_DIG_USE_8M            BIT(27)
 #define RTC_SLEEP_USE_ADC_TESEN_MONITOR BIT(28)
 #define RTC_SLEEP_NO_ULTRA_LOW          BIT(29) //!< Avoid using ultra low power in deep sleep, in which RTCIO cannot be used as input, and RTCMEM can't work under high temperature
@@ -86,9 +87,15 @@ typedef enum {
 #if SOC_UART_SUPPORT_WAKEUP_INT
 #define RTC_UART0_TRIG_EN           PMU_UART0_WAKEUP_EN     //!< UART0 wakeup (light sleep only)
 #define RTC_UART1_TRIG_EN           PMU_UART1_WAKEUP_EN     //!< UART1 wakeup (light sleep only)
+#if SOC_UART_HP_NUM > 2
+#define RTC_UART2_TRIG_EN           PMU_UART2_WAKEUP_EN     //!< UART2 wakeup (light sleep only)
+#else
+#define RTC_UART2_TRIG_EN           0
+#endif
 #else
 #define RTC_UART0_TRIG_EN           0
 #define RTC_UART1_TRIG_EN           0
+#define RTC_UART2_TRIG_EN           0
 #endif
 
 #if SOC_BT_SUPPORTED
@@ -117,6 +124,12 @@ typedef enum {
 #define RTC_LP_VAD_TRIG_EN          0
 #endif //SOC_LP_VAD_SUPPORTED
 
+#if SOC_VBAT_SUPPORTED
+#define RTC_VBAT_UNDER_VOLT_TRIG_EN            PMU_VBAT_UNDERVOLT_WAKEUP_EN   //!< VBAT under voltage wakeup
+#else
+#define RTC_VBAT_UNDER_VOLT_TRIG_EN            0
+#endif //SOC_VBAT_SUPPORTED
+
 #define RTC_XTAL32K_DEAD_TRIG_EN    0 // TODO
 #define RTC_BROWNOUT_DET_TRIG_EN    0 // TODO
 
@@ -130,12 +143,14 @@ typedef enum {
                                RTC_WIFI_TRIG_EN         | \
                                RTC_UART0_TRIG_EN        | \
                                RTC_UART1_TRIG_EN        | \
+                               RTC_UART2_TRIG_EN        | \
                                RTC_BT_TRIG_EN           | \
                                RTC_LP_CORE_TRIG_EN      | \
                                RTC_TOUCH_TRIG_EN        | \
                                RTC_XTAL32K_DEAD_TRIG_EN | \
                                RTC_USB_TRIG_EN          | \
                                RTC_LP_VAD_TRIG_EN       | \
+                               RTC_VBAT_UNDER_VOLT_TRIG_EN | \
                                RTC_BROWNOUT_DET_TRIG_EN)
 
 
@@ -241,6 +256,7 @@ uint32_t pmu_sleep_calculate_hw_wait_time(uint32_t sleep_flags, soc_rtc_slow_clk
  * @brief Get default sleep configuration
  * @param config pmu_sleep_config instance
  * @param sleep_flags flags indicates the power domain that will be powered down and the sleep submode
+ * @param clk_flags indicates the clock ICG cell that will be ungated
  * @param adjustment total software and hardware time overhead
  * @param slowclk_src slow clock source of pmu
  * @param slowclk_period re-calibrated slow clock period in microseconds,
@@ -251,7 +267,7 @@ uint32_t pmu_sleep_calculate_hw_wait_time(uint32_t sleep_flags, soc_rtc_slow_clk
 
  * @return hardware time overhead in us
  */
-const pmu_sleep_config_t* pmu_sleep_config_default(pmu_sleep_config_t *config, uint32_t sleep_flags, uint32_t adjustment, soc_rtc_slow_clk_src_t slowclk_src, uint32_t slowclk_period, uint32_t fastclk_period, bool dslp);
+const pmu_sleep_config_t* pmu_sleep_config_default(pmu_sleep_config_t *config, uint32_t sleep_flags, uint32_t clk_flags, uint32_t adjustment, soc_rtc_slow_clk_src_t slowclk_src, uint32_t slowclk_period, uint32_t fastclk_period, bool dslp);
 
 /**
  * @brief Prepare the chip to enter sleep mode
@@ -323,15 +339,6 @@ bool pmu_sleep_finish(bool dslp);
  * @brief Initialize PMU related power/clock/digital parameters and functions
  */
 void pmu_init(void);
-
-/**
- * @brief Enable or disable system clock in PMU HP sleep state
- *
- * This API only used for fix BLE 40 MHz low power clock source issue
- *
- * @param enable  true to enable, false to disable
- */
-void pmu_sleep_enable_hp_sleep_sysclk(bool enable);
 
 /**
  * Get the time overhead used by regdma to work on the retention link during the hardware wake-up process

@@ -15,7 +15,7 @@
 #include "esp_types.h"
 #include "esp_bit_defs.h"
 #include "esp_log.h"
-#include "../esp_psram_impl.h"
+#include "esp_private/esp_psram_impl.h"
 #include "esp32/rom/spi_flash.h"
 #include "esp32/rom/cache.h"
 #include "rom/efuse.h"
@@ -171,19 +171,19 @@ typedef struct {
 //For 4MB PSRAM, we need one more SPI host, select which one to use by kconfig
 #ifdef CONFIG_SPIRAM_OCCUPY_HSPI_HOST
 #define PSRAM_SPI_MODULE    PERIPH_HSPI_MODULE
-#define PSRAM_SPI_HOST      HSPI_HOST
+#define PSRAM_SPI_HOST      SPI2_HOST
 #define PSRAM_CLK_SIGNAL    HSPICLK_OUT_IDX
 #define PSRAM_SPI_NUM       PSRAM_SPI_2
 #define PSRAM_SPICLKEN      DPORT_SPI2_CLK_EN
 #elif defined CONFIG_SPIRAM_OCCUPY_VSPI_HOST
 #define PSRAM_SPI_MODULE    PERIPH_VSPI_MODULE
-#define PSRAM_SPI_HOST      VSPI_HOST
+#define PSRAM_SPI_HOST      SPI3_HOST
 #define PSRAM_CLK_SIGNAL    VSPICLK_OUT_IDX
 #define PSRAM_SPI_NUM       PSRAM_SPI_3
 #define PSRAM_SPICLKEN      DPORT_SPI3_CLK_EN
 #else   //set to SPI avoid HSPI and VSPI being used
 #define PSRAM_SPI_MODULE    PERIPH_SPI_MODULE
-#define PSRAM_SPI_HOST      SPI_HOST
+#define PSRAM_SPI_HOST      SPI1_HOST
 #define PSRAM_CLK_SIGNAL    SPICLK_OUT_IDX
 #define PSRAM_SPI_NUM       PSRAM_SPI_1
 #define PSRAM_SPICLKEN      DPORT_SPI01_CLK_EN
@@ -803,18 +803,19 @@ static void IRAM_ATTR psram_gpio_config(psram_io_t *psram_io, psram_cache_speed_
     //select pin function gpio
     if ((psram_io->flash_clk_io == MSPI_IOMUX_PIN_NUM_CLK) && (psram_io->flash_clk_io != psram_io->psram_clk_io)) {
         //flash clock signal should come from IO MUX.
-        gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->flash_clk_io], FUNC_SD_CLK_SPICLK);
+        gpio_ll_func_sel(&GPIO, psram_io->flash_clk_io, MSPI_FUNC_NUM);
     } else {
         //flash clock signal should come from GPIO matrix.
-        gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->flash_clk_io], PIN_FUNC_GPIO);
+        gpio_ll_func_sel(&GPIO, psram_io->flash_clk_io, PIN_FUNC_GPIO);
     }
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->flash_cs_io],  PIN_FUNC_GPIO);
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->psram_cs_io],  PIN_FUNC_GPIO);
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->psram_clk_io], PIN_FUNC_GPIO);
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->psram_spiq_sd0_io],  PIN_FUNC_GPIO);
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->psram_spid_sd1_io],  PIN_FUNC_GPIO);
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->psram_spihd_sd2_io], PIN_FUNC_GPIO);
-    gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io->psram_spiwp_sd3_io], PIN_FUNC_GPIO);
+
+    gpio_ll_func_sel(&GPIO, psram_io->flash_cs_io,  PIN_FUNC_GPIO);
+    gpio_ll_func_sel(&GPIO, psram_io->psram_cs_io,  PIN_FUNC_GPIO);
+    gpio_ll_func_sel(&GPIO, psram_io->psram_clk_io, PIN_FUNC_GPIO);
+    gpio_ll_func_sel(&GPIO, psram_io->psram_spiq_sd0_io,  PIN_FUNC_GPIO);
+    gpio_ll_func_sel(&GPIO, psram_io->psram_spid_sd1_io,  PIN_FUNC_GPIO);
+    gpio_ll_func_sel(&GPIO, psram_io->psram_spihd_sd2_io, PIN_FUNC_GPIO);
+    gpio_ll_func_sel(&GPIO, psram_io->psram_spiwp_sd3_io, PIN_FUNC_GPIO);
 
     uint32_t flash_id = g_rom_flashchip.device_id;
     if (flash_id == FLASH_ID_GD25LQ32C) {

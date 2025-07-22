@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,6 +29,12 @@
 #if !CONFIG_FREERTOS_UNICORE
 #include "esp_ipc.h"
 #endif
+
+#if CONFIG_ESP_INTR_IN_IRAM
+#define ESP_INTR_IRAM_ATTR IRAM_ATTR
+#else
+#define ESP_INTR_IRAM_ATTR
+#endif // CONFIG_ESP_INTR_IN_IRAM
 
 /* For targets that uses a CLIC as their interrupt controller, CPU_INT_LINES_COUNT represents the external interrupts count */
 #define CPU_INT_LINES_COUNT 32
@@ -72,6 +78,7 @@ struct shared_vector_desc_t {
 #define VECDESC_FL_INIRAM       (1<<1)
 #define VECDESC_FL_SHARED       (1<<2)
 #define VECDESC_FL_NONSHARED    (1<<3)
+#define VECDESC_FL_TYPE_MASK    (0xf)
 
 #if SOC_CPU_HAS_FLEXIBLE_INTC
 /* On targets that have configurable interrupts levels, store the assigned level in the flags */
@@ -221,7 +228,7 @@ esp_err_t esp_intr_mark_shared(int intno, int cpu, bool is_int_ram)
         portEXIT_CRITICAL(&spinlock);
         return ESP_ERR_NO_MEM;
     }
-    vd->flags = VECDESC_FL_SHARED;
+    vd->flags = (vd->flags & ~VECDESC_FL_TYPE_MASK) | VECDESC_FL_SHARED;
     if (is_int_ram) {
         vd->flags |= VECDESC_FL_INIRAM;
     }
@@ -452,7 +459,7 @@ static int get_available_int(int flags, int cpu, int force, int source)
 }
 
 //Common shared isr handler. Chain-call all ISRs.
-static void IRAM_ATTR shared_intr_isr(void *arg)
+static void ESP_INTR_IRAM_ATTR shared_intr_isr(void *arg)
 {
     vector_desc_t *vd = (vector_desc_t*)arg;
     shared_vector_desc_t *sh_vec = vd->shared_vec_info;
@@ -475,7 +482,7 @@ static void IRAM_ATTR shared_intr_isr(void *arg)
 
 #if CONFIG_APPTRACE_SV_ENABLE
 //Common non-shared isr handler wrapper.
-static void IRAM_ATTR non_shared_intr_isr(void *arg)
+static void ESP_INTR_IRAM_ATTR non_shared_intr_isr(void *arg)
 {
     non_shared_isr_arg_t *ns_isr_arg = (non_shared_isr_arg_t*)arg;
     portENTER_CRITICAL_ISR(&spinlock);
@@ -499,8 +506,8 @@ bool esp_intr_ptr_in_isr_region(void* ptr)
 
 
 //We use ESP_EARLY_LOG* here because this can be called before the scheduler is running.
-esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusreg, uint32_t intrstatusmask, intr_handler_t handler,
-                                    void *arg, intr_handle_t *ret_handle)
+esp_err_t esp_intr_alloc_intrstatus_bind(int source, int flags, uint32_t intrstatusreg, uint32_t intrstatusmask, intr_handler_t handler,
+                                    void *arg, intr_handle_t shared_handle, intr_handle_t *ret_handle)
 {
     intr_handle_data_t *ret=NULL;
     int force = -1;
@@ -528,7 +535,10 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
     if ((flags & ESP_INTR_FLAG_IRAM) && handler && !esp_intr_ptr_in_isr_region(handler)) {
         return ESP_ERR_INVALID_ARG;
     }
-
+    //Shared handler must be passed with share interrupt flag
+    if (shared_handle != NULL && (flags & ESP_INTR_FLAG_SHARED) == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
     //Default to prio 1 for shared interrupts. Default to prio 1, 2 or 3 for non-shared interrupts.
     if ((flags & ESP_INTR_FLAG_LEVELMASK) == 0) {
         if (flags & ESP_INTR_FLAG_SHARED) {
@@ -568,7 +578,17 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
 
     portENTER_CRITICAL(&spinlock);
     uint32_t cpu = esp_cpu_get_core_id();
-    //See if we can find an interrupt that matches the flags.
+    if (shared_handle != NULL) {
+        /* Sanity check, should not occur */
+        if (shared_handle->vector_desc == NULL) {
+            portEXIT_CRITICAL(&spinlock);
+            return ESP_ERR_INVALID_ARG;
+        }
+        /* If a shared vector was given, force the current interrupt source to same CPU interrupt line */
+        force = shared_handle->vector_desc->intno;
+        /* Allocate the interrupt on the same core as the given handle */
+        cpu = shared_handle->vector_desc->cpu;
+    }
     int intr = get_available_int(flags, cpu, force, source);
     if (intr == -1) {
         //None found. Bail out.
@@ -669,9 +689,13 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
     }
 #endif
 
+/* NOTE: ESP-TEE is responsible for all interrupt-related configurations
+ * when enabled. The following code is not applicable in that case */
+#if !CONFIG_SECURE_ENABLE_TEE
 #if SOC_INT_PLIC_SUPPORTED
     /* Make sure the interrupt is not delegated to user mode (IDF uses machine mode only) */
     RV_CLEAR_CSR(mideleg, BIT(intr));
+#endif
 #endif
 
     portEXIT_CRITICAL(&spinlock);
@@ -687,6 +711,13 @@ esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusre
     return ESP_OK;
 }
 
+esp_err_t esp_intr_alloc_intrstatus(int source, int flags, uint32_t intrstatusreg, uint32_t intrstatusmask, intr_handler_t handler,
+                                    void *arg, intr_handle_t *ret_handle)
+{
+    return esp_intr_alloc_intrstatus_bind(source, flags, intrstatusreg, intrstatusmask, handler, arg, NULL, ret_handle);
+}
+
+
 esp_err_t esp_intr_alloc(int source, int flags, intr_handler_t handler, void *arg, intr_handle_t *ret_handle)
 {
     /*
@@ -697,7 +728,14 @@ esp_err_t esp_intr_alloc(int source, int flags, intr_handler_t handler, void *ar
     return esp_intr_alloc_intrstatus(source, flags, 0, 0, handler, arg, ret_handle);
 }
 
-esp_err_t IRAM_ATTR esp_intr_set_in_iram(intr_handle_t handle, bool is_in_iram)
+
+esp_err_t esp_intr_alloc_bind(int source, int flags, intr_handler_t handler, void *arg, intr_handle_t shared_handle, intr_handle_t *ret_handle)
+{
+    return esp_intr_alloc_intrstatus_bind(source, flags, 0, 0, handler, arg, shared_handle, ret_handle);
+}
+
+
+esp_err_t ESP_INTR_IRAM_ATTR esp_intr_set_in_iram(intr_handle_t handle, bool is_in_iram)
 {
     if (!handle) {
         return ESP_ERR_INVALID_ARG;
@@ -847,7 +885,7 @@ int esp_intr_get_cpu(intr_handle_t handle)
 //Muxing an interrupt source to interrupt 6, 7, 11, 15, 16 or 29 cause the interrupt to effectively be disabled.
 #define INT_MUX_DISABLED_INTNO 6
 
-esp_err_t IRAM_ATTR esp_intr_enable(intr_handle_t handle)
+esp_err_t ESP_INTR_IRAM_ATTR esp_intr_enable(intr_handle_t handle)
 {
     if (!handle) {
         return ESP_ERR_INVALID_ARG;
@@ -875,7 +913,7 @@ esp_err_t IRAM_ATTR esp_intr_enable(intr_handle_t handle)
     return ESP_OK;
 }
 
-esp_err_t IRAM_ATTR esp_intr_disable(intr_handle_t handle)
+esp_err_t ESP_INTR_IRAM_ATTR esp_intr_disable(intr_handle_t handle)
 {
     if (handle == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -918,7 +956,7 @@ esp_err_t IRAM_ATTR esp_intr_disable(intr_handle_t handle)
     return ESP_OK;
 }
 
-void IRAM_ATTR esp_intr_noniram_disable(void)
+void ESP_INTR_IRAM_ATTR esp_intr_noniram_disable(void)
 {
     portENTER_CRITICAL_SAFE(&spinlock);
     uint32_t oldint;
@@ -937,7 +975,7 @@ void IRAM_ATTR esp_intr_noniram_disable(void)
     portEXIT_CRITICAL_SAFE(&spinlock);
 }
 
-void IRAM_ATTR esp_intr_noniram_enable(void)
+void ESP_INTR_IRAM_ATTR esp_intr_noniram_enable(void)
 {
     portENTER_CRITICAL_SAFE(&spinlock);
     uint32_t cpu = esp_cpu_get_core_id();
@@ -956,20 +994,20 @@ void IRAM_ATTR esp_intr_noniram_enable(void)
 //equivalents here.
 
 
-void IRAM_ATTR ets_isr_unmask(uint32_t mask) {
+void ESP_INTR_IRAM_ATTR ets_isr_unmask(uint32_t mask) {
     esp_cpu_intr_enable(mask);
 }
 
-void IRAM_ATTR ets_isr_mask(uint32_t mask) {
+void ESP_INTR_IRAM_ATTR ets_isr_mask(uint32_t mask) {
     esp_cpu_intr_disable(mask);
 }
 
-void IRAM_ATTR esp_intr_enable_source(int inum)
+void ESP_INTR_IRAM_ATTR esp_intr_enable_source(int inum)
 {
     esp_cpu_intr_enable(1 << inum);
 }
 
-void IRAM_ATTR esp_intr_disable_source(int inum)
+void ESP_INTR_IRAM_ATTR esp_intr_disable_source(int inum)
 {
     esp_cpu_intr_disable(1 << inum);
 }

@@ -21,12 +21,12 @@ static portMUX_TYPE periph_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 static uint8_t ref_counts[PERIPH_MODULE_MAX] = {0};
 
-IRAM_ATTR void periph_rcc_enter(void)
+void periph_rcc_enter(void)
 {
     portENTER_CRITICAL_SAFE(&periph_spinlock);
 }
 
-IRAM_ATTR void periph_rcc_exit(void)
+void periph_rcc_exit(void)
 {
     portEXIT_CRITICAL_SAFE(&periph_spinlock);
 }

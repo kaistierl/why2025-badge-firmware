@@ -28,35 +28,41 @@ if(NOT non_os_build)
                      "periph_ctrl.c"
                      "revision.c"
                      "rtc_module.c"
-                     "sleep_modem.c"
-                     "sleep_modes.c"
-                     "sleep_console.c"
-                     "sleep_usb.c"
-                     "sleep_gpio.c"
-                     "sleep_event.c"
                      "regi2c_ctrl.c"
                      "esp_gpio_reserve.c"
                      "sar_periph_ctrl_common.c"
                      "port/${target}/io_mux.c"
                      "port/${target}/esp_clk_tree.c"
-                     "port/esp_clk_tree_common.c"
                      "dma/esp_dma_utils.c"
                      "dma/gdma_link.c"
-                     "spi_share_hw_ctrl.c"
                      "spi_bus_lock.c"
                      "clk_utils.c")
-
+    if(CONFIG_SOC_CLK_TREE_SUPPORTED)
+        list(APPEND srcs "port/esp_clk_tree_common.c")
+    endif()
+    if(CONFIG_SOC_GPSPI_SUPPORTED)
+        list(APPEND srcs "spi_share_hw_ctrl.c")
+    endif()
     if(CONFIG_SOC_ADC_SUPPORTED)
         list(APPEND srcs "adc_share_hw_ctrl.c")
     endif()
-
     if(CONFIG_SOC_ISP_SHARE_CSI_BRG)
         list(APPEND srcs "mipi_csi_share_hw_ctrl.c")
     endif()
     if(CONFIG_SOC_PAU_SUPPORTED)
-        list(APPEND srcs "sleep_retention.c"
-                         "sleep_system_peripheral.c"
-                         )
+        list(APPEND srcs "sleep_retention.c")
+    endif()
+    if(CONFIG_SOC_LIGHT_SLEEP_SUPPORTED)
+        list(APPEND srcs "sleep_modem.c"
+                         "sleep_modes.c"
+                         "sleep_console.c"
+                         "sleep_usb.c"
+                         "sleep_gpio.c"
+                         "sleep_event.c"
+            )
+        if(CONFIG_SOC_PAU_SUPPORTED AND CONFIG_SOC_PM_SUPPORT_TOP_PD)
+            list(APPEND srcs "sleep_system_peripheral.c")
+        endif()
     endif()
 
     # [refactor-todo]
@@ -127,12 +133,18 @@ if(NOT non_os_build)
     endif()
 
     if(NOT CONFIG_APP_BUILD_TYPE_PURE_RAM_APP)
-        list(APPEND srcs "mspi_timing_tuning.c")
-        if(CONFIG_SOC_MEMSPI_TIMING_TUNING_BY_MSPI_DELAY)
-            list(APPEND srcs "mspi_timing_by_mspi_delay.c")
+        list(APPEND srcs "mspi_timing_tuning/mspi_timing_tuning.c")
+        if(CONFIG_SOC_MEMSPI_TIMING_TUNING_BY_MSPI_DELAY AND NOT CONFIG_IDF_TARGET_ESP32S3)
+            if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/mspi_timing_tuning/tuning_scheme_impl/mspi_timing_by_mspi_delay.c")
+                list(APPEND srcs "mspi_timing_tuning/tuning_scheme_impl/mspi_timing_by_mspi_delay.c")
+            endif()
         endif()
+
         if(CONFIG_SOC_MEMSPI_TIMING_TUNING_BY_DQS)
-            list(APPEND srcs "mspi_timing_by_dqs.c")
+            list(APPEND srcs "mspi_timing_tuning/tuning_scheme_impl/mspi_timing_by_dqs.c")
+        endif()
+        if(CONFIG_SOC_MEMSPI_TIMING_TUNING_BY_FLASH_DELAY)
+            list(APPEND srcs "mspi_timing_tuning/tuning_scheme_impl/mspi_timing_by_flash_delay.c")
         endif()
     endif()
 
@@ -143,23 +155,47 @@ if(NOT non_os_build)
     if(CONFIG_SOC_GPIO_CLOCKOUT_BY_GPIO_MATRIX OR CONFIG_SOC_GPIO_CLOCKOUT_BY_IO_MUX)
         list(APPEND srcs "esp_clock_output.c")
     endif()
+
+    if(CONFIG_SOC_BOD_SUPPORTED)
+        list(APPEND srcs "power_supply/brownout.c")
+    endif()
+
+    if(CONFIG_SOC_VBAT_SUPPORTED)
+        list(APPEND srcs "power_supply/vbat.c")
+    endif()
+
 else()
+    if(ESP_TEE_BUILD)
+        list(APPEND srcs "esp_clk.c" "hw_random.c")
+    endif()
     # Requires "_esp_error_check_failed()" function
     list(APPEND priv_requires "esp_system")
 endif()
 
 set(public_include_dirs "include" "include/soc" "include/soc/${target}"
-                        "dma/include" "ldo/include" "debug_probe/include")
+                        "dma/include" "ldo/include" "debug_probe/include"
+                        "mspi_timing_tuning/include" "mspi_timing_tuning/tuning_scheme_impl/include"
+                        "power_supply/include")
+
+if(CONFIG_IDF_TARGET_ESP32H4)
+    list(REMOVE_ITEM srcs
+        "sleep_modes.c"
+        "sleep_gpio.c" # TODO: [ESP32H4] IDF-12279, IDF-12281
+    )
+endif()
 
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${public_include_dirs}
                        PRIV_INCLUDE_DIRS port/include include/esp_private
                        REQUIRES ${requires}
                        PRIV_REQUIRES "${priv_requires}"
-                       LDFRAGMENTS linker.lf dma/linker.lf ldo/linker.lf)
+                       LDFRAGMENTS linker.lf dma/linker.lf ldo/linker.lf mspi_timing_tuning/linker.lf)
 
 idf_build_get_property(target IDF_TARGET)
 add_subdirectory(port/${target})
+if(CONFIG_SOC_SPI_MEM_SUPPORT_TIMING_TUNING)
+    add_subdirectory(mspi_timing_tuning/port/${target})
+endif()
 add_subdirectory(lowpower)
 
 if(CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND OR CONFIG_PM_SLP_DISABLE_GPIO)

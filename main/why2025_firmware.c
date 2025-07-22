@@ -26,6 +26,7 @@
 #include "esp_log.h"
 #include "esp_mmu_map.h"
 #include "esp_private/panic_internal.h"
+#include "esp_private/esp_cpu_internal.h"
 #include "esp_psram.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -39,6 +40,8 @@
 #include "memory.h"
 #include "png.h"
 #include "task.h"
+
+#include "hal/clk_tree_ll.h"
 
 #include <errno.h>
 #include <string.h>
@@ -85,11 +88,14 @@ void IRAM_ATTR __wrap_esp_panic_handler(panic_info_t *info) {
 
     dump_mmu();
 
+    esp_rom_printf("Contents of MEPC at %p = 0x%08X\n", ((RvExcFrame *)info->frame)->mepc, *(((uint32_t*)((RvExcFrame *)info->frame)->mepc)));
+
     __real_esp_panic_handler(info);
 }
 
 int app_main(void) {
     printf("BadgeVMS Initializing...\n");
+
     size_t free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     ESP_LOGW(TAG, "Free main memory: %zi", free_ram);
 
@@ -200,10 +206,10 @@ int app_main(void) {
     while (1) {
         while (get_num_tasks() < 10) {
             sprintf(argv[1], "argv[%d]", 0);
-            pid_t pida = run_task(test_elf_bench_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
+            // pid_t pida = run_task(test_elf_bench_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
             // ESP_LOGI(TAG, "Started task with pid %i", pida);
             pid_t pidb = run_task(test_elf_bench_b_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
-            // ESP_LOGI(TAG, "Started task with pid %i", pidb);
+            ESP_LOGW(TAG, "Started task with pid %i", pidb);
             // vTaskDelay(500 / portTICK_PERIOD_MS);
         }
         free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);

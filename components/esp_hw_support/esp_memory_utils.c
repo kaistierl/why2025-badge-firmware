@@ -75,14 +75,7 @@ bool esp_ptr_byte_accessible(const void *p)
 
 bool esp_ptr_external_ram(const void *p)
 {
-#if !SOC_SPIRAM_SUPPORTED
-    return false;
-#endif  //!SOC_SPIRAM_SUPPORTED
-#if CONFIG_SPIRAM
-    return esp_psram_check_ptr_addr(p);
-#else
-    return false;
-#endif  //CONFIG_SPIRAM
+    return (p > SOC_EXTRAM_LOW && p < SOC_EXTRAM_HIGH);
 }
 
 #if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM

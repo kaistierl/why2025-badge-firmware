@@ -130,7 +130,7 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
     static ppa_client_handle_t ppa_srm_handle       = NULL;
     static size_t              data_cache_line_size = 0;
 
-    long const target_frame_time_ms = 1000 / 60;
+    long const target_frame_time_ms = 1000 / 30;
     long       sleep_time           = target_frame_time_ms;
     void      *framebuffers[2];
     lcd_device->_getfb(lcd_device, 1, &framebuffers[0]);

@@ -41,6 +41,7 @@ extern void spi_flash_enable_interrupts_caches_and_other_cpu(void);
 extern void spi_flash_disable_interrupts_caches_and_other_cpu(void);
 extern void remap_task(task_info_t *task_info);
 extern void unmap_task(task_info_t *task_info);
+extern void flush_caches(task_info_t *task_info);
 extern void __real_xt_unhandled_exception(void *frame);
 
 static char const *TAG = "task";
@@ -52,18 +53,22 @@ IRAM_ATTR static task_info_t       kernel_task = {
           .psram      = &kernel_task_psram,
 };
 
-// Tracks free PIDs. Note that free PIDs are marked as 1, not 0!
-static uint32_t          pid_free_bitmap[NUM_PIDS / 32];
-static SemaphoreHandle_t pid_free_bitmap_lock = NULL;
-static pid_t             next_pid;
+static pid_t pid_table[NUM_PIDS];
+static uint32_t head = 0;
+static uint32_t tail = MAX_PID;
+
 static uint32_t          num_tasks = 0;
 
 // Process table, each process gets a PID, which we track here.
 static task_info_t      *process_table[NUM_PIDS];
 static SemaphoreHandle_t process_table_lock = NULL;
+static SemaphoreHandle_t pid_free_bitmap_lock = NULL;
 
 static TaskHandle_t  hades_handle;
 static QueueHandle_t hades_queue;
+
+static TaskHandle_t  zeus_handle;
+static QueueHandle_t zeus_queue;
 
 static pid_t pid_allocate() {
     if (xSemaphoreTake(pid_free_bitmap_lock, portMAX_DELAY) != pdTRUE) {
@@ -71,51 +76,14 @@ static pid_t pid_allocate() {
         abort();
     }
 
-    // First see if our next pid is free
-    pid_t    pid      = next_pid;
-    uint32_t word_idx = pid / 32;
-    uint32_t bit_idx  = pid % 32;
-
-    if (bitcheck(pid_free_bitmap[word_idx], bit_idx)) {
-        // next_pid is free. claim it.
-        bitclear(pid_free_bitmap[word_idx], bit_idx);
+    pid_t pid = pid_table[head];
+    if (pid == -1) {
         goto out;
     }
-
-    // No, we will need to scan our bitmap
-    for (int i = 0; i < (sizeof(pid_free_bitmap) / 4); ++i) {
-        // We want to loop through all of our bitmap, but we want to start at
-        // where we expect the next free pid to be
-        int check_word_idx = (i + word_idx) % (sizeof(pid_free_bitmap) / 4);
-
-        if (!pid_free_bitmap[check_word_idx]) {
-            // all zeros no need to check
-            continue;
-        }
-
-        for (int k = 0; k < 32; ++k) {
-            if (bitcheck(pid_free_bitmap[check_word_idx], k)) {
-                bitclear(pid_free_bitmap[check_word_idx], k);
-                pid = check_word_idx * 32 + k;
-                goto out;
-            }
-        }
-    }
-
-    // No free pids
-    pid = -1;
-    goto error;
+    pid_table[head] = -1;
+    head = (head + 1) % NUM_PIDS;
 
 out:
-    next_pid = pid + 1;
-
-    if (next_pid > MAX_PID) {
-        // PIDs looped, start over
-        next_pid = 1;
-    }
-
-error:
-
     xSemaphoreGive(pid_free_bitmap_lock);
     return pid;
 }
@@ -125,15 +93,13 @@ task_info_t *get_taskinfo_for_pid(pid_t pid) {
 }
 
 static void pid_free(pid_t pid) {
-    uint32_t word_idx = pid / 32;
-    uint32_t bit_idx  = pid % 32;
-
     if (xSemaphoreTake(pid_free_bitmap_lock, portMAX_DELAY) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to get pid table mutex");
         abort();
     }
 
-    bitset(pid_free_bitmap[word_idx], bit_idx);
+    pid_table[tail] = pid;
+    tail = (tail + 1) % NUM_PIDS;
 
     xSemaphoreGive(pid_free_bitmap_lock);
 }
@@ -267,6 +233,7 @@ void IRAM_ATTR cerberos() {
 }
 
 void IRAM_ATTR __wrap_xt_unhandled_exception(void *frame) {
+    __real_xt_unhandled_exception(frame);
     bool should_retry = false;
     task_info_t *task_info = NULL;
 
@@ -314,39 +281,6 @@ void IRAM_ATTR __wrap_xt_unhandled_exception(void *frame) {
                          : "t0", "memory");
     }
     __real_xt_unhandled_exception(frame);
-}
-
-static void IRAM_ATTR NOINLINE_ATTR hades(void *ignored) {
-    pid_t dead_pid;
-
-    while (1) {
-        // Block until a task dies
-        if (xQueueReceive(hades_queue, &dead_pid, portMAX_DELAY) == pdTRUE) {
-            ESP_LOGI("HADES", "Stripping PID %d of its worldy possessions", dead_pid);
-
-            task_info_t *task_info = process_table[dead_pid];
-            if (task_info) {
-                switch (task_info->type) {
-                    case TASK_TYPE_ELF:
-                    case TASK_TYPE_ELF_ROM: free(task_info->data); break;
-                    default: ESP_LOGE(TAG, "Unknown task type %i", task_info->type);
-                }
-
-                process_table_remove_task(task_info);
-                if (task_info->heap_size) {
-                    pages_deallocate(task_info->allocations);
-                }
-                task_info_delete(task_info);
-
-                // Don't free our PID until the last moment
-                pid_free(dead_pid);
-                ESP_LOGI("HADES", "Task %d escorted to my realm", dead_pid);
-                --num_tasks;
-            } else {
-                ESP_LOGE("HADES", "Task %d has no task info?", dead_pid);
-            }
-        }
-    }
 }
 
 static void elf_task(task_info_t *task_info) {
@@ -397,6 +331,10 @@ static void generic_task(void *ti) {
     // ESP_LOGI(TAG, "Setting watchpoint on %p core %i", &task_info->pad, esp_cpu_get_core_id());
     // esp_cpu_set_watchpoint(0, &task_info->pad, 4, ESP_CPU_WATCHPOINT_STORE);
 
+    task_info->handle = xTaskGetCurrentTaskHandle();
+    process_table_add_task(task_info);
+    vTaskSetThreadLocalStoragePointer(NULL, 0, task_info);
+    
     // YOLO
     task_info->task_entry(task_info);
 
@@ -445,6 +383,7 @@ pid_t run_task(void *buffer, int stack_size, task_type_t type, int argc, char *a
     task_info->buffer        = buffer;
     task_info->buffer_in_rom = false;
     task_info->argc          = argc;
+    task_info->stack_size    = stack_size;
 
     // Pack up argv in a nice compact list
     size_t argv_size = argc * sizeof(char *);
@@ -481,28 +420,10 @@ pid_t run_task(void *buffer, int stack_size, task_type_t type, int argc, char *a
             goto error;
     }
 
-#if (NUM_PIDS > 999)
-#error "If you hit this assertion change the allocation for the task name to match the new size"
-#endif
-
-    // "Task " + "255" + \0
-    char task_name[5 + 3 + 1];
-    sprintf(task_name, "Task %i", (uint8_t)pid);
-
     // xTaskCreate(generic_task, task_name, stack_size, (void *)task_info, 5, NULL);
+    xQueueSend(zeus_queue, &task_info, portMAX_DELAY);
     ++num_tasks;
-    TaskHandle_t new_task;
-    BaseType_t res = xTaskCreatePinnedToCore(generic_task, task_name, stack_size, (void *)task_info, 5, &new_task, 1);
-    if (res == pdPASS) {
-        vTaskSuspend(new_task);
-        task_info->handle = new_task;
-        process_table_add_task(task_info);
-        // vTaskSetThreadLocalStoragePointerAndDelCallback(new_task, 0, task_info, task_killed);
-        vTaskSetThreadLocalStoragePointer(new_task, 0, task_info);
-        vTaskResume(new_task);
-        return pid;
-    }
-
+    return pid;
 error:
     free(task_info);
     pid_free(pid);
@@ -512,9 +433,26 @@ error:
 void IRAM_ATTR task_switched_in_hook(TaskHandle_t volatile *handle) {
     task_info_t *task_info = get_task_info();
     if (task_info && task_info->pid) {
-        // ESP_DRAM_LOGW(DRAM_STR("task_switched_hook"), "Switching to task %u, heap_start %p, heap_end %p",
-        // task_info->pid, (void*)task_info->heap_start, (void*)task_info->heap_end);
+        // ESP_DRAM_LOGW(DRAM_STR("task_switched_hook"), "Switching in task %u", task_info->pid);
         remap_task(task_info);
+    }
+}
+
+void task_switched_out_pre_hook(TaskHandle_t volatile *handle) {
+#if 0
+    task_info_t *task_info = get_task_info();
+    if (task_info && task_info->pid) {
+        // ESP_DRAM_LOGW(DRAM_STR("task_switched_hook"), "Switching out task %u", task_info->pid);
+        flush_caches(task_info);
+    }
+#endif
+}
+
+void IRAM_ATTR task_switched_out_hook(TaskHandle_t volatile *handle) {
+    task_info_t *task_info = get_task_info();
+    if (task_info && task_info->pid) {
+        // ESP_DRAM_LOGW(DRAM_STR("task_switched_hook"), "Switching out task %u", task_info->pid);
+        unmap_task(task_info);
     }
 }
 
@@ -522,14 +460,84 @@ uint32_t get_num_tasks() {
     return num_tasks;
 }
 
+static void IRAM_ATTR NOINLINE_ATTR hades(void *ignored) {
+    pid_t dead_pid;
+
+    while (1) {
+        // Block until a task dies
+        if (xQueueReceive(hades_queue, &dead_pid, portMAX_DELAY) == pdTRUE) {
+            ESP_LOGI("HADES", "Stripping PID %d of its worldy possessions", dead_pid);
+
+            task_info_t *task_info = process_table[dead_pid];
+            if (task_info) {
+                switch (task_info->type) {
+                    case TASK_TYPE_ELF:
+                    case TASK_TYPE_ELF_ROM: free(task_info->data); break;
+                    default: ESP_LOGE(TAG, "Unknown task type %i", task_info->type);
+                }
+
+                process_table_remove_task(task_info);
+                if (task_info->heap_size) {
+                    pages_deallocate(task_info->allocations);
+                }
+                task_info_delete(task_info);
+
+                // Don't free our PID until the last moment
+                pid_free(dead_pid);
+                ESP_LOGI("HADES", "Task %d escorted to my realm", dead_pid);
+                --num_tasks;
+            } else {
+                ESP_LOGE("HADES", "Task %d has no task info?", dead_pid);
+            }
+        }
+    }
+}
+
+static void IRAM_ATTR NOINLINE_ATTR zeus(void *ignored) {
+    task_info_t *task_info;
+#if (NUM_PIDS > 999)
+#error "If you hit this assertion change the allocation for the task name to match the new size"
+#endif
+    // "Task " + "255" + \0
+    char task_name[5 + 3 + 1];
+
+    while (1) {
+        // Block until a task dies
+        if (xQueueReceive(zeus_queue, &task_info, portMAX_DELAY) == pdTRUE) {
+
+            sprintf(task_name, "Task %i", (uint8_t)task_info->pid);
+
+            ESP_LOGW("ZEUS", "Breathing life into PID %d", task_info->pid);
+            TaskHandle_t new_task;
+            BaseType_t res = xTaskCreatePinnedToCore(generic_task, task_name, task_info->stack_size, (void *)task_info, 5, &new_task, 1);
+            if (res == pdPASS) {
+                // Since Zeus is the highest priority task on the core the task should never be able to run
+                task_info->handle = new_task;
+                process_table_add_task(task_info);
+                vTaskSetThreadLocalStoragePointer(new_task, 0, task_info);
+                ESP_LOGW("ZEUS", "PID %d is alive", task_info->pid);
+            } else {
+                ESP_LOGE("ZEUS", "PID %d was too good for this world", task_info->pid);
+                pid_free(task_info->pid);
+                task_info_delete(task_info);
+                --num_tasks;
+            }
+        }
+    }
+}
+
 void task_init() {
     ESP_DRAM_LOGI(DRAM_STR("task_init"), "Initializing");
 
     ESP_DRAM_LOGI(DRAM_STR("task_init"), "Creating PID table");
     pid_free_bitmap_lock = xSemaphoreCreateMutex();
-    memset(pid_free_bitmap, 0xFF, sizeof(pid_free_bitmap));
 
-    pid_free_bitmap[0] = UINT32_MAX - 1; // PID 0 is the kernel
+    for (int i = 0; i < NUM_PIDS; ++i) {
+        pid_table[i] = i;
+    }
+
+    // Reserve pid 0
+    pid_allocate();
 
     ESP_DRAM_LOGI(DRAM_STR("task_init"), "Creating Process table");
     process_table_lock = xSemaphoreCreateMutex();
@@ -546,8 +554,11 @@ void task_init() {
 
     ESP_DRAM_LOGI(DRAM_STR("task_init"), "Starting Hades process");
     hades_queue = xQueueCreate(16, sizeof(pid_t));
-    xTaskCreatePinnedToCore(hades, "Hades", 2048, NULL, 10, &hades_handle, 0);
+    zeus_queue = xQueueCreate(16, sizeof(task_info_t*));
+
+    xTaskCreatePinnedToCore(hades, "Hades", 2048, NULL, 10, &hades_handle, 1);
     vTaskSetThreadLocalStoragePointer(hades_handle, 0, &kernel_task);
 
-    next_pid = 1;
+    xTaskCreatePinnedToCore(zeus, "Hades", 2048, NULL, 10, &zeus_handle, 1);
+    vTaskSetThreadLocalStoragePointer(zeus_handle, 0, &kernel_task);
 }

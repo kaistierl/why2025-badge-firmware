@@ -6,10 +6,10 @@ dependencies:
     override_path: ../components/elf_loader
   esp_lcd:
     override_path: ../components/esp_lcd
-  esp_psram:
-    override_path: ../components/esp_psram
   esp_hw_support:
     override_path: ../components/esp_hw_support
+  esp_psram:
+    override_path: ../components/esp_psram
   freertos:
     override_path: ../components/freertos
   why_stdio:

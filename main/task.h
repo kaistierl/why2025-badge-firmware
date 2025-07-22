@@ -93,6 +93,7 @@ typedef struct task_info {
     size_t       current_memory;
     size_t       max_files;
     size_t       current_files;
+    size_t       stack_size;
     unsigned int seed;
 
     task_info_psram_t *psram;

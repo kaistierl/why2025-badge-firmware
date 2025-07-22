@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_memory_utils.h"
 #include "soc/soc_caps.h"
+#include "soc/uart_pins.h"
 
 #include "sdkconfig.h"
 
@@ -69,7 +70,7 @@ void esp_sleep_config_gpio_isolate(void)
     gpio_sleep_set_pull_mode(esp_mspi_get_io(ESP_MSPI_IO_D),   GPIO_PULLUP_ONLY);
     gpio_sleep_set_pull_mode(esp_mspi_get_io(ESP_MSPI_IO_HD),  GPIO_PULLUP_ONLY);
     gpio_sleep_set_pull_mode(esp_mspi_get_io(ESP_MSPI_IO_WP),  GPIO_PULLUP_ONLY);
-#if SOC_SPI_MEM_SUPPORT_OPI_MODE
+#if SOC_SPI_MEM_SUPPORT_FLASH_OPI_MODE
     bool octal_mspi_required = bootloader_flash_is_octal_mode_enabled();
 #if CONFIG_SPIRAM_MODE_OCT
     octal_mspi_required |= true;
@@ -81,7 +82,7 @@ void esp_sleep_config_gpio_isolate(void)
         gpio_sleep_set_pull_mode(esp_mspi_get_io(ESP_MSPI_IO_D6),  GPIO_PULLUP_ONLY);
         gpio_sleep_set_pull_mode(esp_mspi_get_io(ESP_MSPI_IO_D7),  GPIO_PULLUP_ONLY);
     }
-#endif // SOC_SPI_MEM_SUPPORT_OPI_MODE
+#endif // SOC_SPI_MEM_SUPPORT_FLASH_OPI_MODE
 #endif // CONFIG_ESP_SLEEP_MSPI_NEED_ALL_IO_PU
 }
 
@@ -151,6 +152,23 @@ IRAM_ATTR void esp_sleep_isolate_digital_gpio(void)
     /* isolate digital IO that is not held(keep the configuration of digital IOs held by users) */
     for (gpio_num_t gpio_num = GPIO_NUM_0; gpio_num < GPIO_NUM_MAX; gpio_num++) {
         if (GPIO_IS_VALID_DIGITAL_IO_PAD(gpio_num) && !gpio_hal_is_digital_io_hold(&gpio_hal, gpio_num)) {
+
+            bool is_mspi_io_pad = false;
+            esp_mspi_io_t mspi_ios[] = { ESP_MSPI_IO_CS0, ESP_MSPI_IO_CLK, ESP_MSPI_IO_Q, ESP_MSPI_IO_D, ESP_MSPI_IO_HD, ESP_MSPI_IO_WP };
+            for (int i = 0; i < sizeof(mspi_ios) / sizeof(mspi_ios[0]); i++) {
+                if (esp_mspi_get_io(mspi_ios[i]) == gpio_num) {
+                    is_mspi_io_pad = true;
+                    break;
+                }
+            }
+            // Ignore MSPI and default Console UART io pads, When the CPU executes
+            // the following instructions to configure the MSPI IO PAD, access on
+            // the MSPI signal lines (as CPU instruction execution and MSPI access
+            // operations are asynchronous) may cause the SoC to hang.
+            if (is_mspi_io_pad || gpio_num == U0RXD_GPIO_NUM || gpio_num == U0TXD_GPIO_NUM) {
+                continue;
+            }
+
             /* disable I/O */
             gpio_hal_input_disable(&gpio_hal, gpio_num);
             gpio_hal_output_disable(&gpio_hal, gpio_num);

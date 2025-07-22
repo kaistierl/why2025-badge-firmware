@@ -139,7 +139,9 @@ typedef union {
 
 typedef union {
     struct {
-        uint32_t reserved0 : 30;
+        uint32_t reserved0 : 27;
+        uint32_t bod_source_sel : 1;
+        uint32_t vddbat_mode : 2;
         uint32_t mem_dslp  : 1;
         uint32_t peri_pd_en: 1;
     };
@@ -310,12 +312,21 @@ typedef struct {
 
 typedef struct {
     pmu_hp_sys_cntl_reg_t   syscntl;
+    uint32_t                icg_func;
 } pmu_sleep_digital_config_t;
 
-#define PMU_SLEEP_DIGITAL_LSLP_CONFIG_DEFAULT(sleep_flags) {            \
+#define PMU_SLEEP_DIGITAL_LSLP_CONFIG_DEFAULT(sleep_flags, clk_flags) { \
     .syscntl = {                                                        \
         .dig_pad_slp_sel = ((sleep_flags) & PMU_SLEEP_PD_TOP) ? 0 : 1,  \
-    }                                                                   \
+    },                                                                  \
+    .icg_func = clk_flags                                               \
+}
+
+#define PMU_SLEEP_DIGITAL_DSLP_CONFIG_DEFAULT(sleep_flags, clk_flags) { \
+    .syscntl = {                                                        \
+        .dig_pad_slp_sel = 1,                                           \
+    },                                                                  \
+    .icg_func = 0                                                       \
 }
 
 typedef struct {

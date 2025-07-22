@@ -39,6 +39,7 @@ typedef enum {
     ESP_SLEEP_RTC_FAST_USE_XTAL_MODE,     //!< The mode in which the crystal is used as the RTC_FAST clock source, need keep XTAL on in HP_SLEEP mode when ULP is working.
     ESP_SLEEP_DIG_USE_XTAL_MODE,          //!< The mode requested by digital peripherals to keep XTAL clock on during sleep (both HP_SLEEP and LP_SLEEP mode). (!!! Only valid for lightsleep, will override the XTAL domain config by esp_sleep_pd_config)
     ESP_SLEEP_LP_USE_XTAL_MODE,           //!< The mode requested by lp peripherals to keep XTAL clock on during sleep. Only valid for lightsleep.
+    ESP_SLEEP_VBAT_POWER_DEEPSLEEP_MODE,  //!< The mode to switch power supply to VBAT during deep sleep.
     ESP_SLEEP_MODE_MAX,
 } esp_sleep_sub_mode_t;
 
@@ -81,6 +82,46 @@ int32_t* esp_sleep_sub_mode_dump_config(FILE *stream);
  * Reduce digital IOs current leakage during deep sleep.
  */
 void esp_sleep_isolate_digital_gpio(void);
+#endif
+
+#if SOC_PM_SUPPORT_PMU_CLK_ICG
+/**
+ * @brief Clock ICG cells which can be gated in sleep mode
+ */
+typedef enum {
+    ESP_SLEEP_CLOCK_IOMUX,  //!< The clock ICG cell mapping of IOMUX
+    ESP_SLEEP_CLOCK_LEDC,   //!< The clock ICG cell mapping of LEDC
+    ESP_SLEEP_CLOCK_UART0,   //!< The clock ICG cell mapping of UART0
+    ESP_SLEEP_CLOCK_UART1,   //!< The clock ICG cell mapping of UART1
+#if SOC_UART_HP_NUM > 2
+    ESP_SLEEP_CLOCK_UART2,   //!< The clock ICG cell mapping of UART2
+#endif
+#if SOC_BLE_USE_WIFI_PWR_CLK_WORKAROUND
+    ESP_SLEEP_CLOCK_BT_USE_WIFI_PWR_CLK,  //!< The clock ICG cell remapping of RETENTION
+#endif
+    ESP_SLEEP_CLOCK_MAX     //!< Number of ICG cells
+} esp_sleep_clock_t;
+
+/**
+ * @brief Clock ICG options
+ */
+typedef enum {
+    ESP_SLEEP_CLOCK_OPTION_GATE,    //!< Gate the clock in sleep mode
+    ESP_SLEEP_CLOCK_OPTION_UNGATE   //!< Ungate the clock in sleep mode
+} esp_sleep_clock_option_t;
+
+/**
+ * @brief Gate or Ungate the specified clock in sleep mode
+ *
+ * If not set set using this API, all clock default to ESP_SLEEP_CLOCK_OPTION_GATE.
+ *
+ * @param clock   the specified clock to configure
+ * @param option  clock gate option (ESP_SLEEP_CLOCK_OPTION_GATE or ESP_SLEEP_CLOCK_OPTION_UNGATE)
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if either of the arguments is out of range
+ */
+esp_err_t esp_sleep_clock_config(esp_sleep_clock_t clock, esp_sleep_clock_option_t option);
 #endif
 
 #if CONFIG_ESP_PHY_ENABLED

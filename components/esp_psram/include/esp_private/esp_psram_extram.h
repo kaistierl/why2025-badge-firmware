@@ -61,6 +61,17 @@ bool esp_psram_extram_test(void);
 void esp_psram_bss_init(void);
 
 /**
+ * @brief Initialize the PSRAM hardware.
+ * Just initialize the PSRAM hardware, does not load the XIP segments or map the PSRAM memory
+ *
+ * @return
+ *        - ESP_OK:                On success
+ *        - ESP_FAIL:              PSRAM isn't initialized successfully, potential reason would be: wrong VDDSDIO, invalid chip ID, etc.
+ *        - ESP_ERR_INVALID_STATE: PSRAM is initialized already
+ */
+esp_err_t esp_psram_chip_init(void);
+
+/**
  * @brief Calculates the effective PSRAM memory that would be / is added into the heap.
  *
  * @return The size of PSRAM memory that would be / is added into the heap in bytes, or 0 if PSRAM hardware isn't successfully initialized
