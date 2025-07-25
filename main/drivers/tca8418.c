@@ -19,6 +19,8 @@
 #include "esp_log.h"
 #include "esp_tca8418.h"
 
+#include "freertos/FreeRTOS.h"
+
 #include <sys/time.h>
 
 #define SDA_PIN           18
@@ -164,6 +166,23 @@ static ssize_t tca8418_write(void *dev, int fd, void const *buf, size_t count) {
     return -1;
 }
 
+static void tca8418_keyboard_task(void *pvParameters) {
+    tca8418_device_t *device = pvParameters;
+    // poll keyboard for keypresses
+    while (true) {
+        while (tca8418_get_event_count(device->keyboard) > 0) {
+            sKeyAndChar test = tca8418_get_char(device->keyboard);
+            if (test.is_pressed){
+                printf("%c", test.ch);
+                fflush(stdout);
+            }
+        }
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+    // If ever exits, cleanup
+    vTaskDelete(NULL);
+}
+
 static ssize_t tca8418_read(void *dev, int fd, void *buf, size_t count) {
     tca8418_device_t *device = dev;
     if (fd)
@@ -208,10 +227,10 @@ device_t *tca8418_keyboard_create() {
     dev->keyboard = tca8418_create(
         I2C_MASTER_SCL_IO,
         I2C_MASTER_SDA_IO,
-        TCA8418_I2C_DEFAULT_ADDRESS,
-        GPIO_NUM_NC,
-        TCA8418_MAX_ROW_COUNT,
-        TCA8418_MAX_COLUMN_COUNT
+        0,              // Default address
+        GPIO_NUM_NC,    // Notify pin is not connected
+        0,              // Max
+        0               // Max
     );
 
     if (!dev->keyboard) {
@@ -220,7 +239,10 @@ device_t *tca8418_keyboard_create() {
         return NULL;
     }
 
+    tca8418_flush(dev->keyboard);
+
     ESP_LOGE(TAG, "keyboard initialization success");
+    xTaskCreate(tca8418_keyboard_task, "tca8418_keyboard_task", 4096, dev, tskIDLE_PRIORITY, NULL);
 
     return (device_t *)dev;
 }

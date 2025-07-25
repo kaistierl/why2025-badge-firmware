@@ -1,6 +1,6 @@
 dependencies:
   idf: '>=5.2'
-  espressif/i2c_bus: 1.*
+  espressif/i2c_bus: =1.2.0
 description: ESP driver for TCA8418 keypad interface
 url: https://github.com/atanisoft/esp_tca8418
 version: 1.0.0

@@ -565,15 +565,16 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
     ppa_client_register_event_callbacks(ppa_srm_handle, &ppa_srm_callbacks);
 
     ESP_LOGI(TAG, "framebuffers[0] = %p, framebuffers[1] = %p", framebuffers[0], framebuffers[1]);
-
     while (1) {
         xSemaphoreTake(vsync, portMAX_DELAY);
 
+#if 0
         keyboard_event_ll_t c;
-        // ssize_t res = keyboard_device->_read(keyboard_device, 0, &c, sizeof(keyboard_event_ll_t));
-        // if (res > 0) {
-        //    ESP_LOGE(TAG, "Got keyboard scancode 0x%08x, down: %i", c.scancode, c.down);
-        // }
+        ssize_t res = keyboard_device->_read(keyboard_device, 0, &c, sizeof(keyboard_event_ll_t));
+        if (res > 0) {
+           ESP_LOGE(TAG, "Got keyboard scancode 0x%08x, down: %i", c.scancode, c.down);
+        }
+#endif
 
         if (xSemaphoreTake(window_stack_lock, portMAX_DELAY) != pdTRUE) {
             ESP_LOGE(TAG, "Failed to get window list mutex");
@@ -586,9 +587,9 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
             managed_framebuffer_t *framebuffer = window_stack->prev; // Start with back window
 
             do {
-                if (atomic_flag_test_and_set(&framebuffer->clean)) {
-                    goto next;
-                }
+                // if (atomic_flag_test_and_set(&framebuffer->clean)) {
+                //    goto next;
+                // }
 
                 changes = true;
 
@@ -637,12 +638,12 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
                 };
 
                 ppa_do_scale_rotate_mirror(ppa_srm_handle, &oper_config);
-                // esp_cache_msync(framebuffers[cur_fb], 720 * 720 * 2, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+                esp_cache_msync(framebuffers[cur_fb], 720 * 720 * 2, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
                 draw_window_box(framebuffer);
-                esp_cache_msync(framebuffers[cur_fb], 720 * 720 * 2, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+                // esp_cache_msync(framebuffers[cur_fb], 720 * 720 * 2, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 
                 xSemaphoreGive(framebuffer->ready);
-next:
+                // next:
                 framebuffer = framebuffer->prev;
             } while (framebuffer != window_stack->prev);
         }

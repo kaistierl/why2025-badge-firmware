@@ -386,7 +386,7 @@ esp_err_t esp_psram_init(void)
     s_xip_psram_placement(&psram_available_size, &start_page);
 #endif
 
-    s_psram_mapping(psram_available_size, start_page);
+    // s_psram_mapping(psram_available_size, start_page);
 
     //will be removed, TODO: IDF-6944
 #if CONFIG_IDF_TARGET_ESP32
@@ -462,28 +462,7 @@ esp_err_t esp_psram_extram_add_to_heap_allocator(void)
 
 bool IRAM_ATTR esp_psram_check_ptr_addr(const void *p)
 {
-    if (!s_psram_ctx.is_initialised) {
-        return false;
-    }
-
-    if (((intptr_t)p >= s_psram_ctx.mapped_regions[PSRAM_MEM_8BIT_ALIGNED].vaddr_start && (intptr_t)p < s_psram_ctx.mapped_regions[PSRAM_MEM_8BIT_ALIGNED].vaddr_end) ||
-            ((intptr_t)p >= s_psram_ctx.mapped_regions[PSRAM_MEM_32BIT_ALIGNED].vaddr_start && (intptr_t)p < s_psram_ctx.mapped_regions[PSRAM_MEM_32BIT_ALIGNED].vaddr_end)) {
-        return true;
-    }
-
-#if CONFIG_SPIRAM_RODATA
-    if (mmu_psram_check_ptr_addr_in_xip_psram_rodata_region(p)) {
-        return true;
-    }
-#endif
-
-#if CONFIG_SPIRAM_FETCH_INSTRUCTIONS
-    if (mmu_psram_check_ptr_addr_in_xip_psram_instruction_region(p)) {
-        return true;
-    }
-#endif
-
-    return false;
+    return  ((uintptr_t)p >= SOC_EXTRAM_LOW && (uintptr_t)p < SOC_EXTRAM_HIGH);
 }
 
 esp_err_t esp_psram_extram_reserve_dma_pool(size_t size)

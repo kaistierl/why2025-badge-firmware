@@ -17,7 +17,7 @@
 #include "esp_idf_version.h"
 
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 5, 0)
-#error "BadgeVMS requires esp-idf 5.50 (or maybe later, who knows)
+#error "BadgeVMS requires esp-idf 5.50 (or maybe later, who knows)"
 #endif
 
 #include "compositor.h"
@@ -48,6 +48,8 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+
+#include "driver/temperature_sensor.h"
 
 extern void        spi_flash_enable_interrupts_caches_and_other_cpu(void);
 extern void        spi_flash_disable_interrupts_caches_and_other_cpu(void);
@@ -98,18 +100,30 @@ int app_main(void) {
     size_t free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     ESP_LOGW(TAG, "Free main memory: %zi", free_ram);
 
-    memory_init();
-    task_init();
-    device_init();
-    logical_names_system_init();
+    // memory_init();
+    // task_init();
+    // device_init();
+    // logical_names_system_init();
 
-    // device_register("KEYBOARD0", tca8418_keyboard_create());
-    device_register("PANEL0", st7703_create());
+    tca8418_keyboard_create();
+    while(1) {
+        vTaskDelay(1000);
+    }
+
+    //device_register("KEYBOARD0", tca8418_keyboard_create());
+    //device_register("PANEL0", st7703_create());
     device_register("TT01", tty_create(true, true));
     device_register("FLASH0", fatfs_create_spi("FLASH0", "storage", true));
     logical_name_set("SEARCH", "FLASH0:[SUBDIR], FLASH0:[SUBDIR.ANOTHER]", false);
 
-    compositor_init("PANEL0", "KEYBOARD0");
+    //compositor_init("PANEL0", "KEYBOARD0");
+
+
+    float tsens_value;
+    temperature_sensor_handle_t temp_sensor = NULL;
+    temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 80);
+    ESP_ERROR_CHECK(temperature_sensor_install(&temp_sensor_config, &temp_sensor));
+    ESP_ERROR_CHECK(temperature_sensor_enable(temp_sensor));
 
     printf("BadgeVMS is ready\n");
     free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
@@ -190,7 +204,7 @@ int app_main(void) {
 
     pid_t pidb = run_task(framebuffer_test_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
     // ESP_LOGI(TAG, "Started task with pid %i", pidb);
-    // pidb       = run_task(framebuffer_test_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
+    pidb       = run_task(framebuffer_test_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
     // ESP_LOGI(TAG, "Started task with pid %i", pidb);
 
 #if 0
@@ -202,7 +216,7 @@ int app_main(void) {
 #endif
 
     while (1) {
-        while (get_num_tasks() < 10) {
+        while (get_num_tasks() < 1) {
             sprintf(argv[1], "argv[%d]", 0);
             // pid_t pida = run_task(test_elf_bench_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
             // ESP_LOGI(TAG, "Started task with pid %i", pida);
@@ -219,6 +233,8 @@ int app_main(void) {
             get_total_psram_pages(),
             get_num_tasks()
         );
+        ESP_ERROR_CHECK(temperature_sensor_get_celsius(temp_sensor, &tsens_value));
+        ESP_LOGW(TAG, "Temperature value %.02f ℃", tsens_value);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     // pid_t pidb = run_task(test_elf_b_start, 4096, TASK_TYPE_ELF_ROM, 0, NULL);
