@@ -1,5 +1,6 @@
 #include "ota.h"
 
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 
 #define TAG "why_ota"

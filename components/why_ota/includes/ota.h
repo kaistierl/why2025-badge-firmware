@@ -1,6 +1,6 @@
 #pragma once
 
-#include "esp_ota_ops.h"
+#include <stdbool.h>
 
 typedef struct ota_session_t ota_session_t;
 typedef ota_session_t* ota_handle_t;
