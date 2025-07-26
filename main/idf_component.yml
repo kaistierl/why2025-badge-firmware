@@ -20,6 +20,10 @@ dependencies:
     override_path: ../components/freertos
   hal:
     override_path: ../components/hal
+  sdl3:
+    override_path: ../components/sdl3
+  why_ota:
+    override_path: ../components/why_ota
   why_stdio:
     version: 1.*
     override_path: ../components/why_stdio

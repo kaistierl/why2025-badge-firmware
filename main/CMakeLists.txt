@@ -32,7 +32,8 @@ idf_component_register(
 	"fatfs"
 	"hal"
 	"vfs"
-        "esp_mm"
+    "esp_mm"
+	"why_ota"
 )
 
 add_custom_command(

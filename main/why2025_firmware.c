@@ -45,6 +45,7 @@
 #include "logical_names.h"
 #include "memory.h"
 #include "task.h"
+#include "ota_utils.h"
 
 #include <errno.h>
 #include <string.h>
@@ -98,6 +99,8 @@ int app_main(void) {
     logical_name_set("SEARCH", "FLASH0:[SUBDIR], FLASH0:[SUBDIR.ANOTHER]", false);
 
     compositor_init("PANEL0", "KEYBOARD0");
+
+    validate_ota_partition();
 
     printf("BadgeVMS is ready\n");
     free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);

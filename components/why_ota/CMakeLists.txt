@@ -1,4 +1,4 @@
-set(SRCS "ota.c")
+set(SRCS "ota.c" "ota_utils.c")
 
 set(DEPS "")
 
