@@ -12,3 +12,4 @@ bool badgevms_ota_session_abort(ota_handle_t session);
 
 // Would want this to return the char, but having the calling program be responsible for the allocated memory and instead handling the pointer is easier
 bool badgevms_ota_get_running_version(char *version);
+bool badgevms_ota_get_invalid_version(char *version);
