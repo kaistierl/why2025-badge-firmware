@@ -6,9 +6,9 @@
 #define TAG "why_ota"
 
 struct ota_session_t {
-    esp_partition_t *configured;
-    esp_partition_t *running;
-    esp_partition_t *update_partition;
+    const esp_partition_t *configured;
+    const esp_partition_t *running;
+    const esp_partition_t *update_partition;
     esp_ota_handle_t update_handle;
 };
 
@@ -77,5 +77,24 @@ bool badgevms_ota_session_commit(ota_handle_t session) {
 bool badgevms_ota_session_abort(ota_handle_t session){
     esp_ota_abort(session->update_handle);
     free(session);
+    return true;
+}
+
+/*
+version is a pointer of type char[32].
+If function returns true then the passed pointer should contain the version of the running app
+*/
+bool badgevms_ota_get_running_version(char *version){
+    esp_app_desc_t running_app_info;
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+
+    if (esp_ota_get_partition_description(running, &running_app_info) != ESP_OK) {
+        ESP_LOGE(TAG, "Could not get running partition");
+        return false;
+    }
+
+    *version = *running_app_info.version;
+
     return true;
 }
