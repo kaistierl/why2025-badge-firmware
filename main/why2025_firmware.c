@@ -80,6 +80,9 @@ extern uint8_t const framebuffer_test_a_end[] asm("_binary_framebuffer_test_a_el
 extern uint8_t const sdl_test_start[] asm("_binary_sdl_test_elf_start");
 extern uint8_t const sdl_test_end[] asm("_binary_sdl_test_elf_end");
 
+extern uint8_t const lvgl_test_start[] asm("_binary_lvgl_test_elf_start");
+extern uint8_t const lvgl_test_end[] asm("_binary_lvgl_test_elf_end");
+
 extern FILE  *why_fopen(char const *pathname, char const *mode);
 extern int    why_fseek(FILE *stream, long offset, int whence);
 extern void   why_rewind(FILE *stream);
@@ -120,7 +123,14 @@ int app_main(void) {
 
     printf("BadgeVMS is ready\n");
     free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-    ESP_LOGW(TAG, "Free main memory: %zi", free_ram);
+    ESP_LOGW(
+        TAG,
+        "Free main memory: %zi, free PSRAM pages: %zi/%zi, running processes %u",
+        free_ram,
+        get_free_psram_pages(),
+        get_total_psram_pages(),
+        get_num_tasks()
+    );
 
     //    xTaskCreate(run_elf, "Task1", 16384, test_elf_a_start, 5, &elf_a);
     //
@@ -198,7 +208,8 @@ int app_main(void) {
     pid_t pidb = run_task(sdl_test_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
     // pid_t pidb = run_task(framebuffer_test_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
     // ESP_LOGI(TAG, "Started task with pid %i", pidb);
-    pidb       = run_task(framebuffer_test_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
+    //pidb       = run_task(framebuffer_test_a_start, 4096, TASK_TYPE_ELF_ROM, 2, argv);
+    // run_task(lvgl_test_start, 16384, TASK_TYPE_ELF_ROM, 2, argv);
     // ESP_LOGI(TAG, "Started task with pid %i", pidb);
 
 #if 0

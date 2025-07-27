@@ -421,11 +421,22 @@ int esp_elf_relocate(esp_elf_t *elf, const uint8_t *pbuf)
                 const elf32_sym_t *sym = &symtab[ELF_R_SYM(rela_buf.info)];
 
                 type = ELF_R_TYPE(rela_buf.info);
-                if (type == STT_COMMON || type == STT_OBJECT || type == STT_SECTION) {
+                int sym_type = ELF_ST_TYPE(sym->info);
+                if (type == STT_FUNC || type == STT_COMMON || type == STT_OBJECT || type == STT_SECTION) {
                     const char *comm_name = strtab + sym->name;
 
+                    if (comm_name) {
+                        if (sym->value) {
+                        }
+                    }
+
                     if (comm_name[0]) {
-                        addr = elf_find_sym(comm_name);
+                        if (sym->value) {
+                            addr = esp_elf_map_sym(elf, sym->value);
+                            ESP_LOGW(TAG, "Processing %s, sym->value %p, type = %u, sym_type = %u, addr after %p", comm_name, sym->value, type, sym_type, addr);
+                        } else {
+                            addr = elf_find_sym(comm_name);
+                        }
 
                         if (!addr) {
                             ESP_LOGE(TAG, "Can't find common %s", strtab + sym->name);

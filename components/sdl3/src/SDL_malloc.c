@@ -18,15 +18,21 @@
      misrepresented as being the original software.
   3. This notice may not be removed or altered from any source distribution.
 */
-#include "../../main/thirdparty/dlmalloc.h"
+
 #include "SDL_internal.h"
+
+extern void *why_malloc(size_t size);
+extern void why_free(void *ptr);
+extern void *why_calloc(size_t nmemb, size_t size);
+extern void *why_realloc(void *ptr, size_t size);
+extern void *why_reallocarray(void * ptr, size_t nmemb, size_t size);
 
 /* This file contains portable memory management functions for SDL */
 
-#define real_malloc  dlmalloc
-#define real_calloc  dlcalloc
-#define real_realloc dlrealloc
-#define real_free    dlfree
+#define real_malloc  why_malloc
+#define real_calloc  why_calloc
+#define real_realloc why_realloc
+#define real_free    why_free
 
 // mark the allocator entry points as KEEPALIVE so we can call these from JavaScript.
 // otherwise they could could get so aggressively inlined that their symbols

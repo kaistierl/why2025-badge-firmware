@@ -33,6 +33,8 @@
 #include <time.h>
 #include <wchar.h>
 
+#include <dirent.h>
+
 extern void spi_flash_enable_interrupts_caches_and_other_cpu(void);
 extern void spi_flash_disable_interrupts_caches_and_other_cpu(void);
 
@@ -130,7 +132,7 @@ int why_atexit(void (*function)(void)) {
 
 void IRAM_ATTR *why_malloc(size_t size) {
     // task_info_t *task_info = get_task_info();
-    //  ESP_LOGI("malloc", "Calling malloc(%zi) from task %d", size, task_info->pid);
+    // ESP_LOGW("malloc", "Calling malloc(%zi) from task %d", size, task_info->pid);
     void *ptr = dlmalloc(size);
 
     // ESP_LOGI("malloc", "Calling malloc(%zi) from task %d, returning %p", size, task_info->pid, ptr);
@@ -391,4 +393,42 @@ out:
 pid_t why_getpid(void) {
     task_info_t *task_info = get_task_info();
     return task_info->pid;
+}
+
+void why_exit(int status) {
+    task_info_t *task_info = get_task_info();
+    vTaskDelete(task_info->handle);
+}
+
+void lv_mem_init(void) {
+}
+
+void lv_mem_deinit(void) {
+}
+
+void * lv_malloc_core(size_t size) {
+    return why_malloc(size);
+}
+
+void lv_free_core(void * p) {
+    why_free(p);
+}
+
+void * lv_realloc_core(void * p, size_t new_size) {
+    return why_realloc(p, new_size);
+}
+
+void lv_mem_monitor_core(void * mon_p) {
+}
+
+DIR *why_opendir(const char *name) {
+    return NULL;
+}
+
+int why_closedir(DIR *dirp) {
+    return 0;
+}
+
+struct dirent *why_readdir(DIR *dirp) {
+    return NULL;
 }

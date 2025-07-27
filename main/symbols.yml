@@ -903,10 +903,12 @@ simple_function:
 # SDL3
   - SDL_CloseJoystick
   - SDL_CreateRenderer
+  - SDL_CreateTexture
   - SDL_CreateWindow
   - SDL_CreateWindowAndRenderer
   - SDL_Delay
   - SDL_DestroyRenderer
+  - SDL_DestroyTexture
   - SDL_DestroyWindow
   - SDL_EnterAppMainCallbacks
   - SDL_FillSurfaceRect
@@ -921,6 +923,7 @@ simple_function:
   - SDL_GetRendererProperties
   - SDL_GetStringProperty
   - SDL_GetTicks
+  - SDL_GetWindowID
   - SDL_GetWindowSurface
   - SDL_Init
   - SDL_Log
@@ -931,11 +934,21 @@ simple_function:
   - SDL_RenderClear
   - SDL_RenderFillRect
   - SDL_RenderPresent
+  - SDL_RenderTexture
+  - SDL_RenderTextureRotated
   - SDL_RunApp
   - SDL_SetAppMetadata
   - SDL_SetAppMetadataProperty
   - SDL_SetHint
+  - SDL_SetRenderClipRect
+  - SDL_SetRenderDrawBlendMode
   - SDL_SetRenderDrawColor
+  - SDL_SetRenderTarget
+  - SDL_SetTextureAlphaMod
+  - SDL_SetTextureBlendMode
+  - SDL_SetWindowSize
+  - SDL_StartTextInput
+  - SDL_UpdateTexture
   - SDL_UpdateWindowSurface
   - SDL_calloc
   - SDL_free
@@ -944,6 +957,7 @@ simple_function:
 simple_function_extern:
   - __adddf3
   - __divdf3
+  - __divdi3
   - __extendsfdf2
   - __fixdfsi
   - __fixunsdfsi
@@ -952,6 +966,42 @@ simple_function_extern:
   - __gtdf2
   - __ltdf2
   - __muldf3
+  - __riscv_restore_0
+  - __riscv_restore_1
+  - __riscv_restore_10
+  - __riscv_restore_11
+  - __riscv_restore_12
+  - __riscv_restore_2
+  - __riscv_restore_3
+  - __riscv_restore_4
+  - __riscv_restore_5
+  - __riscv_restore_6
+  - __riscv_restore_7
+  - __riscv_restore_8
+  - __riscv_restore_9
+  - __riscv_save_0
+  - __riscv_save_1
+  - __riscv_save_10
+  - __riscv_save_11
+  - __riscv_save_12
+  - __riscv_save_2
+  - __riscv_save_3
+  - __riscv_save_4
+  - __riscv_save_5
+  - __riscv_save_6
+  - __riscv_save_7
+  - __riscv_save_8
+  - __riscv_save_9
+  - __udivdi3
+  - __umoddi3
+
+  # LVGL helpers
+  - lv_mem_init
+  - lv_mem_deinit
+  - lv_malloc_core
+  - lv_free_core
+  - lv_realloc_core
+  - lv_mem_monitor_core
 
 simple_object:
 
@@ -962,6 +1012,7 @@ wrapped_function:
   - close
   - ctime
   - die
+  - exit
   - fclose
   - fdopen
   - feof
@@ -1018,6 +1069,10 @@ wrapped_function:
   - vfscanf
   - wcsdup
   - write
+
+  - opendir
+  - closedir
+  - readdir
 
 wrapped_object:
   - stdin

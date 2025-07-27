@@ -28,6 +28,7 @@ idf_component_register(
     EMBED_FILES
     	"${CMAKE_BINARY_DIR}/test_elfs/framebuffer_test_a.elf"
 	"${CMAKE_BINARY_DIR}/test_elfs/sdl_test.elf"
+	"${CMAKE_BINARY_DIR}/test_elfs/lvgl_test.elf"
 #    	"${CMAKE_BINARY_DIR}/test_elfs/test_basic_a.elf"
 #	"${CMAKE_BINARY_DIR}/test_elfs/test_basic_b.elf"
 #	"${CMAKE_BINARY_DIR}/test_elfs/test_basic_c.elf"
@@ -89,6 +90,43 @@ function(build_test_elf name source)
     add_custom_target(${name}_elf ALL DEPENDS ${TEST_ELF_DIR}/${name}.elf)
 endfunction()
 
+function(build_test_elf_lvgl name source)
+    add_custom_command(
+        OUTPUT ${TEST_ELF_DIR}/${name}.elf
+        COMMAND ${TEST_COMPILER}
+	    -march=rv32imafc_zicsr_zifencei
+            -mabi=ilp32f
+	    -ffunction-sections
+            -fdata-sections
+	    -nostartfiles
+	    -fno-builtin
+	    -fno-builtin-function
+            -Og
+	    -g3
+            -fstrict-volatile-bitfields
+            -fno-jump-tables
+            -fno-tree-switch-conversion
+            -nostdlib
+            -fPIC
+            -shared
+            -fvisibility=hidden
+	    -Wl,--gc-sections
+	    -Wl,--strip-debug
+	    -Wl,--exclude-libs,liblvgl.a
+	    -e main
+	    -isystem${CMAKE_CURRENT_SOURCE_DIR}/../include
+	    -I${CMAKE_CURRENT_SOURCE_DIR}/../include/badgevms
+            -o ${TEST_ELF_DIR}/${name}.elf
+            ${CMAKE_CURRENT_SOURCE_DIR}/${source}
+	    ${CMAKE_CURRENT_SOURCE_DIR}/test_elf/liblvgl.a
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${source}
+        COMMENT "Building test ELF: ${name}"
+        VERBATIM
+    )
+    
+    add_custom_target(${name}_elf ALL DEPENDS ${TEST_ELF_DIR}/${name}.elf)
+endfunction()
+
 #build_test_elf(test_basic_a test_elf/test_basic_a.c)
 #build_test_elf(test_basic_b test_elf/test_basic_b.c)
 #build_test_elf(test_basic_c test_elf/test_basic_c.c)
@@ -97,6 +135,7 @@ build_test_elf(bench_basic_a test_elf/bench_basic_a.c)
 build_test_elf(bench_basic_b test_elf/bench_basic_b.c)
 build_test_elf(framebuffer_test_a test_elf/framebuffer_test_a.c)
 build_test_elf(sdl_test test_elf/sdl_test.c)
+build_test_elf_lvgl(lvgl_test test_elf/lvgl_test.c)
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated_symbols.c
