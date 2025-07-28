@@ -45,7 +45,7 @@
 #include "logical_names.h"
 #include "memory.h"
 #include "task.h"
-#include "ota_utils.h"
+#include "ota.h"
 
 #include <errno.h>
 #include <string.h>

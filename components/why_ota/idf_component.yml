@@ -1,9 +1,0 @@
-version: "1.0.0"
-description: WHY OTA
-url: https://gitlab.com/why2025/team-badge/firmware
-dependencies:
-  idf: ">=5.4"
-  espressif/cmake_utilities: "0.*"
-sbom:
-  supplier: 'Organization: WHY2025 Team:Badge Heplaphon' 
-  originator: 'Organization: WHY2025'

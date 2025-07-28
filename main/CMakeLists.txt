@@ -19,6 +19,7 @@ idf_component_register(
 	 "thirdparty/dlmalloc.c"
 	 "user_event.c"
 	 "wrapped_funcs.c"
+	 "ota.c"
     	 "why2025_firmware.c"
     INCLUDE_DIRS
 	 ${CMAKE_CURRENT_SOURCE_DIR}/
@@ -33,7 +34,7 @@ idf_component_register(
 	"hal"
 	"vfs"
     "esp_mm"
-	"why_ota"
+	"app_update"
 )
 
 add_custom_command(

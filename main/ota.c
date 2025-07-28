@@ -12,7 +12,7 @@ struct ota_session_t {
     esp_ota_handle_t update_handle;
 };
 
-ota_handle_t badgevms_ota_session_open() {
+ota_handle_t ota_session_open() {
     esp_err_t err;
     struct ota_session_t *session = (struct ota_session_t*)malloc(sizeof(ota_session_t));;
 
@@ -41,7 +41,7 @@ ota_handle_t badgevms_ota_session_open() {
     return (ota_handle_t)session;
 }
 
-bool badgevms_ota_write(ota_handle_t session, void *buffer, int block_size) {
+bool ota_write(ota_handle_t session, void *buffer, int block_size) {
     esp_err_t err;
     err = esp_ota_write(session->update_handle, (const void *)buffer, block_size);
     if (err != ESP_OK) {
@@ -52,7 +52,7 @@ bool badgevms_ota_write(ota_handle_t session, void *buffer, int block_size) {
     return false;
 }
 
-bool badgevms_ota_session_commit(ota_handle_t session) {
+bool ota_session_commit(ota_handle_t session) {
     esp_err_t err;
     err = esp_ota_end(session->update_handle);
     if (err != ESP_OK) {
@@ -74,7 +74,7 @@ bool badgevms_ota_session_commit(ota_handle_t session) {
     return true;
 }
 
-bool badgevms_ota_session_abort(ota_handle_t session){
+bool ota_session_abort(ota_handle_t session){
     esp_ota_abort(session->update_handle);
     free(session);
     return true;
@@ -84,7 +84,7 @@ bool badgevms_ota_session_abort(ota_handle_t session){
 version is a pointer of type char[32].
 If function returns true then the passed pointer should contain the version of the running app
 */
-bool badgevms_ota_get_running_version(char *version){
+bool ota_get_running_version(char *version){
     esp_app_desc_t running_app_info;
 
     const esp_partition_t *running = esp_ota_get_running_partition();
@@ -104,7 +104,7 @@ version is a pointer of type char[32].
 If function returns true then the passed pointer should contain the last invalid ota app
 Returns false if there was a problem or no invalid partition found
 */
-bool badgevms_ota_get_invalid_version(char *version){
+bool ota_get_invalid_version(char *version){
     esp_app_desc_t invalid_app_info;
 
     const esp_partition_t* last_invalid_app = esp_ota_get_last_invalid_partition();
@@ -119,5 +119,28 @@ bool badgevms_ota_get_invalid_version(char *version){
 
     *version = *invalid_app_info.version;
 
+    return true;
+}
+
+bool validate_ota_partition(){
+    esp_err_t err;
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    ESP_LOGW(TAG, "Running partition type %d subtype %d (offset 0x%08"PRIx32")",
+             running->type, running->subtype, running->address);
+
+    esp_ota_img_states_t ota_state;
+    err = esp_ota_get_state_partition(running, &ota_state);
+    if (err != ESP_OK) {
+        return false;
+    }
+
+    if(ota_state == ESP_OTA_IMG_PENDING_VERIFY){
+        ESP_LOGW(TAG, "Marking running partition as valid and cancelling rollback");
+        err = esp_ota_mark_app_valid_cancel_rollback();
+        if (err != ESP_OK) {
+            return false;
+        }
+    }
     return true;
 }
