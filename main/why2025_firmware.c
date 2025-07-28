@@ -44,8 +44,8 @@
 #include "hal/mmu_types.h"
 #include "logical_names.h"
 #include "memory.h"
-#include "task.h"
 #include "ota.h"
+#include "task.h"
 
 #include <errno.h>
 #include <string.h>

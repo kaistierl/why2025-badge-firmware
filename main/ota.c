@@ -1,31 +1,36 @@
 #include "ota.h"
 
-#include "esp_ota_ops.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
 
 #define TAG "why_ota"
 
 struct ota_session_t {
-    const esp_partition_t *configured;
-    const esp_partition_t *running;
-    const esp_partition_t *update_partition;
-    esp_ota_handle_t update_handle;
+    esp_partition_t const *configured;
+    esp_partition_t const *running;
+    esp_partition_t const *update_partition;
+    esp_ota_handle_t       update_handle;
 };
 
 ota_handle_t ota_session_open() {
-    esp_err_t err;
-    struct ota_session_t *session = (struct ota_session_t*)malloc(sizeof(ota_session_t));;
+    esp_err_t             err;
+    struct ota_session_t *session = (struct ota_session_t *)malloc(sizeof(ota_session_t));
+    ;
 
-    session->configured = esp_ota_get_boot_partition();
-    session->running = esp_ota_get_running_partition();
+    session->configured    = esp_ota_get_boot_partition();
+    session->running       = esp_ota_get_running_partition();
     session->update_handle = 0;
 
-    ESP_LOGW(TAG, "Configured OTA boot partition at offset 0x%08"PRIx32", running from offset 0x%08"PRIx32,
-             session->configured->address, session->running->address);
+    ESP_LOGW(
+        TAG,
+        "Configured OTA boot partition at offset 0x%08" PRIx32 ", running from offset 0x%08" PRIx32,
+        session->configured->address,
+        session->running->address
+    );
 
     session->update_partition = esp_ota_get_next_update_partition(NULL);
 
-    if(session->update_partition == NULL){
+    if (session->update_partition == NULL) {
         return NULL;
     }
 
@@ -43,7 +48,7 @@ ota_handle_t ota_session_open() {
 
 bool ota_write(ota_handle_t session, void *buffer, int block_size) {
     esp_err_t err;
-    err = esp_ota_write(session->update_handle, (const void *)buffer, block_size);
+    err = esp_ota_write(session->update_handle, (void const *)buffer, block_size);
     if (err != ESP_OK) {
         esp_ota_abort(session->update_handle);
         free(session);
@@ -74,7 +79,7 @@ bool ota_session_commit(ota_handle_t session) {
     return true;
 }
 
-bool ota_session_abort(ota_handle_t session){
+bool ota_session_abort(ota_handle_t session) {
     esp_ota_abort(session->update_handle);
     free(session);
     return true;
@@ -84,10 +89,10 @@ bool ota_session_abort(ota_handle_t session){
 version is a pointer of type char[32].
 If function returns true then the passed pointer should contain the version of the running app
 */
-bool ota_get_running_version(char *version){
+bool ota_get_running_version(char *version) {
     esp_app_desc_t running_app_info;
 
-    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_partition_t const *running = esp_ota_get_running_partition();
 
     if (esp_ota_get_partition_description(running, &running_app_info) != ESP_OK) {
         ESP_LOGE(TAG, "Could not get running partition");
@@ -104,12 +109,12 @@ version is a pointer of type char[32].
 If function returns true then the passed pointer should contain the last invalid ota app
 Returns false if there was a problem or no invalid partition found
 */
-bool ota_get_invalid_version(char *version){
+bool ota_get_invalid_version(char *version) {
     esp_app_desc_t invalid_app_info;
 
-    const esp_partition_t* last_invalid_app = esp_ota_get_last_invalid_partition();
+    esp_partition_t const *last_invalid_app = esp_ota_get_last_invalid_partition();
 
-    if(last_invalid_app == NULL){
+    if (last_invalid_app == NULL) {
         return false;
     }
     if (esp_ota_get_partition_description(last_invalid_app, &invalid_app_info) != ESP_OK) {
@@ -122,12 +127,17 @@ bool ota_get_invalid_version(char *version){
     return true;
 }
 
-bool validate_ota_partition(){
+bool validate_ota_partition() {
     esp_err_t err;
 
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    ESP_LOGW(TAG, "Running partition type %d subtype %d (offset 0x%08"PRIx32")",
-             running->type, running->subtype, running->address);
+    esp_partition_t const *running = esp_ota_get_running_partition();
+    ESP_LOGW(
+        TAG,
+        "Running partition type %d subtype %d (offset 0x%08" PRIx32 ")",
+        running->type,
+        running->subtype,
+        running->address
+    );
 
     esp_ota_img_states_t ota_state;
     err = esp_ota_get_state_partition(running, &ota_state);
@@ -135,7 +145,7 @@ bool validate_ota_partition(){
         return false;
     }
 
-    if(ota_state == ESP_OTA_IMG_PENDING_VERIFY){
+    if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
         ESP_LOGW(TAG, "Marking running partition as valid and cancelling rollback");
         err = esp_ota_mark_app_valid_cancel_rollback();
         if (err != ESP_OK) {
