@@ -44,7 +44,7 @@
 #include "hal/mmu_types.h"
 #include "logical_names.h"
 #include "memory.h"
-#include "ota.h"
+#include "ota/ota_private.h"
 #include "task.h"
 
 #include <errno.h>

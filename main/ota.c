@@ -3,6 +3,8 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 
+#include <stdatomic.h>
+
 #define TAG "why_ota"
 
 struct ota_session_t {
@@ -10,47 +12,56 @@ struct ota_session_t {
     esp_partition_t const *running;
     esp_partition_t const *update_partition;
     esp_ota_handle_t       update_handle;
+    atomic_flag            open;
+};
+
+static ota_session_t session = {
+    .configured       = NULL,
+    .running          = NULL,
+    .update_partition = NULL,
+    .update_handle    = 0,
+    .open             = ATOMIC_FLAG_INIT,
 };
 
 ota_handle_t ota_session_open() {
-    esp_err_t             err;
-    struct ota_session_t *session = (struct ota_session_t *)malloc(sizeof(ota_session_t));
+    esp_err_t err;
 
-    session->configured    = esp_ota_get_boot_partition();
-    session->running       = esp_ota_get_running_partition();
-    session->update_handle = 0;
+    if (atomic_flag_test_and_set(&session.open)) {
+        return NULL;
+    }
+
+    session.configured = esp_ota_get_boot_partition();
+    session.running    = esp_ota_get_running_partition();
 
     ESP_LOGW(
         TAG,
         "Configured OTA boot partition at offset 0x%08" PRIx32 ", running from offset 0x%08" PRIx32,
-        session->configured->address,
-        session->running->address
+        session.configured->address,
+        session.running->address
     );
 
-    session->update_partition = esp_ota_get_next_update_partition(NULL);
-
-    if (session->update_partition == NULL) {
+    session.update_partition = esp_ota_get_next_update_partition(NULL);
+    if (session.update_partition == NULL) {
+        atomic_flag_clear(&session.open);
         return NULL;
     }
 
-    err = esp_ota_begin(session->update_partition, OTA_WITH_SEQUENTIAL_WRITES, &(session->update_handle));
+    err = esp_ota_begin(session.update_partition, OTA_WITH_SEQUENTIAL_WRITES, &(session.update_handle));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_begin failed (%s)", esp_err_to_name(err));
-        esp_ota_abort(session->update_handle);
-        free(session);
+        ota_session_abort((ota_handle_t)&session);
         return NULL;
     }
 
 
-    return (ota_handle_t)session;
+    return (ota_handle_t)&session;
 }
 
 bool ota_write(ota_handle_t session, void *buffer, int block_size) {
     esp_err_t err;
     err = esp_ota_write(session->update_handle, (void const *)buffer, block_size);
     if (err != ESP_OK) {
-        esp_ota_abort(session->update_handle);
-        free(session);
+        ota_session_abort(session);
         return false;
     }
     return false;
@@ -74,13 +85,14 @@ bool ota_session_commit(ota_handle_t session) {
         return false;
     }
 
-    free(session);
+    atomic_flag_clear(&session->open);
+
     return true;
 }
 
 bool ota_session_abort(ota_handle_t session) {
     esp_ota_abort(session->update_handle);
-    free(session);
+    atomic_flag_clear(&session->open);
     return true;
 }
 

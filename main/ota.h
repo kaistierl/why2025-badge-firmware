@@ -14,6 +14,3 @@ bool         ota_session_abort(ota_handle_t session);
 // instead handling the pointer is easier
 bool ota_get_running_version(char *version);
 bool ota_get_invalid_version(char *version);
-
-// Is to be run by BadgeVMS after boot init
-bool validate_ota_partition();
