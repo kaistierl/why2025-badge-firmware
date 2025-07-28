@@ -14,6 +14,7 @@ struct ota_session_t {
     esp_partition_t const *update_partition;
     esp_ota_handle_t       update_handle;
     atomic_flag            open;
+    atomic_bool            error;
 };
 
 static ota_session_t session = {
@@ -22,6 +23,7 @@ static ota_session_t session = {
     .update_partition = NULL,
     .update_handle    = 0,
     .open             = ATOMIC_FLAG_INIT,
+    .error            = ATOMIC_VAR_INIT(false),
 };
 
 ota_handle_t ota_session_open() {
@@ -56,22 +58,29 @@ ota_handle_t ota_session_open() {
         return NULL;
     }
 
+    atomic_store(&session.error, false);
 
     return (ota_handle_t)&session;
 }
 
 bool ota_write(ota_handle_t session, void *buffer, int block_size) {
     esp_err_t err;
+    if (atomic_load(&session->error)) {
+        return false;
+    }
     err = esp_ota_write(session->update_handle, (void const *)buffer, block_size);
     if (err != ESP_OK) {
         ota_session_abort(session);
         return false;
     }
-    return false;
+    return true;
 }
 
 bool ota_session_commit(ota_handle_t session) {
     esp_err_t err;
+    if (atomic_load(&session->error)) {
+        return false;
+    }
     err = esp_ota_end(session->update_handle);
     if (err != ESP_OK) {
         if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
@@ -81,16 +90,13 @@ bool ota_session_commit(ota_handle_t session) {
         }
         return false;
     }
-
     err = esp_ota_set_boot_partition(session->update_partition);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed (%s)!", esp_err_to_name(err));
         return false;
     }
-
     task_record_resource_free(RES_OTA, session);
     atomic_flag_clear(&session->open);
-
     return true;
 }
 
@@ -98,6 +104,7 @@ bool ota_session_abort(ota_handle_t session) {
     esp_ota_abort(session->update_handle);
     task_record_resource_free(RES_OTA, session);
     atomic_flag_clear(&session->open);
+    atomic_store(&session->error, true);
     return true;
 }
 
