@@ -2,6 +2,7 @@
 
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "task.h"
 
 #include <stdatomic.h>
 
@@ -29,6 +30,8 @@ ota_handle_t ota_session_open() {
     if (atomic_flag_test_and_set(&session.open)) {
         return NULL;
     }
+
+    task_record_resource_alloc(RES_OTA, (ota_handle_t)&session);
 
     session.configured = esp_ota_get_boot_partition();
     session.running    = esp_ota_get_running_partition();
@@ -85,6 +88,7 @@ bool ota_session_commit(ota_handle_t session) {
         return false;
     }
 
+    task_record_resource_free(RES_OTA, session);
     atomic_flag_clear(&session->open);
 
     return true;
@@ -92,6 +96,7 @@ bool ota_session_commit(ota_handle_t session) {
 
 bool ota_session_abort(ota_handle_t session) {
     esp_ota_abort(session->update_handle);
+    task_record_resource_free(RES_OTA, session);
     atomic_flag_clear(&session->open);
     return true;
 }

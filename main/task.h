@@ -44,6 +44,7 @@ typedef enum {
     RES_ICONV_OPEN,
     RES_REGCOMP,
     RES_OPEN,
+    RES_OTA,
     RES_WINDOW,
     RES_DEVICE,
     RES_RESOURCE_TYPE_MAX

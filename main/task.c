@@ -31,6 +31,7 @@
 #include "khash.h"
 #include "memory.h"
 #include "why_io.h"
+#include "ota.h"
 
 #include <stdatomic.h>
 
@@ -222,7 +223,7 @@ static void task_info_delete(task_info_t *task_info) {
                             dev->_destroy(ptr);
                         }
                         break;
-
+                    case RES_OTA: ota_session_abort(ptr); break;
                     default: ESP_LOGE(TAG, "Unknown resource type %i in task_info_delete", type);
                 }
             }

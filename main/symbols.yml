@@ -899,12 +899,12 @@ simple_function:
   - window_title_get
   - window_title_set
   - device_get
+  - ota_get_invalid_version
+  - ota_get_running_version
+  - ota_session_abort
+  - ota_session_commit
   - ota_session_open
   - ota_write
-  - ota_session_commit
-  - ota_session_abort
-  - ota_get_running_version
-  - ota_get_invalid_version
 
 simple_function_extern:
   - __adddf3
