@@ -15,7 +15,6 @@ struct ota_session_t {
 ota_handle_t ota_session_open() {
     esp_err_t             err;
     struct ota_session_t *session = (struct ota_session_t *)malloc(sizeof(ota_session_t));
-    ;
 
     session->configured    = esp_ota_get_boot_partition();
     session->running       = esp_ota_get_running_partition();
