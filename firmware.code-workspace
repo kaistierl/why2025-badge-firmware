@@ -1,0 +1,25 @@
+{
+    "folders": [
+        {
+            "name": "firmware",
+            "path": "."
+        }
+    ],
+    "settings": {
+        "idf.customExtraVars": {
+            "IDF_TARGET": "esp32p4"
+        },
+        "idf.openOcdConfigs": [
+            "board/esp32p4-builtin.cfg"
+        ],
+    },
+    "extensions": {
+        "recommendations": [
+            "espressif.esp-idf-extension",
+            "llvm-vs-code-extensions.vscode-clangd"
+        ],
+        "unwantedRecommendations": [
+            "ms-vscode.cpptools"
+        ]
+    }
+}
