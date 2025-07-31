@@ -2,7 +2,7 @@
 
 BadgeVMS is the most used Badge operating system on the WHY2025 camp.
 
-![BadgeVMS Logo](fatfs_image/BadgeVMS.png)
+![BadgeVMS Logo](compute_storage/BadgeVMS.png)
 
 Some feature highlights:
 
@@ -22,7 +22,6 @@ To build BadgeVMS you need to have esp-idf 5.5 installed. For installation instr
 Then build and run on the badge with:
 
 ```
-idf.py set-target esp32p4 # This needs to be done only once
 idf.py build flash monitor
 ```
 
@@ -49,18 +48,17 @@ riscv32-esp-elf-gcc -O2 -fPIC -fdata-sections -ffunction-sections -flto \
    hello.c -o hello.elf
 ```
 
-This also works with for instance `riscv64-linux-gnu-gcc` as shipped by Fedora 42.  
+This also works with for instance `riscv64-linux-gnu-gcc` as shipped by Fedora 42.
   
 # Linking with the SDK libraries
 
-Due to limitations in the ELF loader in BadgeVMS, do not expose symbols in your program other than `main`, with the default flags above (`-fvisibility=hidden`) this is mostly taken care of, but if linking with an `.a` file, especially one not shipped with the SDK, things might go wrong.  
+Due to limitations in the ELF loader in BadgeVMS, do not expose symbols in your program other than `main`, with the default flags above (`-fvisibility=hidden`) this is mostly taken care of, but if linking with an `.a` file, especially one not shipped with the SDK, things might go wrong.
   
 In order to link properly with an `.a` file for BadgeVMS please use `-Wl,--exclude-libs,libmylib.a`
 
 # Weird things to keep in mind
 
- * UNIX paths do not work! Paths are in the form of `DEVICE:[directory.subdirectory]filename.ext`   
+ * UNIX paths do not work! Paths are in the form of `DEVICE:[directory.subdirectory]filename.ext`
  * The various GCC options above are not optional. BadgeVMS binaries are position independent ELF shared objects. Other types of binaries will not load.
  * No threading
- * No shared libraries, you there is no `dlopen()` either, all of your dependencies (that is, symbols that come from places other than what is included with the sdk) must be fully statically linked.  
- 
+ * No shared libraries, you there is no `dlopen()` either, all of your dependencies (that is, symbols that come from places other than what is included with the sdk) must be fully statically linked.

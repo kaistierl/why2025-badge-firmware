@@ -1,9 +1,21 @@
-# Name,   Type, SubType, Offset,  Size,    Flags
-nvs,      data, nvs,     0x9000,  0x4000,
-otadata,  data, ota,     0xd000,  0x2000,
-phy_init, data, phy,     0xf000,  0x1000,
-ota_0,    app,  ota_0,   0x10000, 2M,
-ota_1,    app,  ota_1,   ,        2M,
-# Roughly 13MB for user applications
-#storage,  data, fat,     ,        0xCF0000,
-storage,  data, fat,     ,        2M,
+# Name, Type, SubType, Offset, Size, Flags
+
+# Note: The bootloader and binary partition table implicitly go in the first
+# 64 KiB as well.
+
+# Persistent data for the NVS api used by some components. (16 KiB)
+nvs,     data, nvs, 0x9000, 0x4000,
+# Stores the currently selected ota partition. (8 KiB)
+otadata, data, ota, 0xd000, 0x2000,
+
+# Note: App partitions have to be aligned to 64 KiB (0x10000).
+
+# Factory (badgevms installer) (256 KiB)
+factory, app, factory, 0x10000, 0x40000,
+
+# BadgeVMS (2 MiB * 2)
+ota_0, app, ota_0, , 2M,
+ota_1, app, ota_1, , 2M,
+
+# Roughly 11.6 MiB for user applications
+storage, data, fat, , 0xBB0000,

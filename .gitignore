@@ -3,7 +3,6 @@ sdkconfig.old
 build/
 managed_components/
 sdk_dist/
-dependencies.lock
 
 *.swp
 .vscode

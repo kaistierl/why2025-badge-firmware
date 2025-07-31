@@ -39,3 +39,11 @@
   - Use BadgeVMS malloc/free
   - Use BadgeVMS open/read/write/lseek
 
+* esptool_py (From esp-idf v5.5)
+  - Comment out the code in CMakeLists.txt that flashes the main project binary
+    onto the "default boot partition", i.e. factory. This prevented us from
+    flashing an small factory app that only does OTA.
+
+* spi_flash (From esp-idf v5.5)
+  - No changes.
+  - Needed here because it implicitly depends on esptool_py Kconfig.
