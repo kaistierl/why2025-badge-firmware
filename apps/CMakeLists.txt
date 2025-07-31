@@ -116,6 +116,12 @@ build_app(hardware_test
     hardware_test/test_badge.c
 )
 
+build_app(minimal_ota
+    SOURCES
+    minimal_ota/thirdparty/microui.c
+    minimal_ota/minimal_ota.c
+)
+
 build_app(sdl_test
     SOURCES
     sdl_test/sdl_test.c
