@@ -135,6 +135,11 @@ build_app(curl_test
     curl_test/curl_test.c
 )
 
+build_app(bmi270_test
+    SOURCES
+    bmi270_test/bmi270_test.c
+)
+
 build_app(doom
     SOURCES
     doomgeneric/doomgeneric/am_map.c

@@ -8,6 +8,7 @@ idf_component_register(
      "curl.c"
      "device.c"
      "drivers/badgevms_i2c_bus.c"
+     "drivers/bosch_bmi270.c"
      "drivers/fatfs.c"
      "drivers/st7703.c"
      "drivers/tca8418.c"
