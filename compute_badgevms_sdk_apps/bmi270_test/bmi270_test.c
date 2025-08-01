@@ -6,12 +6,15 @@
 int main(int argc, char *argv[]) {
     sleep(5);
 
-    bmi270_device_t *bmi270_sensor;
+    orientation_device_t *orientation;
 
-    bmi270_sensor = (bmi270_device_t *)device_get("BMISENSOR0");
+    orientation = (orientation_device_t *)device_get("ORIENTATION0");
 
-    printf("Get BMI270 accel and gyro...\n");
-    int ret = bmi270_sensor->_get_orientation(bmi270_sensor);
+    if(orientation == NULL){
+        printf("Well, no device found");
+        return 0;
+    }
 
-    sleep(5);
+    printf("Get BMI270 accel...\n");
+    int ret = orientation->_get_orientation(orientation);
 }

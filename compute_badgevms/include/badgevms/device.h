@@ -30,7 +30,7 @@ typedef enum {
     DEVICE_TYPE_KEYBOARD,
     DEVICE_TYPE_BUS,
     DEVICE_TYPE_WIFI,
-    DEVICE_TYPE_BMI270,
+    DEVICE_TYPE_ORIENTATION,
 } device_type_t;
 
 typedef struct device {
@@ -76,6 +76,6 @@ typedef struct {
 typedef struct {
     device_t device;
     int (*_get_orientation)(void *dev);
-} bmi270_device_t;
+} orientation_device_t;
 
 device_t *device_get(char const *name);

@@ -25,7 +25,7 @@
 #define ACCEL UINT8_C(0x00)
 #define GYRO UINT8_C(0x01)
 
-#define BMI270_SAMPLE_COUNT 2
+#define BMI270_SAMPLE_COUNT 8
 
 
 #define TAG "BMI270"
@@ -33,8 +33,7 @@
 static i2c_bus_handle_t i2c_bus;
 
 typedef struct {
-    device_t       device;
-    key_mod_t      mod_state;
+    orientation_device_t       device;
     bmi270_handle_t sensor;
 } bosch_bmi270_device_t;
 
@@ -42,6 +41,7 @@ static int8_t set_accel_gyro_config(struct bmi2_dev *bmi);
 static float lsb_to_mps2(int16_t val, float g_range, uint8_t bit_width);
 static float lsb_to_dps(int16_t val, float dps, uint8_t bit_width);
 void why_bmi2_error_codes_print_result(int8_t rslt);
+float tilt_angle_deg(float ax, float ay);
 
 /*!
  *  @brief Prints the execution status of the APIs.
@@ -256,94 +256,74 @@ static ssize_t bmi270_lseek(void *dev, int fd, off_t offset, int whence) {
     return -1;
 }
 
-static int _get_orientation(void *dev){
-    //bosch_bmi270_device_t *device = dev;
+static int get_orientation(void *dev){
+    bosch_bmi270_device_t *device = dev;
 
-    //int8_t rslt;
-//
-    ///* Assign accel and gyro sensor to variable. */
-    //uint8_t sensor_list[2] = {BMI2_ACCEL, BMI2_GYRO};
-//
-    ///* Structure to define type of sensor and their respective data. */
-    //struct bmi2_sens_data sensor_data;
-//
-    //uint8_t indx = 1;
-//
-    //float acc_x = 0, acc_y = 0, acc_z = 0;
-    //float gyr_x = 0, gyr_y = 0, gyr_z = 0;
-    //struct bmi2_sens_config config;
-    ///* Accel and gyro configuration settings. */
-    //rslt = set_accel_gyro_config(device->sensor);
-    //why_bmi2_error_codes_print_result(rslt);
+    int8_t rslt;
 
-    //if (rslt == BMI2_OK) {
-    //    /* NOTE:
-    //     * Accel and Gyro enable must be done after setting configurations
-    //     */
-    //    rslt = bmi2_sensor_enable(sensor_list, 2, device->sensor);
-    //    why_bmi2_error_codes_print_result(rslt);
-//
-    //    if (rslt == BMI2_OK) {
-    //        config.type = BMI2_ACCEL;
-//
-    //        /* Get the accel configurations. */
-    //        rslt = bmi2_get_sensor_config(&config, 1, device->sensor);
-    //        why_bmi2_error_codes_print_result(rslt);
-//
-    //        printf(
-    //            "\nData set, Accel Range, Acc_Raw_X, Acc_Raw_Y, Acc_Raw_Z, Acc_ms2_X, Acc_ms2_Y, Acc_ms2_Z, Gyr_Raw_X, Gyr_Raw_Y, Gyr_Raw_Z, Gyro_DPS_X, Gyro_DPS_Y, Gyro_DPS_Z\n\n");
-//
-//
-    //        while (indx <= BMI270_SAMPLE_COUNT) {
-    //            rslt = bmi2_get_sensor_data(&sensor_data, device->sensor);
-    //            why_bmi2_error_codes_print_result(rslt);
-//
-    //            if ((rslt == BMI2_OK) && (sensor_data.status & BMI2_DRDY_ACC) &&
-    //                (sensor_data.status & BMI2_DRDY_GYR)) {
-    //                /* Converting lsb to meter per second squared for 16 bit accelerometer at 2G range. */
-    //                acc_x = lsb_to_mps2(sensor_data.acc.x, (float) 2, device->sensor->resolution);
-    //                acc_y = lsb_to_mps2(sensor_data.acc.y, (float) 2, device->sensor->resolution);
-    //                acc_z = lsb_to_mps2(sensor_data.acc.z, (float) 2, device->sensor->resolution);
-//
-    //                /* Converting lsb to degree per second for 16 bit gyro at 2000dps range. */
-    //                gyr_x = lsb_to_dps(sensor_data.gyr.x, (float) 2000, device->sensor->resolution);
-    //                gyr_y = lsb_to_dps(sensor_data.gyr.y, (float) 2000, device->sensor->resolution);
-    //                gyr_z = lsb_to_dps(sensor_data.gyr.z, (float) 2000, device->sensor->resolution);
-//
-    //                printf("%d, acc:(%6d, %6d, %6d) (%8.2f, %8.2f, %8.2f) gyr:(%6d, %6d, %6d) (%8.2f, %8.2f, %8.2f)\n",
-    //                       config.cfg.acc.range,
-    //                       sensor_data.acc.x,
-    //                       sensor_data.acc.y,
-    //                       sensor_data.acc.z,
-    //                       acc_x,
-    //                       acc_y,
-    //                       acc_z,
-    //                       sensor_data.gyr.x,
-    //                       sensor_data.gyr.y,
-    //                       sensor_data.gyr.z,
-    //                       gyr_x,
-    //                       gyr_y,
-    //                       gyr_z);
-    //                vTaskDelay(pdMS_TO_TICKS(500));
-    //                indx++;
-    //            }
-    //        }
-    //    }
-    //}
+    /* Assign accel and gyro sensor to variable. */
+    uint8_t sensor_list[2] = {BMI2_ACCEL, BMI2_GYRO};
 
+    /* Structure to define type of sensor and their respective data. */
+    struct bmi2_sens_data sensor_data;
+
+    uint8_t indx = 1;
+
+    float acc_x = 0, acc_y = 0, acc_z = 0;
+    float gyr_x = 0, gyr_y = 0, gyr_z = 0;
+    struct bmi2_sens_config config;
+    /* Accel and gyro configuration settings. */
+    rslt = set_accel_gyro_config(device->sensor);
+    why_bmi2_error_codes_print_result(rslt);
+
+    if (rslt == BMI2_OK) {
+        /* NOTE:
+         * Accel and Gyro enable must be done after setting configurations
+         */
+        rslt = bmi2_sensor_enable(sensor_list, 2, device->sensor);
+        why_bmi2_error_codes_print_result(rslt);
+
+        if (rslt == BMI2_OK) {
+            config.type = BMI2_ACCEL;
+
+            /* Get the accel configurations. */
+            rslt = bmi2_get_sensor_config(&config, 1, device->sensor);
+            why_bmi2_error_codes_print_result(rslt);
+
+            while (true) {
+                rslt = bmi2_get_sensor_data(&sensor_data, device->sensor);
+                why_bmi2_error_codes_print_result(rslt);
+
+                if ((rslt == BMI2_OK) && (sensor_data.status & BMI2_DRDY_ACC) &&
+                    (sensor_data.status & BMI2_DRDY_GYR)) {
+                    /* Converting lsb to meter per second squared for 16 bit accelerometer at 2G range. */
+                    acc_x = lsb_to_mps2(sensor_data.acc.x, (float) 2, device->sensor->resolution);
+                    acc_y = lsb_to_mps2(sensor_data.acc.y, (float) 2, device->sensor->resolution);
+                    acc_z = lsb_to_mps2(sensor_data.acc.z, (float) 2, device->sensor->resolution);
+                    float degrees = tilt_angle_deg(acc_x, acc_y);
+                    printf("Degrees: %6f \n", degrees);
+                    break;
+                }
+            }
+
+        }
+    }
     return 1;
 }
 
 device_t *bosch_bmi270_sensor_create() {
     bosch_bmi270_device_t *dev = calloc(1, sizeof(bosch_bmi270_device_t));
+    orientation_device_t *orientation_dev = (orientation_device_t *)dev;
     device_t *base_dev = (device_t *)dev;
 
-    base_dev->type   = DEVICE_TYPE_BMI270;
+    base_dev->type   = DEVICE_TYPE_ORIENTATION;
     base_dev->_open  = bmi270_open;
     base_dev->_close = bmi270_close;
     base_dev->_write = bmi270_write;
     base_dev->_read  = bmi270_read;
     base_dev->_lseek = bmi270_lseek;
+
+    orientation_dev->_get_orientation = get_orientation;
 
     const i2c_config_t i2c_bus_conf = {
         .mode = I2C_MODE_MASTER,
@@ -487,4 +467,18 @@ static float lsb_to_dps(int16_t val, float dps, uint8_t bit_width)
     float half_scale = (float)((pow((double)power, (double)bit_width) / 2.0f));
 
     return (dps / (half_scale)) * (val);
+}
+
+// Returns tilt angle in degrees [0,360), based solely on ax and ay.
+// 0° corresponds to gravity along +Y, 90° along +X, etc.
+// If both ax and ay are (near) zero, returns NAN.
+float tilt_angle_deg(float ax, float ay) {
+    if (fabs(ax) < 1e-12 && fabs(ay) < 1e-12) {
+        return NAN; // direction undefined
+    }
+    float angle = atan2(ax, ay) * 180.0 / M_PI; // note: (ax, ay) to keep 0° at +Y
+    if (angle < 0.0) {
+        angle += 360.0;
+    }
+    return angle;
 }

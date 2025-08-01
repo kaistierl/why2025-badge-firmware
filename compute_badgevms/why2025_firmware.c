@@ -115,7 +115,7 @@ int app_main(void) {
     device_register("FLASH0", fatfs_create_spi("FLASH0", "storage", true));
     device_register("I2CBUS0", badgevms_i2c_bus_create("I2CBUS0", 0, 400 * 1000));
     device_register("WIFI0", wifi_create());
-    device_register("BMISENSOR0", bosch_bmi270_sensor_create());
+    device_register("ORIENTATION0", bosch_bmi270_sensor_create());
 
     logical_name_set("SEARCH", "FLASH0:[SUBDIR], FLASH0:[SUBDIR.ANOTHER]", false);
 
