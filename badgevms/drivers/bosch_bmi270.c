@@ -5,15 +5,12 @@
 
 #include <math.h>
 
-#define BMI_270_ADDRESS 0x69
-#define BMI270_I2C_ADDR BMI_270_ADDRESS
+#define BMI270_I2C_ADDR 0x69
 
 #define UE_SW_I2C 0
 
-#define SDA_PIN           18
-#define SCL_PIN           20
-#define I2C_MASTER_SDA_IO SDA_PIN
-#define I2C_MASTER_SCL_IO SCL_PIN
+#define I2C_MASTER_SDA_IO 18
+#define I2C_MASTER_SCL_IO 20
 
 #define I2C_MASTER_NUM     I2C_NUM_0  /*!< I2C port number for master dev */
 #define I2C_MASTER_FREQ_HZ 400 * 1000 /*!< I2C master clock frequency */
@@ -24,8 +21,6 @@
 /*! Macros to select the sensors                   */
 #define ACCEL UINT8_C(0x00)
 #define GYRO  UINT8_C(0x01)
-
-#define BMI270_SAMPLE_COUNT 8
 
 
 #define TAG "BMI270"
