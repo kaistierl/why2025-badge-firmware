@@ -1,7 +1,8 @@
 #include "badgevms/device.h"
 
 #include <stdio.h>
-#include <unistd.h> 
+
+#include <unistd.h>
 
 int main(int argc, char *argv[]) {
     sleep(5);
@@ -10,7 +11,7 @@ int main(int argc, char *argv[]) {
 
     orientation = (orientation_device_t *)device_get("ORIENTATION0");
 
-    if(orientation == NULL){
+    if (orientation == NULL) {
         printf("Well, no device found");
         return 0;
     }

@@ -1,9 +1,9 @@
 #include "bosch_bmi270.h"
 
-#include <math.h>
-
 #include "bmi270.h"
 #include "esp_log.h"
+
+#include <math.h>
 
 #define BMI_270_ADDRESS 0x69
 #define BMI270_I2C_ADDR BMI_270_ADDRESS
@@ -15,15 +15,15 @@
 #define I2C_MASTER_SDA_IO SDA_PIN
 #define I2C_MASTER_SCL_IO SCL_PIN
 
-#define I2C_MASTER_NUM          I2C_NUM_0               /*!< I2C port number for master dev */
-#define I2C_MASTER_FREQ_HZ      400*1000                /*!< I2C master clock frequency */
-#define I2C_MASTER_TIMEOUT      100                     /*!< I2C master timeout in milliseconds */
+#define I2C_MASTER_NUM     I2C_NUM_0  /*!< I2C port number for master dev */
+#define I2C_MASTER_FREQ_HZ 400 * 1000 /*!< I2C master clock frequency */
+#define I2C_MASTER_TIMEOUT 100        /*!< I2C master timeout in milliseconds */
 
 #define GRAVITY_EARTH (9.80665f)
 
 /*! Macros to select the sensors                   */
 #define ACCEL UINT8_C(0x00)
-#define GYRO UINT8_C(0x01)
+#define GYRO  UINT8_C(0x01)
 
 #define BMI270_SAMPLE_COUNT 8
 
@@ -33,139 +33,177 @@
 static i2c_bus_handle_t i2c_bus;
 
 typedef struct {
-    orientation_device_t       device;
-    bmi270_handle_t sensor;
+    orientation_device_t device;
+    bmi270_handle_t      sensor;
 } bosch_bmi270_device_t;
 
 static int8_t set_accel_gyro_config(struct bmi2_dev *bmi);
-static float lsb_to_mps2(int16_t val, float g_range, uint8_t bit_width);
-static float lsb_to_dps(int16_t val, float dps, uint8_t bit_width);
-void why_bmi2_error_codes_print_result(int8_t rslt);
-float tilt_angle_deg(float ax, float ay);
+static float  lsb_to_mps2(int16_t val, float g_range, uint8_t bit_width);
+static float  lsb_to_dps(int16_t val, float dps, uint8_t bit_width);
+void          why_bmi2_error_codes_print_result(int8_t rslt);
+float         tilt_angle_deg(float ax, float ay);
 
 /*!
  *  @brief Prints the execution status of the APIs.
  */
-void why_bmi2_error_codes_print_result(int8_t rslt)
-{
-    switch (rslt)
-    {
+void why_bmi2_error_codes_print_result(int8_t rslt) {
+    switch (rslt) {
         case BMI2_OK:
 
             /* Do nothing */
             break;
 
-        case BMI2_W_FIFO_EMPTY:
-            printf("Warning [%d] : FIFO empty\r\n", rslt);
-            break;
-        case BMI2_W_PARTIAL_READ:
-            printf("Warning [%d] : FIFO partial read\r\n", rslt);
-            break;
+        case BMI2_W_FIFO_EMPTY: printf("Warning [%d] : FIFO empty\r\n", rslt); break;
+        case BMI2_W_PARTIAL_READ: printf("Warning [%d] : FIFO partial read\r\n", rslt); break;
         case BMI2_E_NULL_PTR:
             printf(
-                "Error [%d] : Null pointer error. It occurs when the user tries to assign value (not address) to a pointer," " which has been initialized to NULL.\r\n",
-                rslt);
+                "Error [%d] : Null pointer error. It occurs when the user tries to assign value (not address) to a "
+                "pointer,"
+                " which has been initialized to NULL.\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_COM_FAIL:
             printf(
-                "Error [%d] : Communication failure error. It occurs due to read/write operation failure and also due " "to power failure during communication\r\n",
-                rslt);
+                "Error [%d] : Communication failure error. It occurs due to read/write operation failure and also due "
+                "to power failure during communication\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_DEV_NOT_FOUND:
-            printf("Error [%d] : Device not found error. It occurs when the device chip id is incorrectly read\r\n",
-                   rslt);
+            printf(
+                "Error [%d] : Device not found error. It occurs when the device chip id is incorrectly read\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_INVALID_SENSOR:
             printf(
-                "Error [%d] : Invalid sensor error. It occurs when there is a mismatch in the requested feature with the " "available one\r\n",
-                rslt);
+                "Error [%d] : Invalid sensor error. It occurs when there is a mismatch in the requested feature with "
+                "the "
+                "available one\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_SELF_TEST_FAIL:
             printf(
-                "Error [%d] : Self-test failed error. It occurs when the validation of accel self-test data is " "not satisfied\r\n",
-                rslt);
+                "Error [%d] : Self-test failed error. It occurs when the validation of accel self-test data is "
+                "not satisfied\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_INVALID_INT_PIN:
             printf(
-                "Error [%d] : Invalid interrupt pin error. It occurs when the user tries to configure interrupt pins " "apart from INT1 and INT2\r\n",
-                rslt);
+                "Error [%d] : Invalid interrupt pin error. It occurs when the user tries to configure interrupt pins "
+                "apart from INT1 and INT2\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_OUT_OF_RANGE:
             printf(
-                "Error [%d] : Out of range error. It occurs when the data exceeds from filtered or unfiltered data from " "fifo and also when the range exceeds the maximum range for accel and gyro while performing FOC\r\n",
-                rslt);
+                "Error [%d] : Out of range error. It occurs when the data exceeds from filtered or unfiltered data "
+                "from "
+                "fifo and also when the range exceeds the maximum range for accel and gyro while performing FOC\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_ACC_INVALID_CFG:
             printf(
-                "Error [%d] : Invalid Accel configuration error. It occurs when there is an error in accel configuration" " register which could be one among range, BW or filter performance in reg address 0x40\r\n",
-                rslt);
+                "Error [%d] : Invalid Accel configuration error. It occurs when there is an error in accel "
+                "configuration"
+                " register which could be one among range, BW or filter performance in reg address 0x40\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_GYRO_INVALID_CFG:
             printf(
-                "Error [%d] : Invalid Gyro configuration error. It occurs when there is a error in gyro configuration" "register which could be one among range, BW or filter performance in reg address 0x42\r\n",
-                rslt);
+                "Error [%d] : Invalid Gyro configuration error. It occurs when there is a error in gyro configuration"
+                "register which could be one among range, BW or filter performance in reg address 0x42\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_ACC_GYR_INVALID_CFG:
             printf(
-                "Error [%d] : Invalid Accel-Gyro configuration error. It occurs when there is a error in accel and gyro" " configuration registers which could be one among range, BW or filter performance in reg address 0x40 " "and 0x42\r\n",
-                rslt);
+                "Error [%d] : Invalid Accel-Gyro configuration error. It occurs when there is a error in accel and gyro"
+                " configuration registers which could be one among range, BW or filter performance in reg address 0x40 "
+                "and 0x42\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_CONFIG_LOAD:
             printf(
-                "Error [%d] : Configuration load error. It occurs when failure observed while loading the configuration " "into the sensor\r\n",
-                rslt);
+                "Error [%d] : Configuration load error. It occurs when failure observed while loading the "
+                "configuration "
+                "into the sensor\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_INVALID_PAGE:
             printf(
-                "Error [%d] : Invalid page error. It occurs due to failure in writing the correct feature configuration " "from selected page\r\n",
-                rslt);
+                "Error [%d] : Invalid page error. It occurs due to failure in writing the correct feature "
+                "configuration "
+                "from selected page\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_SET_APS_FAIL:
             printf(
-                "Error [%d] : APS failure error. It occurs due to failure in write of advance power mode configuration " "register\r\n",
-                rslt);
+                "Error [%d] : APS failure error. It occurs due to failure in write of advance power mode configuration "
+                "register\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_AUX_INVALID_CFG:
             printf(
-                "Error [%d] : Invalid AUX configuration error. It occurs when the auxiliary interface settings are not " "enabled properly\r\n",
-                rslt);
+                "Error [%d] : Invalid AUX configuration error. It occurs when the auxiliary interface settings are not "
+                "enabled properly\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_AUX_BUSY:
             printf(
-                "Error [%d] : AUX busy error. It occurs when the auxiliary interface buses are engaged while configuring" " the AUX\r\n",
-                rslt);
+                "Error [%d] : AUX busy error. It occurs when the auxiliary interface buses are engaged while "
+                "configuring"
+                " the AUX\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_REMAP_ERROR:
             printf(
-                "Error [%d] : Remap error. It occurs due to failure in assigning the remap axes data for all the axes " "after change in axis position\r\n",
-                rslt);
+                "Error [%d] : Remap error. It occurs due to failure in assigning the remap axes data for all the axes "
+                "after change in axis position\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_GYR_USER_GAIN_UPD_FAIL:
             printf(
-                "Error [%d] : Gyro user gain update fail error. It occurs when the reading of user gain update status " "fails\r\n",
-                rslt);
+                "Error [%d] : Gyro user gain update fail error. It occurs when the reading of user gain update status "
+                "fails\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_SELF_TEST_NOT_DONE:
             printf(
-                "Error [%d] : Self-test not done error. It occurs when the self-test process is ongoing or not " "completed\r\n",
-                rslt);
+                "Error [%d] : Self-test not done error. It occurs when the self-test process is ongoing or not "
+                "completed\r\n",
+                rslt
+            );
             break;
 
             break;
@@ -176,26 +214,34 @@ void why_bmi2_error_codes_print_result(int8_t rslt)
 
         case BMI2_E_ST_ALREADY_RUNNING:
             printf(
-                "Error [%d] : Self-test already running error. It occurs when the self-test is already running and " "another has been initiated\r\n",
-                rslt);
+                "Error [%d] : Self-test already running error. It occurs when the self-test is already running and "
+                "another has been initiated\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_CRT_READY_FOR_DL_FAIL_ABORT:
             printf(
-                "Error [%d] : CRT ready for download fail abort error. It occurs when download in CRT fails due to wrong " "address location\r\n",
-                rslt);
+                "Error [%d] : CRT ready for download fail abort error. It occurs when download in CRT fails due to "
+                "wrong "
+                "address location\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_DL_ERROR:
             printf(
                 "Error [%d] : Download error. It occurs when write length exceeds that of the maximum burst length\r\n",
-                rslt);
+                rslt
+            );
             break;
 
         case BMI2_E_PRECON_ERROR:
             printf(
-                "Error [%d] : Pre-conditional error. It occurs when precondition to start the feature was not " "completed\r\n",
-                rslt);
+                "Error [%d] : Pre-conditional error. It occurs when precondition to start the feature was not "
+                "completed\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_ABORT_ERROR:
@@ -204,31 +250,37 @@ void why_bmi2_error_codes_print_result(int8_t rslt)
 
         case BMI2_E_WRITE_CYCLE_ONGOING:
             printf(
-                "Error [%d] : Write cycle ongoing error. It occurs when the write cycle is already running and another " "has been initiated\r\n",
-                rslt);
+                "Error [%d] : Write cycle ongoing error. It occurs when the write cycle is already running and another "
+                "has been initiated\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_ST_NOT_RUNING:
             printf(
-                "Error [%d] : Self-test is not running error. It occurs when self-test running is disabled while it's " "running\r\n",
-                rslt);
+                "Error [%d] : Self-test is not running error. It occurs when self-test running is disabled while it's "
+                "running\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_DATA_RDY_INT_FAILED:
             printf(
-                "Error [%d] : Data ready interrupt error. It occurs when the sample count exceeds the FOC sample limit " "and data ready status is not updated\r\n",
-                rslt);
+                "Error [%d] : Data ready interrupt error. It occurs when the sample count exceeds the FOC sample limit "
+                "and data ready status is not updated\r\n",
+                rslt
+            );
             break;
 
         case BMI2_E_INVALID_FOC_POSITION:
             printf(
-                "Error [%d] : Invalid FOC position error. It occurs when average FOC data is obtained for the wrong" " axes\r\n",
-                rslt);
+                "Error [%d] : Invalid FOC position error. It occurs when average FOC data is obtained for the wrong"
+                " axes\r\n",
+                rslt
+            );
             break;
 
-        default:
-            printf("Error [%d] : Unknown error code\r\n", rslt);
-            break;
+        default: printf("Error [%d] : Unknown error code\r\n", rslt); break;
     }
 }
 
@@ -256,11 +308,11 @@ static ssize_t bmi270_lseek(void *dev, int fd, off_t offset, int whence) {
     return -1;
 }
 
-static int get_orientation_degrees(void *dev){
+static int get_orientation_degrees(void *dev) {
     bosch_bmi270_device_t *device = dev;
 
     int8_t rslt;
-    float degrees = 0;
+    float  degrees = 0;
 
     /* Assign accel and gyro sensor to variable. */
     uint8_t sensor_list[2] = {BMI2_ACCEL, BMI2_GYRO};
@@ -268,7 +320,7 @@ static int get_orientation_degrees(void *dev){
     /* Structure to define type of sensor and their respective data. */
     struct bmi2_sens_data sensor_data;
 
-    float acc_x = 0, acc_y = 0, acc_z = 0;
+    float                   acc_x = 0, acc_y = 0, acc_z = 0;
     struct bmi2_sens_config config;
     /* Accel and gyro configuration settings. */
     rslt = set_accel_gyro_config(device->sensor);
@@ -288,16 +340,15 @@ static int get_orientation_degrees(void *dev){
             rslt = bmi2_get_sensor_config(&config, 1, device->sensor);
             why_bmi2_error_codes_print_result(rslt);
 
-            while (true) { //sensor takes a while to answer
+            while (true) { // sensor takes a while to answer
                 rslt = bmi2_get_sensor_data(&sensor_data, device->sensor);
                 why_bmi2_error_codes_print_result(rslt);
 
-                if ((rslt == BMI2_OK) && (sensor_data.status & BMI2_DRDY_ACC) &&
-                    (sensor_data.status & BMI2_DRDY_GYR)) {
+                if ((rslt == BMI2_OK) && (sensor_data.status & BMI2_DRDY_ACC) && (sensor_data.status & BMI2_DRDY_GYR)) {
                     /* Converting lsb to meter per second squared for 16 bit accelerometer at 2G range. */
-                    acc_x = lsb_to_mps2(sensor_data.acc.x, (float) 2, device->sensor->resolution);
-                    acc_y = lsb_to_mps2(sensor_data.acc.y, (float) 2, device->sensor->resolution);
-                    acc_z = lsb_to_mps2(sensor_data.acc.z, (float) 2, device->sensor->resolution);
+                    acc_x   = lsb_to_mps2(sensor_data.acc.x, (float)2, device->sensor->resolution);
+                    acc_y   = lsb_to_mps2(sensor_data.acc.y, (float)2, device->sensor->resolution);
+                    acc_z   = lsb_to_mps2(sensor_data.acc.z, (float)2, device->sensor->resolution);
                     degrees = tilt_angle_deg(acc_x, acc_y);
                     break;
                 }
@@ -308,22 +359,22 @@ static int get_orientation_degrees(void *dev){
     return (int)degrees;
 }
 
-static enum orientation get_orientation(void *dev){
+static enum orientation get_orientation(void *dev) {
     int degrees = get_orientation_degrees(dev);
-    if(degrees>45 && degrees<135){
+    if (degrees > 45 && degrees < 135) {
         return ORIENTATION_90;
-    }else if (degrees>135 && degrees<225){
+    } else if (degrees > 135 && degrees < 225) {
         return ORIENTATION_180;
-    }else if (degrees>225 && degrees<315){
+    } else if (degrees > 225 && degrees < 315) {
         return ORIENTATION_270;
     }
     return ORIENTATION_0;
 }
 
 device_t *bosch_bmi270_sensor_create() {
-    bosch_bmi270_device_t *dev = calloc(1, sizeof(bosch_bmi270_device_t));
-    orientation_device_t *orientation_dev = (orientation_device_t *)dev;
-    device_t *base_dev = (device_t *)dev;
+    bosch_bmi270_device_t *dev             = calloc(1, sizeof(bosch_bmi270_device_t));
+    orientation_device_t  *orientation_dev = (orientation_device_t *)dev;
+    device_t              *base_dev        = (device_t *)dev;
 
     base_dev->type   = DEVICE_TYPE_ORIENTATION;
     base_dev->_open  = bmi270_open;
@@ -332,23 +383,23 @@ device_t *bosch_bmi270_sensor_create() {
     base_dev->_read  = bmi270_read;
     base_dev->_lseek = bmi270_lseek;
 
-    orientation_dev->_get_orientation = get_orientation;
+    orientation_dev->_get_orientation         = get_orientation;
     orientation_dev->_get_orientation_degrees = get_orientation_degrees;
 
-    const i2c_config_t i2c_bus_conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+    i2c_config_t const i2c_bus_conf = {
+        .mode             = I2C_MODE_MASTER,
+        .sda_io_num       = I2C_MASTER_SDA_IO,
+        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
+        .scl_io_num       = I2C_MASTER_SCL_IO,
+        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
         .master.clk_speed = I2C_MASTER_FREQ_HZ
     };
-    #if UE_SW_I2C
-        i2c_bus = i2c_bus_create(I2C_NUM_SW_1, &i2c_bus_conf);
-    #else
-        i2c_bus = i2c_bus_create(I2C_MASTER_NUM, &i2c_bus_conf);
-    #endif
-    if(i2c_bus == NULL){
+#if UE_SW_I2C
+    i2c_bus = i2c_bus_create(I2C_NUM_SW_1, &i2c_bus_conf);
+#else
+    i2c_bus = i2c_bus_create(I2C_MASTER_NUM, &i2c_bus_conf);
+#endif
+    if (i2c_bus == NULL) {
         ESP_LOGE(TAG, "Failed initialising i2c bus");
         free(dev);
         return NULL;
@@ -356,10 +407,10 @@ device_t *bosch_bmi270_sensor_create() {
 
     bmi270_i2c_config_t i2c_bmi270_conf = {
         .i2c_handle = i2c_bus,
-        .i2c_addr = BMI270_I2C_ADDR,
+        .i2c_addr   = BMI270_I2C_ADDR,
     };
     bmi270_sensor_create(&i2c_bmi270_conf, &dev->sensor);
-    if(dev->sensor == NULL){
+    if (dev->sensor == NULL) {
         ESP_LOGE(TAG, "Failed initialising bosch bmi270 sensor");
         free(dev);
         return NULL;
@@ -373,8 +424,7 @@ device_t *bosch_bmi270_sensor_create() {
 /*!
  * @brief This internal API is used to set configurations for accel and gyro.
  */
-static int8_t set_accel_gyro_config(struct bmi2_dev *bmi)
-{
+static int8_t set_accel_gyro_config(struct bmi2_dev *bmi) {
     /* Status of api are returned to this variable. */
     int8_t rslt;
 
@@ -383,7 +433,7 @@ static int8_t set_accel_gyro_config(struct bmi2_dev *bmi)
 
     /* Configure the type of feature. */
     config[ACCEL].type = BMI2_ACCEL;
-    config[GYRO].type = BMI2_GYRO;
+    config[GYRO].type  = BMI2_GYRO;
 
     /* Get default configurations for the type of feature selected. */
     rslt = bmi2_get_sensor_config(config, 2, bmi);
@@ -393,8 +443,7 @@ static int8_t set_accel_gyro_config(struct bmi2_dev *bmi)
     rslt = bmi2_map_data_int(BMI2_DRDY_INT, BMI2_INT1, bmi);
     why_bmi2_error_codes_print_result(rslt);
 
-    if (rslt == BMI2_OK)
-    {
+    if (rslt == BMI2_OK) {
         /* NOTE: The user can change the following configuration parameters according to their requirement. */
         /* Set Output Data Rate */
         config[ACCEL].cfg.acc.odr = BMI2_ACC_ODR_200HZ;
@@ -457,8 +506,7 @@ static int8_t set_accel_gyro_config(struct bmi2_dev *bmi)
  * @brief This function converts lsb to meter per second squared for 16 bit accelerometer at
  * range 2G, 4G, 8G or 16G.
  */
-static float lsb_to_mps2(int16_t val, float g_range, uint8_t bit_width)
-{
+static float lsb_to_mps2(int16_t val, float g_range, uint8_t bit_width) {
     double power = 2;
 
     float half_scale = (float)((pow((double)power, (double)bit_width) / 2.0f));
@@ -470,8 +518,7 @@ static float lsb_to_mps2(int16_t val, float g_range, uint8_t bit_width)
  * @brief This function converts lsb to degree per second for 16 bit gyro at
  * range 125, 250, 500, 1000 or 2000dps.
  */
-static float lsb_to_dps(int16_t val, float dps, uint8_t bit_width)
-{
+static float lsb_to_dps(int16_t val, float dps, uint8_t bit_width) {
     double power = 2;
 
     float half_scale = (float)((pow((double)power, (double)bit_width) / 2.0f));
