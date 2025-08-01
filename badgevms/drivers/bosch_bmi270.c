@@ -4,6 +4,7 @@
 #include "esp_log.h"
 
 #include <math.h>
+#include <stdatomic.h>
 
 #define BMI270_I2C_ADDR 0x69
 
@@ -30,6 +31,7 @@ static i2c_bus_handle_t i2c_bus;
 typedef struct {
     orientation_device_t device;
     bmi270_handle_t      sensor;
+    atomic_flag          open;
 } bosch_bmi270_device_t;
 
 static int8_t set_accel_gyro_config(struct bmi2_dev *bmi);
@@ -317,6 +319,10 @@ static int get_orientation_degrees(void *dev) {
 
     float                   acc_x = 0, acc_y = 0, acc_z = 0;
     struct bmi2_sens_config config;
+
+    if (atomic_flag_test_and_set(&device->open)) {
+        return 0;
+    }
     /* Accel and gyro configuration settings. */
     rslt = set_accel_gyro_config(device->sensor);
     why_bmi2_error_codes_print_result(rslt);
@@ -351,6 +357,7 @@ static int get_orientation_degrees(void *dev) {
         }
     }
     bmi270_sensor_disable(sensor_list, 2, device->sensor);
+    atomic_flag_clear(&device->open);
     return (int)degrees;
 }
 
