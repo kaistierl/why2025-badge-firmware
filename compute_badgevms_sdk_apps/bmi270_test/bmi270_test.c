@@ -17,4 +17,7 @@ int main(int argc, char *argv[]) {
 
     printf("Get BMI270 accel...\n");
     int ret = orientation->_get_orientation(orientation);
+    printf("Orientation: %d \n", ret);
+    int degrees = orientation->_get_orientation_degrees(orientation);
+    printf("Orientation degrees: %d \n", degrees);
 }

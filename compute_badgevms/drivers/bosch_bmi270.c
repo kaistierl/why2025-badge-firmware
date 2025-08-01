@@ -256,10 +256,11 @@ static ssize_t bmi270_lseek(void *dev, int fd, off_t offset, int whence) {
     return -1;
 }
 
-static int get_orientation(void *dev){
+static enum orientation get_orientation(void *dev){
     bosch_bmi270_device_t *device = dev;
 
     int8_t rslt;
+    float degrees = 0;
 
     /* Assign accel and gyro sensor to variable. */
     uint8_t sensor_list[2] = {BMI2_ACCEL, BMI2_GYRO};
@@ -267,10 +268,8 @@ static int get_orientation(void *dev){
     /* Structure to define type of sensor and their respective data. */
     struct bmi2_sens_data sensor_data;
 
-    uint8_t indx = 1;
-
     float acc_x = 0, acc_y = 0, acc_z = 0;
-    float gyr_x = 0, gyr_y = 0, gyr_z = 0;
+    //float gyr_x = 0, gyr_y = 0, gyr_z = 0;
     struct bmi2_sens_config config;
     /* Accel and gyro configuration settings. */
     rslt = set_accel_gyro_config(device->sensor);
@@ -290,7 +289,7 @@ static int get_orientation(void *dev){
             rslt = bmi2_get_sensor_config(&config, 1, device->sensor);
             why_bmi2_error_codes_print_result(rslt);
 
-            while (true) {
+            while (true) { //sensor takes a while to answer
                 rslt = bmi2_get_sensor_data(&sensor_data, device->sensor);
                 why_bmi2_error_codes_print_result(rslt);
 
@@ -300,15 +299,73 @@ static int get_orientation(void *dev){
                     acc_x = lsb_to_mps2(sensor_data.acc.x, (float) 2, device->sensor->resolution);
                     acc_y = lsb_to_mps2(sensor_data.acc.y, (float) 2, device->sensor->resolution);
                     acc_z = lsb_to_mps2(sensor_data.acc.z, (float) 2, device->sensor->resolution);
-                    float degrees = tilt_angle_deg(acc_x, acc_y);
-                    printf("Degrees: %6f \n", degrees);
+                    degrees = tilt_angle_deg(acc_x, acc_y);
                     break;
                 }
             }
-
         }
     }
-    return 1;
+    bmi270_sensor_disable(sensor_list, 2, device->sensor);
+    if(degrees>45 && degrees<135){
+        return ORIENTATION_90;
+    }else if (degrees>135 && degrees<225){
+        return ORIENTATION_180;
+    }else if (degrees>225 && degrees<315){
+        return ORIENTATION_270;
+    }
+    return ORIENTATION_0;
+}
+
+static int get_orientation_degrees(void *dev){
+    bosch_bmi270_device_t *device = dev;
+
+    int8_t rslt;
+    float degrees = 0;
+
+    /* Assign accel and gyro sensor to variable. */
+    uint8_t sensor_list[2] = {BMI2_ACCEL, BMI2_GYRO};
+
+    /* Structure to define type of sensor and their respective data. */
+    struct bmi2_sens_data sensor_data;
+
+    float acc_x = 0, acc_y = 0, acc_z = 0;
+    struct bmi2_sens_config config;
+    /* Accel and gyro configuration settings. */
+    rslt = set_accel_gyro_config(device->sensor);
+    why_bmi2_error_codes_print_result(rslt);
+
+    if (rslt == BMI2_OK) {
+        /* NOTE:
+         * Accel and Gyro enable must be done after setting configurations
+         */
+        rslt = bmi2_sensor_enable(sensor_list, 2, device->sensor);
+        why_bmi2_error_codes_print_result(rslt);
+
+        if (rslt == BMI2_OK) {
+            config.type = BMI2_ACCEL;
+
+            /* Get the accel configurations. */
+            rslt = bmi2_get_sensor_config(&config, 1, device->sensor);
+            why_bmi2_error_codes_print_result(rslt);
+
+            while (true) { //sensor takes a while to answer
+                rslt = bmi2_get_sensor_data(&sensor_data, device->sensor);
+                why_bmi2_error_codes_print_result(rslt);
+
+                if ((rslt == BMI2_OK) && (sensor_data.status & BMI2_DRDY_ACC) &&
+                    (sensor_data.status & BMI2_DRDY_GYR)) {
+                    /* Converting lsb to meter per second squared for 16 bit accelerometer at 2G range. */
+                    acc_x = lsb_to_mps2(sensor_data.acc.x, (float) 2, device->sensor->resolution);
+                    acc_y = lsb_to_mps2(sensor_data.acc.y, (float) 2, device->sensor->resolution);
+                    acc_z = lsb_to_mps2(sensor_data.acc.z, (float) 2, device->sensor->resolution);
+                    degrees = tilt_angle_deg(acc_x, acc_y);
+                    break;
+                }
+            }
+        }
+    }
+    bmi270_sensor_disable(sensor_list, 2, device->sensor);
+    return (int)degrees;
 }
 
 device_t *bosch_bmi270_sensor_create() {
@@ -324,6 +381,7 @@ device_t *bosch_bmi270_sensor_create() {
     base_dev->_lseek = bmi270_lseek;
 
     orientation_dev->_get_orientation = get_orientation;
+    orientation_dev->_get_orientation_degrees = get_orientation_degrees;
 
     const i2c_config_t i2c_bus_conf = {
         .mode = I2C_MODE_MASTER,

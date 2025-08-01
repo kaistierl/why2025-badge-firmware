@@ -33,6 +33,13 @@ typedef enum {
     DEVICE_TYPE_ORIENTATION,
 } device_type_t;
 
+enum orientation {
+    ORIENTATION_0 = 0,
+    ORIENTATION_90,
+    ORIENTATION_180,
+    ORIENTATION_270
+};
+
 typedef struct device {
     device_type_t type;
     int (*_open)(void *dev, path_t *path, int flags, mode_t mode);
@@ -75,7 +82,8 @@ typedef struct {
 
 typedef struct {
     device_t device;
-    int (*_get_orientation)(void *dev);
+    enum orientation (*_get_orientation)(void *dev);
+    int (*_get_orientation_degrees)(void *dev);
 } orientation_device_t;
 
 device_t *device_get(char const *name);
