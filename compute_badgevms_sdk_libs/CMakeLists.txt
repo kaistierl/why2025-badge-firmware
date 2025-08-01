@@ -31,16 +31,28 @@ set(SDK_COMPILE_FLAGS
     -shared
 )
 
-set(SDK_STAGING_DIR ${CMAKE_BINARY_DIR}/sdk_staging)
-set(SDK_LIB_DIR ${SDK_STAGING_DIR}/lib)
-set(SDK_INCLUDE_DIR ${SDK_STAGING_DIR}/include)
+set_property(GLOBAL PROPERTY SDK_STAGING_DIR ${CMAKE_BINARY_DIR}/sdk_staging)
+get_property(SDK_STAGING_DIR GLOBAL PROPERTY SDK_STAGING_DIR)
 
-file(MAKE_DIRECTORY ${SDK_STAGING_DIR})
-file(MAKE_DIRECTORY ${SDK_LIB_DIR})
-file(MAKE_DIRECTORY ${SDK_INCLUDE_DIR})
-
-file(COPY ${CMAKE_SOURCE_DIR}/compute_badgevms_sdk_include/ DESTINATION ${SDK_INCLUDE_DIR})
-file(COPY ${CMAKE_SOURCE_DIR}/compute_badgevms/include/ DESTINATION ${SDK_INCLUDE_DIR})
+add_custom_command(
+    OUTPUT ${SDK_STAGING_DIR}
+    COMMAND ${CMAKE_COMMAND} -E rm -rf -- ${SDK_STAGING_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SDK_STAGING_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SDK_STAGING_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SDK_STAGING_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/compute_badgevms_sdk_include ${SDK_STAGING_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/compute_badgevms/include ${SDK_STAGING_DIR}/include
+    DEPENDS
+     ${CMAKE_SOURCE_DIR}/compute_badgevms_sdk_include
+     ${CMAKE_SOURCE_DIR}/compute_badgevms
+    VERBATIM
+)
+add_custom_target(init_sdk_staging ALL
+    DEPENDS ${SDK_STAGING_DIR}
+)
+add_custom_target(final_sdk_staging ALL
+    DEPENDS init_sdk_staging
+)
 
 function(build_sdk_library lib_name)
     set(LIB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/${lib_name})
@@ -48,23 +60,29 @@ function(build_sdk_library lib_name)
     add_subdirectory(${lib_name})
 
     target_compile_options(${lib_name} PRIVATE ${SDK_COMPILE_FLAGS})
-    target_include_directories(${lib_name} PRIVATE ${SDK_INCLUDE_DIR})
+    target_include_directories(${lib_name} PRIVATE ${SDK_STAGING_DIR}/include)
+    add_dependencies(${lib_name} init_sdk_staging)
 
     add_custom_command(
-        OUTPUT ${SDK_LIB_DIR}/lib${lib_name}.a
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${lib_name}> ${SDK_LIB_DIR}/lib${lib_name}.a
-        DEPENDS ${lib_name}
+        OUTPUT ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${lib_name}> ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
+        DEPENDS
+         ${lib_name}
+         init_sdk_staging
         COMMENT "Copying lib${lib_name}.a to SDK staging"
         VERBATIM
     )
+    add_custom_target(sdk_staging_add_lib_${lib_name} ALL
+        DEPENDS
+         ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
+    )
+    add_dependencies(final_sdk_staging sdk_staging_add_lib_${lib_name})
 
-    add_custom_target(${lib_name}_sdk ALL DEPENDS ${SDK_LIB_DIR}/lib${lib_name}.a)
-
-    set_property(GLOBAL APPEND PROPERTY SDK_LIBRARIES ${SDK_LIB_DIR}/lib${lib_name}.a)
-    set_property(GLOBAL APPEND PROPERTY SDK_LIBRARY_TARGETS ${lib_name}_sdk)
+    set_property(GLOBAL APPEND PROPERTY SDK_LIBS ${SDK_STAGING_DIR}/lib/lib${lib_name}.a)
+    set_property(GLOBAL APPEND PROPERTY SDK_LIB_TARGETS sdk_staging_add_lib_${lib_name})
 endfunction()
 
 build_sdk_library(sdl3)
 
-get_property(SDK_LIBRARY_TARGETS GLOBAL PROPERTY SDK_LIBRARY_TARGETS)
-add_custom_target(build_sdk ALL DEPENDS ${SDK_LIBRARY_TARGETS})
+get_property(SDK_LIB_TARGETS GLOBAL PROPERTY SDK_LIB_TARGETS)
+add_custom_target(sdk_lib_build_all ALL DEPENDS ${SDK_LIB_TARGETS})
