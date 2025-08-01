@@ -38,7 +38,7 @@ typedef struct {
     framebuffer_t  *fb;
     window_handle_t window;
 
-    test_result_t tests[8];
+    test_result_t tests[10];
     int           num_tests;
 
     key_info_t row1[8];  // Function keys

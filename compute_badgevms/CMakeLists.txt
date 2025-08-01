@@ -46,6 +46,7 @@ idf_component_register(
      "lwip"
      "mbedtls"
      "nvs_flash"
+     "spi_flash"
      "vfs"
      "why_stdio"
 )

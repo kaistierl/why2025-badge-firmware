@@ -17,6 +17,7 @@
 #include "badgevms/pathfuncs.h"
 #include "dlmalloc.h"
 #include "esp_log.h"
+#include "esp_flash.h"
 #include "logical_names.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netdb.h"
@@ -435,4 +436,14 @@ char *inet_ntoa(struct in_addr __in) {
 
 int inet_aton(char const *__cp, struct in_addr *__inp) {
     return ip4addr_aton(__cp, (ip4_addr_t *)__inp);
+}
+
+uint64_t get_unique_id(void) {
+    uint64_t  chip_id;
+    esp_err_t ret = esp_flash_read_unique_chip_id(NULL, &chip_id);
+    if (ret != ESP_OK) {
+        ESP_LOGE("abort", "esp_flash_read_unique_chip_id failed with error code %d", ret);
+        return 0;
+    }
+    return chip_id;
 }

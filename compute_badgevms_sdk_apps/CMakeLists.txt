@@ -116,6 +116,7 @@ build_app(hardware_test
     hardware_test/test_badge.c
     hardware_test/test_drawing_helper.c
     hardware_test/test_keyboard.c
+    hardware_test/run_tests.c
 )
 
 build_app(sdl_test

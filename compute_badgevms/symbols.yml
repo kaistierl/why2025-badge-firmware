@@ -889,6 +889,7 @@ simple_function:
 # BadgeVMS
   - device_get
   - get_screen_info
+  - get_unique_id
   - ota_get_invalid_version
   - ota_get_running_version
   - ota_session_abort
