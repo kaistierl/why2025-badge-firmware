@@ -24,6 +24,7 @@
 #include "compositor/compositor_private.h"
 #include "device_private.h"
 #include "drivers/badgevms_i2c_bus.h"
+#include "drivers/bosch_bmi270.h"
 #include "drivers/fatfs.h"
 #include "drivers/st7703.h"
 #include "drivers/tca8418.h"
@@ -115,6 +116,7 @@ int app_main(void) {
     device_register("FLASH0", fatfs_create_spi("FLASH0", "storage", true));
     device_register("I2CBUS0", badgevms_i2c_bus_create("I2CBUS0", 0, 400 * 1000));
     device_register("WIFI0", wifi_create());
+    device_register("ORIENTATION0", bosch_bmi270_sensor_create());
 
     logical_name_set("SEARCH", "FLASH0:[SUBDIR], FLASH0:[SUBDIR.ANOTHER]", false);
 
@@ -173,9 +175,11 @@ int app_main(void) {
             // pidb = run_task_path("FLASH0:doom.elf", 4096, TASK_TYPE_ELF, 3, argv);
             // pidb = run_task_path("FLASH0:framebuffer_test.elf", 4096, TASK_TYPE_ELF, 2, argv);
             // pidb = run_task_path("FLASH0:hardware_test.elf", 4096, TASK_TYPE_ELF, 2, argv);
+            pidb = run_task_path("FLASH0:bmi270_test.elf", 4096, TASK_TYPE_ELF, 2, argv);
+            pidb = run_task_path("FLASH0:sdl_test.elf", 4096, TASK_TYPE_ELF, 2, argv);
             // pidb = run_task_path("FLASH0:sdl_test.elf", 4096, TASK_TYPE_ELF, 2, argv);
             // pidb = run_task_path("FLASH0:thread_test.elf", 4096, TASK_TYPE_ELF, 2, argv);
-            pidb = run_task_path("FLASH0:curl_test.elf", 4096, TASK_TYPE_ELF, 5, argv);
+            // pidb = run_task_path("FLASH0:curl_test.elf", 4096, TASK_TYPE_ELF, 5, argv);
             vTaskDelay(100 / portTICK_PERIOD_MS);
         }
         free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
