@@ -32,14 +32,14 @@
 #include "stdio_private.h"
 
 int
-sprintf(char *s, const char *fmt, ...)
+why_sprintf(char *s, const char *fmt, ...)
 {
 	va_list ap;
 	struct __file_str f = FDEV_SETUP_STRING_WRITE(s, NULL);
 	int i;
 
 	va_start(ap, fmt);
-	i = vfprintf(&f.file, fmt, ap);
+	i = why_vfprintf(&f.file, fmt, ap);
 	va_end(ap);
 	if (i >= 0)
 		s[i] = 0;
@@ -47,4 +47,4 @@ sprintf(char *s, const char *fmt, ...)
 	return i;
 }
 
-__ieee128_reference(sprintf, __sprintfieee128);
+__ieee128_reference(why_sprintf, __why_sprintfieee128);

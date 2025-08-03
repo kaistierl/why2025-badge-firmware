@@ -2359,6 +2359,7 @@ static int init_mparams(void) {
     if (((MCHUNK_SIZE      & (MCHUNK_SIZE-SIZE_T_ONE))      != 0)) ABORT;
     if (((gsize            & (gsize-SIZE_T_ONE))            != 0)) ABORT;
     if (((psize            & (psize-SIZE_T_ONE))            != 0)) ABORT;
+    if (sizeof(struct malloc_state)                         != 472) ABORT;
     (get_malloc_params())->granularity = gsize;
     (get_malloc_params())->page_size = psize;
     (get_malloc_params())->mmap_threshold = DEFAULT_MMAP_THRESHOLD;

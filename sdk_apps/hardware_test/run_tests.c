@@ -1,14 +1,16 @@
 #include "run_tests.h"
+
+#include "badgevms/compositor.h"
 #include "badgevms/misc_funcs.h"
 #include "badgevms/wifi.h"
 #include "curl/curl.h"
-#include "badgevms/compositor.h"
-#include "test_badge.h"
 #include "run_tests.h"
+#include "test_badge.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string.h>
 #include <unistd.h> // for usleep
 
@@ -20,9 +22,14 @@ int ping_badgehub(void) {
 
     CURLcode res;
     uint64_t unique_id = get_unique_id();
-    char url[200];
-    snprintf(url, sizeof(url), "https://badge.why2025.org/api/v3/ping?mac=badge_mac&id=%08lX%08lX",
-             (uint32_t) (unique_id >> 32), (uint32_t) unique_id);
+    char     url[200];
+    snprintf(
+        url,
+        sizeof(url),
+        "https://badge.why2025.org/api/v3/ping?mac=badge_mac&id=%08lX%08lX",
+        (uint32_t)(unique_id >> 32),
+        (uint32_t)unique_id
+    );
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
     int retries = 5;
@@ -54,9 +61,14 @@ int ping_badgehub(void) {
 void device_id_test(app_state_t *app) {
     // Run the Device ID test
     uint64_t unique_id = get_unique_id();
-    snprintf(app->tests[8].status, sizeof(app->tests[8].status), "%08lX%08lX",
-             (uint32_t) (unique_id >> 32), (uint32_t) unique_id);
-    printf("Device ID: %08lX%08lX\n", (uint32_t) (unique_id >> 32), (uint32_t) unique_id);
+    snprintf(
+        app->tests[8].status,
+        sizeof(app->tests[8].status),
+        "%08lX%08lX",
+        (uint32_t)(unique_id >> 32),
+        (uint32_t)unique_id
+    );
+    printf("Device ID: %08lX%08lX\n", (uint32_t)(unique_id >> 32), (uint32_t)unique_id);
     app->tests[8].passed = unique_id != 0;
 }
 

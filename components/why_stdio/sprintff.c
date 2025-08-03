@@ -30,8 +30,8 @@
 
 */
 
-#define vfprintf __f_vfprintf
-#define sprintf __f_sprintf
-#define __sprintfieee128 __f_sprintfieee128
+#define why_vfprintf __f_why_vfprintf
+#define why_sprintf __f_why_sprintf
+#define __why_sprintfieee128 __f_why_sprintfieee128
 
 #include "sprintf.c"

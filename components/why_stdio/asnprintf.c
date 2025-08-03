@@ -42,7 +42,7 @@ why_asnprintf(char *str, size_t *lenp, const char *fmt, ...)
         char    *ret;
 
         va_start(ap, fmt);
-	ret = vasnprintf(str, lenp, fmt, ap);
+	ret = why_vasnprintf(str, lenp, fmt, ap);
         va_end(ap);
         return ret;
 }

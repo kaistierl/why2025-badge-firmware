@@ -24,10 +24,6 @@
 #include "esp_random.h"
 #include "esp_tls.h"
 
-#include "thirdparty/dlmalloc.h"
-
-extern char *why_strdup(const char *s);
-
 #ifdef CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS
 #include "esp_transport_ssl.h"
 #endif
@@ -248,8 +244,8 @@ static int http_on_header_event(esp_http_client_handle_t client)
         client->event.header_value = client->current_header_value;
         http_dispatch_event(client, HTTP_EVENT_ON_HEADER, NULL, 0);
         http_dispatch_event_to_event_loop(HTTP_EVENT_ON_HEADER, &client, sizeof(esp_http_client_handle_t));
-        dlfree(client->current_header_key);
-        dlfree(client->current_header_value);
+        free(client->current_header_key);
+        free(client->current_header_value);
         client->current_header_key = NULL;
         client->current_header_value = NULL;
     }
@@ -317,7 +313,7 @@ static int http_on_body(http_parser *parser, const char *at, size_t length)
             ESP_LOGD(TAG, "Body received in fetch header state, %p, %zu", at, length);
             esp_http_buffer_t *res_buffer = client->response->buffer;
             assert(res_buffer->orig_raw_data == res_buffer->raw_data);
-            res_buffer->orig_raw_data = (char *)dlrealloc(res_buffer->orig_raw_data, res_buffer->raw_len + length);
+            res_buffer->orig_raw_data = (char *)realloc(res_buffer->orig_raw_data, res_buffer->raw_len + length);
             if (!res_buffer->orig_raw_data) {
                 ESP_LOGE(TAG, "Failed to allocate memory for storing decoded data");
                 return -1;
@@ -412,9 +408,9 @@ esp_err_t esp_http_client_set_username(esp_http_client_handle_t client, const ch
         return ESP_ERR_INVALID_ARG;
     }
     if (client->connection_info.username != NULL) {
-        dlfree(client->connection_info.username);
+        free(client->connection_info.username);
     }
-    client->connection_info.username = username ? why_strdup(username) : NULL;
+    client->connection_info.username = username ? strdup(username) : NULL;
     return ESP_OK;
 }
 
@@ -459,9 +455,9 @@ esp_err_t esp_http_client_set_password(esp_http_client_handle_t client, const ch
     }
     if (client->connection_info.password != NULL) {
         memset(client->connection_info.password, 0, strlen(client->connection_info.password));
-        dlfree(client->connection_info.password);
+        free(client->connection_info.password);
     }
-    client->connection_info.password = password ? why_strdup(password) : NULL;
+    client->connection_info.password = password ? strdup(password) : NULL;
     return ESP_OK;
 }
 
@@ -531,30 +527,30 @@ static esp_err_t _set_config(esp_http_client_handle_t client, const esp_http_cli
     }
 
     if (config->path) {
-        client->connection_info.path = why_strdup(config->path);
+        client->connection_info.path = strdup(config->path);
     } else {
-        client->connection_info.path = why_strdup(DEFAULT_HTTP_PATH);
+        client->connection_info.path = strdup(DEFAULT_HTTP_PATH);
     }
     ESP_RETURN_ON_FALSE(client->connection_info.path, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
 
     if (config->host) {
-        client->connection_info.host = why_strdup(config->host);
+        client->connection_info.host = strdup(config->host);
 
         ESP_GOTO_ON_FALSE(client->connection_info.host, ESP_ERR_NO_MEM, error, TAG, "Memory exhausted");
     }
 
     if (config->query) {
-        client->connection_info.query = why_strdup(config->query);
+        client->connection_info.query = strdup(config->query);
         ESP_GOTO_ON_FALSE(client->connection_info.query, ESP_ERR_NO_MEM, error, TAG, "Memory exhausted");
     }
 
     if (config->username) {
-        client->connection_info.username = why_strdup(config->username);
+        client->connection_info.username = strdup(config->username);
         ESP_GOTO_ON_FALSE(client->connection_info.username, ESP_ERR_NO_MEM, error, TAG, "Memory exhausted");
     }
 
     if (config->password) {
-        client->connection_info.password = why_strdup(config->password);
+        client->connection_info.password = strdup(config->password);
         ESP_GOTO_ON_FALSE(client->connection_info.password, ESP_ERR_NO_MEM, error, TAG, "Memory exhausted");
     }
 
@@ -585,16 +581,16 @@ error:
 
 static esp_err_t _clear_connection_info(esp_http_client_handle_t client)
 {
-    dlfree(client->connection_info.path);
-    dlfree(client->connection_info.host);
-    dlfree(client->connection_info.query);
-    dlfree(client->connection_info.username);
+    free(client->connection_info.path);
+    free(client->connection_info.host);
+    free(client->connection_info.query);
+    free(client->connection_info.username);
     if (client->connection_info.password) {
         memset(client->connection_info.password, 0, strlen(client->connection_info.password));
-        dlfree(client->connection_info.password);
+        free(client->connection_info.password);
     }
-    dlfree(client->connection_info.scheme);
-    dlfree(client->connection_info.url);
+    free(client->connection_info.scheme);
+    free(client->connection_info.url);
     memset(&client->connection_info, 0, sizeof(connection_info_t));
     return ESP_OK;
 }
@@ -605,13 +601,13 @@ static esp_err_t _clear_auth_data(esp_http_client_handle_t client)
         return ESP_FAIL;
     }
 
-    dlfree(client->auth_data->method);
-    dlfree(client->auth_data->realm);
-    dlfree(client->auth_data->algorithm);
-    dlfree(client->auth_data->qop);
-    dlfree(client->auth_data->nonce);
-    dlfree(client->auth_data->opaque);
-    dlfree(client->auth_data->uri);
+    free(client->auth_data->method);
+    free(client->auth_data->realm);
+    free(client->auth_data->algorithm);
+    free(client->auth_data->qop);
+    free(client->auth_data->nonce);
+    free(client->auth_data->opaque);
+    free(client->auth_data->uri);
     memset(client->auth_data, 0, sizeof(esp_http_auth_data_t));
     return ESP_OK;
 }
@@ -630,7 +626,7 @@ static esp_err_t esp_http_client_prepare_basic_auth(esp_http_client_handle_t cli
 
 error:
     if (auth_response) {
-        dlfree(auth_response);  // Free the auth_response after use
+        free(auth_response);  // Free the auth_response after use
     }
 
     return ret;
@@ -642,7 +638,7 @@ static esp_err_t esp_http_client_prepare_digest_auth(esp_http_client_handle_t cl
     esp_err_t ret = ESP_FAIL;
 
     // Freeing the allocated memory for auth_data->uri and setting it to NULL to prevent potential memory leaks
-    dlfree(client->auth_data->uri);
+    free(client->auth_data->uri);
     client->auth_data->uri = NULL;
     HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&client->auth_data->uri, client->connection_info.path, -1), ESP_ERR_NO_MEM, error, TAG, "failed to assign string");
 
@@ -662,7 +658,7 @@ static esp_err_t esp_http_client_prepare_digest_auth(esp_http_client_handle_t cl
 
 error:
     if (auth_response) {
-        dlfree(auth_response);  // Free the auth_response after use
+        free(auth_response);  // Free the auth_response after use
     }
 
     return ret;
@@ -682,11 +678,11 @@ static esp_err_t esp_http_client_prepare(esp_http_client_handle_t client)
      * hence can lead to data corruption.
      */
     if (client->location != NULL) {
-        dlfree(client->location);
+        free(client->location);
         client->location = NULL;
     }
     if (client->auth_header != NULL) {
-        dlfree(client->auth_header);
+        free(client->auth_header);
         client->auth_header = NULL;
     }
     http_parser_init(client->parser, HTTP_RESPONSE);
@@ -733,7 +729,7 @@ static bool init_common_tcp_transport(esp_http_client_handle_t client, const esp
 
     if (config->if_name) {
         if (client->if_name == NULL) {
-            client->if_name = dlcalloc(1, sizeof(struct ifreq));
+            client->if_name = calloc(1, sizeof(struct ifreq));
             ESP_RETURN_ON_FALSE(client->if_name, false, TAG, "Memory exhausted");
             memcpy(client->if_name, config->if_name, sizeof(struct ifreq));
         }
@@ -773,16 +769,16 @@ esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *co
     bool _success;
 
     _success = (
-                   (client                         = dlcalloc(1, sizeof(esp_http_client_t)))           &&
-                   (client->parser                 = dlcalloc(1, sizeof(struct http_parser)))          &&
-                   (client->parser_settings        = dlcalloc(1, sizeof(struct http_parser_settings))) &&
-                   (client->auth_data              = dlcalloc(1, sizeof(esp_http_auth_data_t)))        &&
-                   (client->request                = dlcalloc(1, sizeof(esp_http_data_t)))             &&
+                   (client                         = calloc(1, sizeof(esp_http_client_t)))           &&
+                   (client->parser                 = calloc(1, sizeof(struct http_parser)))          &&
+                   (client->parser_settings        = calloc(1, sizeof(struct http_parser_settings))) &&
+                   (client->auth_data              = calloc(1, sizeof(esp_http_auth_data_t)))        &&
+                   (client->request                = calloc(1, sizeof(esp_http_data_t)))             &&
                    (client->request->headers       = http_header_init())                             &&
-                   (client->request->buffer        = dlcalloc(1, sizeof(esp_http_buffer_t)))           &&
-                   (client->response               = dlcalloc(1, sizeof(esp_http_data_t)))             &&
+                   (client->request->buffer        = calloc(1, sizeof(esp_http_buffer_t)))           &&
+                   (client->response               = calloc(1, sizeof(esp_http_data_t)))             &&
                    (client->response->headers      = http_header_init())                             &&
-                   (client->response->buffer       = dlcalloc(1, sizeof(esp_http_buffer_t)))
+                   (client->response->buffer       = calloc(1, sizeof(esp_http_buffer_t)))
                );
 
     if (!_success) {
@@ -900,8 +896,8 @@ esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *co
         goto error;
     }
     _success = (
-                   (client->request->buffer->data  = dlmalloc(client->buffer_size_tx))  &&
-                   (client->response->buffer->data = dlmalloc(client->buffer_size_rx))
+                   (client->request->buffer->data  = malloc(client->buffer_size_tx))  &&
+                   (client->response->buffer->data = malloc(client->buffer_size_rx))
                );
 
     if (!_success) {
@@ -925,7 +921,7 @@ esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *co
             (esp_http_client_set_header(client, "User-Agent", user_agent) == ESP_OK) &&
             (esp_http_client_set_header(client, "Host", host_name) == ESP_OK)
         );
-        dlfree(host_name);
+        free(host_name);
         if (!_success) {
             ESP_LOGE(TAG, "Error while setting default configurations");
             goto error;
@@ -950,7 +946,7 @@ esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *co
                     (esp_http_client_set_header(client, "Host", host_name) == ESP_OK)
                 );
 
-        dlfree(host_name);
+        free(host_name);
         if (!_success) {
             ESP_LOGE(TAG, "Error while setting default configurations");
             goto error;
@@ -993,7 +989,7 @@ static void esp_http_client_cached_buf_cleanup(esp_http_buffer_t *res_buffer)
 {
     /* Free cached data if any, that was received during fetch header stage */
     if (res_buffer && res_buffer->orig_raw_data) {
-        dlfree(res_buffer->orig_raw_data);
+        free(res_buffer->orig_raw_data);
         res_buffer->orig_raw_data = NULL;
         res_buffer->raw_data = NULL;
         res_buffer->raw_len = 0;
@@ -1012,32 +1008,32 @@ esp_err_t esp_http_client_cleanup(esp_http_client_handle_t client)
     if (client->request) {
         http_header_destroy(client->request->headers);
         if (client->request->buffer) {
-            dlfree(client->request->buffer->data);
+            free(client->request->buffer->data);
         }
-        dlfree(client->request->buffer);
-        dlfree(client->request);
+        free(client->request->buffer);
+        free(client->request);
     }
     if (client->response) {
         http_header_destroy(client->response->headers);
         if (client->response->buffer) {
-            dlfree(client->response->buffer->data);
+            free(client->response->buffer->data);
             esp_http_client_cached_buf_cleanup(client->response->buffer);
         }
-        dlfree(client->response->buffer);
-        dlfree(client->response);
+        free(client->response->buffer);
+        free(client->response);
     }
     if (client->if_name) {
-        dlfree(client->if_name);
+        free(client->if_name);
     }
-    dlfree(client->parser);
-    dlfree(client->parser_settings);
+    free(client->parser);
+    free(client->parser_settings);
     _clear_connection_info(client);
     _clear_auth_data(client);
-    dlfree(client->auth_data);
-    dlfree(client->current_header_key);
-    dlfree(client->location);
-    dlfree(client->auth_header);
-    dlfree(client);
+    free(client->auth_data);
+    free(client->current_header_key);
+    free(client->location);
+    free(client->auth_header);
+    free(client);
     return ESP_OK;
 }
 
@@ -1123,7 +1119,7 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
         return ESP_ERR_INVALID_ARG;
     }
     if (client->connection_info.host) {
-        old_host = why_strdup(client->connection_info.host);
+        old_host = strdup(client->connection_info.host);
     }
     old_port = client->connection_info.port;
 
@@ -1135,7 +1131,7 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
             && strcasecmp(old_host, (const void *)client->connection_info.host) != 0) {
         ESP_LOGD(TAG, "New host assign = %s", client->connection_info.host);
         if (esp_http_client_set_header(client, "Host", client->connection_info.host) != ESP_OK) {
-            dlfree(old_host);
+            free(old_host);
             return ESP_ERR_NO_MEM;
         }
         /* Free cached data if any, as we are closing this connection */
@@ -1144,7 +1140,7 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
     }
 
     if (old_host) {
-        dlfree(old_host);
+        free(old_host);
         old_host = NULL;
     }
 
@@ -1180,7 +1176,7 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
                 HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&client->connection_info.password, password, -1), ESP_ERR_NO_MEM, error, TAG, "failed to assign string");
             }
             HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&client->connection_info.username, username, -1), ESP_ERR_NO_MEM, error, TAG, "failed to assign string");
-            dlfree(user_info);
+            free(user_info);
         } else {
             return ESP_ERR_NO_MEM;
         }
@@ -1196,14 +1192,14 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
     if (purl.field_data[UF_QUERY].len) {
         HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&client->connection_info.query, url + purl.field_data[UF_QUERY].off, purl.field_data[UF_QUERY].len), ESP_ERR_NO_MEM, error, TAG, "failed to assign string");
     } else if (client->connection_info.query) {
-        dlfree(client->connection_info.query);
+        free(client->connection_info.query);
         client->connection_info.query = NULL;
     }
 
     return ret;
 
 error:
-    dlfree(old_host);
+    free(old_host);
     return ret;
 }
 
@@ -1876,7 +1872,7 @@ esp_err_t esp_http_client_add_auth(esp_http_client_handle_t client)
 
         _clear_auth_data(client);
 
-        client->auth_data->method = why_strdup(HTTP_METHOD_MAPPING[client->connection_info.method]);
+        client->auth_data->method = strdup(HTTP_METHOD_MAPPING[client->connection_info.method]);
 
         client->auth_data->nc = 1;
         HTTP_RET_ON_ERR_DBG(http_utils_get_string_between(auth_header, "realm=\"", "\"", &client->auth_data->realm), TAG, "Unable to extract substring between specified strings");
@@ -1887,7 +1883,7 @@ esp_err_t esp_http_client_add_auth(esp_http_client_handle_t client)
         }
 
         if (client->auth_data->algorithm == NULL) {
-            client->auth_data->algorithm = why_strdup("MD5");
+            client->auth_data->algorithm = strdup("MD5");
         }
 
         HTTP_RET_ON_ERR_DBG(http_utils_get_string_between(auth_header, "qop=\"", "\"", &client->auth_data->qop), TAG, "Unable to extract substring between specified strings");

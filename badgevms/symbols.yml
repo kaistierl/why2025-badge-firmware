@@ -35,9 +35,10 @@ include:
   - badgevms/event.h
   - badgevms/misc_funcs.h
   - badgevms/ota.h
+  - badgevms/thread.h
   - badgevms/wifi.h
-  - wrapped_funcs.h
   - curl/curl.h
+  - wrapped_funcs.h
 
   # Networking
   - netdb.h
@@ -396,13 +397,13 @@ simple_function:
 #  - siprintf
 #  - siscanf
   - sleep
-  - sniprintf
-  - snprintf
-  - sprintf
+#  - sniprintf
+#  - snprintf
+#  - sprintf
 #  - srand
 #  - srand48
 #  - srandom
-  - sscanf
+#  - sscanf
 #  - stat
   - stpcpy
   - stpncpy
@@ -896,6 +897,7 @@ simple_function:
   - ota_session_commit
   - ota_session_open
   - ota_write
+  - thread_create
   - vaddr_to_paddr
   - wifi_connect
   - wifi_disconnect
@@ -1000,6 +1002,8 @@ simple_object:
 wrapped_function:
   - _Exit
   - asctime
+  - asnprintf
+  - asprintf
   - atexit
   - calloc
   - close
@@ -1056,8 +1060,11 @@ wrapped_function:
   - setbuffer
   - setlinebuf
   - setvbuf
+  - snprintf
+  - sprintf
   - srand
   - srandom
+  - sscanf
   - strdup
   - strerror
   - strndup
@@ -1066,6 +1073,7 @@ wrapped_function:
   - tcgetattr
   - tcsetattr
   - ungetc
+  - vasprintf
   - vfprintf
   - vfscanf
   - vsnprintf

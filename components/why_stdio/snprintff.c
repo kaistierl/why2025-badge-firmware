@@ -30,8 +30,8 @@
 
 */
 
-#define vfprintf __f_vfprintf
-#define snprintf __f_snprintf
-#define __snprintfieee128 __f_snprintfieee128
+#define why_vfprintf __f_why_vfprintf
+#define why_snprintf __f_why_snprintf
+#define __why_snprintfieee128 __f_why_snprintfieee128
 
 #include "snprintf.c"

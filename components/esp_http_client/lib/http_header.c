@@ -16,10 +16,6 @@
 #include "http_header.h"
 #include "http_utils.h"
 
-#include "thirdparty/dlmalloc.h"
-
-extern char *why_strdup(const char *s);
-
 static const char *TAG = "HTTP_HEADER";
 #define HEADER_BUFFER (1024)
 
@@ -37,7 +33,7 @@ STAILQ_HEAD(http_header, http_header_item);
 
 http_header_handle_t http_header_init(void)
 {
-    http_header_handle_t header = dlcalloc(1, sizeof(struct http_header));
+    http_header_handle_t header = calloc(1, sizeof(struct http_header));
     ESP_RETURN_ON_FALSE(header, NULL, TAG, "Memory exhausted");
     STAILQ_INIT(header);
     return header;
@@ -46,7 +42,7 @@ http_header_handle_t http_header_init(void)
 esp_err_t http_header_destroy(http_header_handle_t header)
 {
     esp_err_t err = http_header_clean(header);
-    dlfree(header);
+    free(header);
     return err;
 }
 
@@ -83,7 +79,7 @@ static esp_err_t http_header_new_item(http_header_handle_t header, const char *k
     esp_err_t ret = ESP_OK;
     http_header_item_handle_t item;
 
-    item = dlcalloc(1, sizeof(http_header_item_t));
+    item = calloc(1, sizeof(http_header_item_t));
     ESP_RETURN_ON_FALSE(item, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
     HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&item->key, key, -1), ESP_ERR_NO_MEM, _header_new_item_exit, TAG, "Failed to assign string");
     http_utils_trim_whitespace(&item->key);
@@ -92,9 +88,9 @@ static esp_err_t http_header_new_item(http_header_handle_t header, const char *k
     STAILQ_INSERT_TAIL(header, item, next);
     return ret;
 _header_new_item_exit:
-    dlfree(item->key);
-    dlfree(item->value);
-    dlfree(item);
+    free(item->key);
+    free(item->value);
+    free(item);
     return ret;
 }
 
@@ -109,8 +105,8 @@ esp_err_t http_header_set(http_header_handle_t header, const char *key, const ch
     item = http_header_get_item(header, key);
 
     if (item) {
-        dlfree(item->value);
-        item->value = why_strdup(value);
+        free(item->value);
+        item->value = strdup(value);
         http_utils_trim_whitespace(&item->value);
         return ESP_OK;
     }
@@ -122,17 +118,17 @@ esp_err_t http_header_set_from_string(http_header_handle_t header, const char *k
     char *eq_ch;
     char *p_str;
 
-    p_str = why_strdup(key_value_data);
+    p_str = strdup(key_value_data);
     ESP_RETURN_ON_FALSE(p_str, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
     eq_ch = strchr(p_str, ':');
     if (eq_ch == NULL) {
-        dlfree(p_str);
+        free(p_str);
         return ESP_ERR_INVALID_ARG;
     }
     *eq_ch = 0;
 
     http_header_set(header, p_str, eq_ch + 1);
-    dlfree(p_str);
+    free(p_str);
     return ESP_OK;
 }
 
@@ -142,9 +138,9 @@ esp_err_t http_header_delete(http_header_handle_t header, const char *key)
     http_header_item_handle_t item = http_header_get_item(header, key);
     if (item) {
         STAILQ_REMOVE(header, item, http_header_item, next);
-        dlfree(item->key);
-        dlfree(item->value);
-        dlfree(item);
+        free(item->key);
+        free(item->value);
+        free(item);
     } else {
         return ESP_ERR_NOT_FOUND;
     }
@@ -162,7 +158,7 @@ int http_header_set_format(http_header_handle_t header, const char *key, const c
     va_end(argptr);
     ESP_RETURN_ON_FALSE(buf, 0, TAG, "Memory exhausted");
     http_header_set(header, key, buf);
-    dlfree(buf);
+    free(buf);
     return len;
 }
 
@@ -222,9 +218,9 @@ esp_err_t http_header_clean(http_header_handle_t header)
     http_header_item_handle_t item = STAILQ_FIRST(header), tmp;
     while (item != NULL) {
         tmp = STAILQ_NEXT(item, next);
-        dlfree(item->key);
-        dlfree(item->value);
-        dlfree(item);
+        free(item->key);
+        free(item->value);
+        free(item);
         item = tmp;
     }
     STAILQ_INIT(header);

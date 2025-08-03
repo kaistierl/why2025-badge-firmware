@@ -102,6 +102,7 @@ function(build_app app_name)
         DEPENDS
          build_app_${app_name}
          init_storage_staging
+         ${APP_ELF_DIR}/${app_name}.elf
         COMMENT "Copying ${app_name}.elf to storage staging and stripping"
         VERBATIM
     )
@@ -158,6 +159,11 @@ build_app(curl_test
 build_app(bmi270_test
     SOURCES
     bmi270_test/bmi270_test.c
+)
+
+build_app(thread_test
+    SOURCES
+     thread_test/main.c
 )
 
 build_app(doom

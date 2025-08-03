@@ -20,8 +20,6 @@
 #include "http_utils.h"
 #include "http_auth.h"
 
-#include "thirdparty/dlmalloc.h"
-
 #define MD5_MAX_LEN (33)
 #define SHA256_LEN (32)
 #define SHA256_HEX_LEN (65)
@@ -60,7 +58,7 @@ static int md5_printf(char *md, const char *fmt, ...)
     }
     va_end(ap);
 
-    dlfree(buf);
+    free(buf);
     return MD5_MAX_LEN;
 }
 
@@ -106,7 +104,7 @@ static int sha256_sprintf(char *sha, const char *fmt, ...)
     ret = SHA256_HEX_LEN;
 
 exit:
-    dlfree(buf);
+    free(buf);
     mbedtls_sha256_free(&sha256);
     va_end(ap);
     return ret;
@@ -136,13 +134,13 @@ char *http_auth_digest(const char *username, const char *password, esp_http_auth
         digest_func = sha256_sprintf;
     }
 
-    ha1 = dlcalloc(1, digest_size);
+    ha1 = calloc(1, digest_size);
     ESP_GOTO_ON_FALSE(ha1, ESP_FAIL, _digest_exit, TAG, "Memory exhausted");
 
-    ha2 = dlcalloc(1, digest_size);
+    ha2 = calloc(1, digest_size);
     ESP_GOTO_ON_FALSE(ha2, ESP_FAIL, _digest_exit, TAG, "Memory exhausted");
 
-    digest = dlcalloc(1, digest_size);
+    digest = calloc(1, digest_size);
     ESP_GOTO_ON_FALSE(digest, ESP_FAIL, _digest_exit, TAG, "Memory exhausted");
 
     if (digest_func(ha1, "%s:%s:%s", username, auth_data->realm, password) <= 0) {
@@ -203,13 +201,13 @@ char *http_auth_digest(const char *username, const char *password, esp_http_auth
             ret = ESP_FAIL;
             goto _digest_exit;
         }
-        dlfree(temp_auth_str);
+        free(temp_auth_str);
         auth_data->nc ++;
     }
     if (auth_data->opaque) {
         rc = asprintf(&temp_auth_str, "%s, opaque=\"%s\"", auth_str, auth_data->opaque);
         // Free the previous memory allocated for `auth_str`
-        dlfree(auth_str);
+        free(auth_str);
         if (rc < 0) {
             ESP_LOGE(TAG, "asprintf() returned: %d", rc);
             ret = ESP_FAIL;
@@ -218,9 +216,9 @@ char *http_auth_digest(const char *username, const char *password, esp_http_auth
         auth_str = temp_auth_str;
     }
 _digest_exit:
-    dlfree(ha1);
-    dlfree(ha2);
-    dlfree(digest);
+    free(ha1);
+    free(ha2);
+    free(digest);
     return (ret == ESP_OK) ? auth_str : NULL;
 }
 
@@ -236,11 +234,11 @@ char *http_auth_basic(const char *username, const char *password)
     }
     ESP_RETURN_ON_FALSE(user_info, NULL, TAG, "Memory exhausted");
     esp_crypto_base64_encode(NULL, 0, &n, (const unsigned char *)user_info, strlen(user_info));
-    digest = dlcalloc(1, 6 + n + 1);
+    digest = calloc(1, 6 + n + 1);
     ESP_GOTO_ON_FALSE(digest, ESP_FAIL, _basic_exit, TAG, "Memory exhausted");
     strcpy(digest, "Basic ");
     esp_crypto_base64_encode((unsigned char *)digest + 6, n, &out, (const unsigned char *)user_info, strlen(user_info));
 _basic_exit:
-    dlfree(user_info);
+    free(user_info);
     return (ret == ESP_OK) ? digest : NULL;
 }

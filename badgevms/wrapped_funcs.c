@@ -16,8 +16,8 @@
 
 #include "badgevms/pathfuncs.h"
 #include "dlmalloc.h"
-#include "esp_log.h"
 #include "esp_flash.h"
+#include "esp_log.h"
 #include "logical_names.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/netdb.h"
@@ -233,32 +233,42 @@ char *why_strndup(char const *s, size_t n) {
     return ptr;
 }
 
+IRAM_ATTR
 ssize_t why_write(int fd, void const *buf, size_t count) {
     task_info_t *task_info = get_task_info();
     ESP_LOGD("why_write", "Calling write from task %p fd = %i count = %zi", task_info->handle, fd, count);
-    if (task_info->file_handles[fd].device->_write) {
-        return task_info->file_handles[fd]
-            .device->_write(task_info->file_handles[fd].device, task_info->file_handles[fd].dev_fd, buf, count);
+    if (task_info->thread->file_handles[fd].device->_write) {
+        return task_info->thread->file_handles[fd].device->_write(
+            task_info->thread->file_handles[fd].device,
+            task_info->thread->file_handles[fd].dev_fd,
+            buf,
+            count
+        );
     } else {
         ESP_LOGE("why_write", "fd %i has no valid write function", fd);
     }
     return 0;
 }
 
+IRAM_ATTR
 ssize_t why_read(int fd, void *buf, size_t count) {
     task_info_t *task_info = get_task_info();
     ESP_LOGI("why_read", "Calling read from task %p fd = %i count = %zi", task_info->handle, fd, count);
-    if (task_info->file_handles[fd].device->_read) {
+    if (task_info->thread->file_handles[fd].device->_read) {
         ESP_LOGD(
             "why_read",
             "Calling driver _read(%p, %i, %p, %zi)",
-            task_info->file_handles[fd].device,
-            task_info->file_handles[fd].dev_fd,
+            task_info->thread->file_handles[fd].device,
+            task_info->thread->file_handles[fd].dev_fd,
             buf,
             count
         );
-        return task_info->file_handles[fd]
-            .device->_read(task_info->file_handles[fd].device, task_info->file_handles[fd].dev_fd, buf, count);
+        return task_info->thread->file_handles[fd].device->_read(
+            task_info->thread->file_handles[fd].device,
+            task_info->thread->file_handles[fd].dev_fd,
+            buf,
+            count
+        );
     } else {
         ESP_LOGE("why_read", "fd %i has no valid read function", fd);
     }
@@ -269,9 +279,13 @@ ssize_t why_read(int fd, void *buf, size_t count) {
 off_t why_lseek(int fd, off_t offset, int whence) {
     task_info_t *task_info = get_task_info();
     ESP_LOGI("why_lseek", "Calling lseek from task %p", task_info->handle);
-    if (task_info->file_handles[fd].device->_lseek) {
-        return task_info->file_handles[fd]
-            .device->_lseek(task_info->file_handles[fd].device, task_info->file_handles[fd].dev_fd, offset, whence);
+    if (task_info->thread->file_handles[fd].device->_lseek) {
+        return task_info->thread->file_handles[fd].device->_lseek(
+            task_info->thread->file_handles[fd].device,
+            task_info->thread->file_handles[fd].dev_fd,
+            offset,
+            whence
+        );
     } else {
         ESP_LOGE("why_lseek", "fd %i has no valid lseek function", fd);
     }
@@ -333,7 +347,7 @@ int why_open(char const *pathname, int flags, mode_t mode) {
     }
 
     for (int i = 0; i < MAXFD; ++i) {
-        if (task_info->file_handles[i].is_open == false) {
+        if (task_info->thread->file_handles[i].is_open == false) {
             fd = i;
             break;
         }
@@ -346,9 +360,9 @@ int why_open(char const *pathname, int flags, mode_t mode) {
 
     ESP_LOGD("why_open", "Got device specific fd %i for task fd %i", dev_fd, fd);
 
-    task_info->file_handles[fd].is_open = true;
-    task_info->file_handles[fd].dev_fd  = dev_fd;
-    task_info->file_handles[fd].device  = device;
+    task_info->thread->file_handles[fd].is_open = true;
+    task_info->thread->file_handles[fd].dev_fd  = dev_fd;
+    task_info->thread->file_handles[fd].device  = device;
 
 out:
     ESP_LOGI("why_open", "Calling open from task %p for path %s returning %i", task_info->handle, pathname, fd);
@@ -363,12 +377,12 @@ int why_close(int fd) {
     if (fd > MAXFD)
         goto out;
 
-    if (task_info->file_handles[fd].device->_close) {
-        int ret = task_info->file_handles[fd].device->_close(
-            task_info->file_handles[fd].device,
-            task_info->file_handles[fd].dev_fd
+    if (task_info->thread->file_handles[fd].device->_close) {
+        int ret = task_info->thread->file_handles[fd].device->_close(
+            task_info->thread->file_handles[fd].device,
+            task_info->thread->file_handles[fd].dev_fd
         );
-        memset(&task_info->file_handles[fd], 0, sizeof(file_handle_t));
+        memset(&task_info->thread->file_handles[fd], 0, sizeof(file_handle_t));
         return ret;
     } else {
         ESP_LOGE("why_close", "fd %i has no valid close function", fd);

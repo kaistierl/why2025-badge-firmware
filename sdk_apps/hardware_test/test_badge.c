@@ -14,12 +14,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "test_drawing_helper.h"
+#include "test_badge.h"
+
 #include "badgevms/compositor.h"
 #include "badgevms/event.h"
 #include "badgevms/framebuffer.h"
-
-#include "test_badge.h"
+#include "run_tests.h"
+#include "test_drawing_helper.h"
 #include "test_keyboard.h"
 #include "thirdparty/microui.h"
 
@@ -29,8 +30,6 @@
 
 #include <string.h>
 #include <time.h>
-
-#include "run_tests.h"
 
 void init_tests(app_state_t *app) {
     app->num_tests = 10;
@@ -133,8 +132,7 @@ void render_ui(app_state_t *app) {
             case MU_COMMAND_TEXT:
                 draw_text(app->fb, cmd->text.str, cmd->text.pos.x, cmd->text.pos.y, cmd->text.color);
                 break;
-            case MU_COMMAND_RECT: draw_rect(app->fb, cmd->rect.rect, cmd->rect.color);
-                break;
+            case MU_COMMAND_RECT: draw_rect(app->fb, cmd->rect.rect, cmd->rect.color); break;
             case MU_COMMAND_ICON:
             case MU_COMMAND_CLIP: break;
         }
@@ -150,14 +148,14 @@ int main() {
 
     app.ctx = malloc(sizeof(mu_Context));
     mu_init(app.ctx);
-    app.ctx->text_width = mu_text_width;
+    app.ctx->text_width  = mu_text_width;
     app.ctx->text_height = mu_text_height;
 
     init_tests(&app);
     init_keyboard_layout(&app);
     strcpy(app.input_buffer, "Type here...");
 
-    bool running = true;
+    bool       running              = true;
     long const target_frame_time_us = 16667;
 
     memset(app.fb->pixels, 0x55, 720 * 720 * 2);
@@ -174,7 +172,7 @@ int main() {
         while (1) {
             clock_gettime(CLOCK_MONOTONIC, &cur_time);
             long elapsed_us =
-                    (cur_time.tv_sec - start_time.tv_sec) * 1000000L + (cur_time.tv_nsec - start_time.tv_nsec) / 1000L;
+                (cur_time.tv_sec - start_time.tv_sec) * 1000000L + (cur_time.tv_nsec - start_time.tv_nsec) / 1000L;
             long sleep_time = target_frame_time_us - elapsed_us;
 
             if (sleep_time <= 0) {
@@ -184,12 +182,10 @@ int main() {
             event_t event = window_event_poll(app.window, false, sleep_time / 1000);
 
             switch (event.type) {
-                case EVENT_QUIT: running = false;
-                    break;
+                case EVENT_QUIT: running = false; break;
 
                 case EVENT_KEY_DOWN:
-                case EVENT_KEY_UP: handle_keyboard_event(&app, &event.keyboard);
-                    break;
+                case EVENT_KEY_UP: handle_keyboard_event(&app, &event.keyboard); break;
 
                 default: break;
             }

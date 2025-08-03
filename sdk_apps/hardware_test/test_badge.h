@@ -1,16 +1,16 @@
 #pragma once
 
 #include "badgevms/compositor.h"
-#include "badgevms/framebuffer.h"
 #include "badgevms/event.h"
+#include "badgevms/framebuffer.h"
 #include "badgevms/keyboard.h"
-
 #include "test_badge.h"
 #include "thirdparty/microui.h"
 
+#include <stdbool.h>
+
 #include <string.h>
 #include <time.h>
-#include <stdbool.h>
 
 typedef struct {
     char name[32];
@@ -50,4 +50,3 @@ typedef struct {
 
     char input_buffer[50];
 } app_state_t;
-

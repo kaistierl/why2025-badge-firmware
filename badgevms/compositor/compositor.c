@@ -298,13 +298,13 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
         .max_pending_trans_num = 1,
     };
 
-    ppa_event_callbacks_t ppa_srm_callbacks = {
-        .on_trans_done = ppa_event_callback,
-    };
+    // ppa_event_callbacks_t ppa_srm_callbacks = {
+    //    .on_trans_done = ppa_event_callback,
+    //};
 
     ppa_register_client(&ppa_srm_config, &ppa_srm_handle);
     ppa_register_client(&ppa_fill_config, &ppa_fill_handle);
-    ppa_client_register_event_callbacks(ppa_srm_handle, &ppa_srm_callbacks);
+    // ppa_client_register_event_callbacks(ppa_srm_handle, &ppa_srm_callbacks);
 
     bool fn_down = false;
 
@@ -453,12 +453,10 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
                         rgb_swap = true;
                     case BADGEVMS_PIXELFORMAT_RGBA8888:
                         // byte_swap = true;
-                        mode      = PPA_SRM_COLOR_MODE_ARGB8888;
+                        mode = PPA_SRM_COLOR_MODE_ARGB8888;
                         break;
                     case BADGEVMS_PIXELFORMAT_ARGB8888: rgb_swap = true; // Fallthrough
-                    case BADGEVMS_PIXELFORMAT_ABGR8888:
-                        mode      = PPA_SRM_COLOR_MODE_ARGB8888;
-                        break;
+                    case BADGEVMS_PIXELFORMAT_ABGR8888: mode = PPA_SRM_COLOR_MODE_ARGB8888; break;
                     default:
                 }
 

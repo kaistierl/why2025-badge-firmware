@@ -47,9 +47,13 @@ extern void __real_xt_unhandled_exception(void *frame);
 
 static char const *TAG = "task";
 
-IRAM_ATTR task_info_t kernel_task = {
-    .heap_start = KERNEL_HEAP_START,
-    .heap_end   = KERNEL_HEAP_START,
+task_thread_t kernel_thread = {
+    .start = KERNEL_HEAP_START,
+    .end   = KERNEL_HEAP_START,
+};
+
+task_info_t kernel_task = {
+    .thread = &kernel_thread,
 };
 
 typedef struct {
@@ -72,6 +76,21 @@ static SemaphoreHandle_t pid_table_lock = NULL;
 static pid_t             pid_table[NUM_PIDS];
 static uint32_t          head = 0;
 static uint32_t          tail = MAX_PID;
+
+typedef struct {
+    SemaphoreHandle_t ready;
+    pid_t             pid;
+    TaskHandle_t      handle;
+
+    task_info_t *parent_task_info;
+    task_type_t  type;
+    int          argc;
+    uint16_t     stack_size;
+    void const  *buffer;
+    char       **argv;
+    size_t       argv_size;
+    void (*thread_entry)(void *data);
+} zeus_command_message_t;
 
 static pid_t pid_allocate() {
     if (xSemaphoreTake(pid_table_lock, portMAX_DELAY) != pdTRUE) {
@@ -154,53 +173,66 @@ void vTaskPreDeletionHook(TaskHandle_t handle) {
     }
 }
 
-static task_info_t *task_info_init() {
-    task_info_t *task_info = heap_caps_calloc(1, sizeof(task_info_t), MALLOC_CAP_SPIRAM);
-    if (!task_info) {
-        ESP_LOGE(TAG, "Out of memory trying to allocate task info");
-        return NULL;
+static task_thread_t *task_thread_init(uintptr_t start) {
+    task_thread_t *ret = calloc(1, sizeof(task_thread_t));
+    if (!ret) {
+        return ret;
     }
 
-    task_info->current_files           = 3;
-    task_info->file_handles[0].is_open = true;
-    task_info->file_handles[0].device  = device_get("TT01");
-    task_info->file_handles[1].is_open = true;
-    task_info->file_handles[1].device  = device_get("TT01");
-    task_info->file_handles[2].is_open = true;
-    task_info->file_handles[2].device  = device_get("TT01");
+    ret->current_files           = 3;
+    ret->file_handles[0].is_open = true;
+    ret->file_handles[0].device  = device_get("TT01");
+    ret->file_handles[1].is_open = true;
+    ret->file_handles[1].device  = device_get("TT01");
+    ret->file_handles[2].is_open = true;
+    ret->file_handles[2].device  = device_get("TT01");
 
     for (int i = 0; i < RES_RESOURCE_TYPE_MAX; ++i) {
-        task_info->resources[i] = kh_init(restable);
+        ret->resources[i] = kh_init(restable);
     }
 
-    return task_info;
+    ret->start    = start;
+    ret->end      = start;
+    ret->refcount = 1;
+
+    return ret;
 }
 
-static void task_info_delete(task_info_t *task_info) {
-    if (!task_info) {
+static void task_thread_destroy(task_thread_t *thread) {
+    if (!thread) {
         return;
     }
 
-    ESP_LOGI(TAG, "Deleting task_info %pi for pid %i", task_info, task_info->pid);
+    int cur  = atomic_load(&thread->refcount);
+    int want = cur - 1;
+    while (!atomic_compare_exchange_weak(&thread->refcount, &cur, want)) {
+        usleep(100);
+        cur  = atomic_load(&thread->refcount);
+        want = cur - 1;
+    }
+
+    if (want) {
+        // Still in use
+        return;
+    }
+
+    ESP_LOGI(TAG, "Destroying thread info");
 
     for (int i = 0; i < MAXFD; ++i) {
         // We sadly can't reuse the why_close code as it must be ran from inside the user task
-        if (task_info->file_handles[i].is_open) {
+        if (thread->file_handles[i].is_open) {
             ESP_LOGI(TAG, "Cleaning up open filehandle %i", i);
-            if (task_info->file_handles[i].device->_close) {
-                task_info->file_handles[i].device->_close(
-                    task_info->file_handles[i].device,
-                    task_info->file_handles[i].dev_fd
-                );
+            if (thread->file_handles[i].device->_close) {
+                thread->file_handles[i].device->_close(thread->file_handles[i].device, thread->file_handles[i].dev_fd);
             }
         }
     }
 
     for (int i = 0; i < RES_RESOURCE_TYPE_MAX; ++i) {
-        for (khiter_t k = kh_begin(task_info->resources[i]); k != kh_end(task_info->resources[i]); ++k) {
-            if (kh_exist(task_info->resources[i], k)) {
-                void                *ptr  = (void *)kh_key(task_info->resources[i], k);
-                task_resource_type_t type = kh_value(task_info->resources[i], k);
+        for (khiter_t k = kh_begin(thread->resources[i]); k != kh_end(thread->resources[i]); ++k) {
+            if (kh_exist(thread->resources[i], k)) {
+                void                *ptr  = (void *)kh_key(thread->resources[i], k);
+                task_resource_type_t type = kh_value(thread->resources[i], k);
 
                 switch (type) {
                     case RES_ICONV_OPEN:
@@ -225,18 +257,60 @@ static void task_info_delete(task_info_t *task_info) {
                         }
                         break;
                     case RES_OTA: ota_session_abort(ptr); break;
-                    default: ESP_LOGE(TAG, "Unknown resource type %i in task_info_delete", type);
+                    default: ESP_LOGE(TAG, "Unknown resource type %i in thread_delete", type);
                 }
             }
         }
 
-        kh_destroy(restable, task_info->resources[i]);
+        kh_destroy(restable, thread->resources[i]);
+    }
+
+    pages_deallocate(thread->pages);
+
+    free(thread);
+}
+
+static task_thread_t *task_thread_ref(task_thread_t *heap) {
+    if (!heap) {
+        return heap;
+    }
+
+    int cur  = atomic_load(&heap->refcount);
+    int want = cur + 1;
+    while (want && (!atomic_compare_exchange_weak(&heap->refcount, &cur, want))) {
+        usleep(100);
+        cur  = atomic_load(&heap->refcount);
+        want = cur + 1;
+    }
+
+    if (want == 0) {
+        return NULL;
+    }
+
+    return heap;
+}
+
+static task_info_t *task_info_init() {
+    task_info_t *ti = get_task_info();
+
+    task_info_t *task_info = heap_caps_calloc(1, sizeof(task_info_t), MALLOC_CAP_SPIRAM);
+    if (!task_info) {
+        ESP_LOGE(TAG, "Out of memory trying to allocate task info");
+        return NULL;
+    }
+
+    return task_info;
+}
+
+static void task_info_delete(task_info_t *task_info) {
+    if (!task_info) {
+        return;
     }
 
     free(task_info->file_path);
     free(task_info->argv_back);
     heap_caps_free(task_info);
-    ESP_LOGW(TAG, "Cleaned up task");
+    ESP_LOGI(TAG, "Cleaned up task");
 }
 
 // Try and handle misbehaving tasks
@@ -274,7 +348,8 @@ void IRAM_ATTR __wrap_xt_unhandled_exception(void *frame) {
 static void elf_task(task_info_t *task_info) {
     int ret;
 
-    esp_elf_t *elf = calloc(1, sizeof(esp_elf_t));
+    // Allocate in task itself so we don't have to free it
+    esp_elf_t *elf = dlcalloc(1, sizeof(esp_elf_t));
     if (!elf) {
         ESP_LOGE(TAG, "Out of memory trying to allocate elf structure");
         return;
@@ -327,7 +402,8 @@ static void elf_task_path(task_info_t *task_info) {
 
     why_lseek(fd, 0, SEEK_SET);
 
-    task_info->buffer = dlmalloc(size);
+    // Allocate in task itself so we don't have to free it
+    task_info->buffer = dlcalloc(1, size);
     if (!task_info->buffer) {
         ESP_LOGW("elf_task_path", "Unable to allocate memory");
         return;
@@ -352,6 +428,19 @@ static void generic_task(void *ti) {
 
     // YOLO
     task_info->task_entry(task_info);
+    ESP_LOGI(TAG, "Returning from task entry for Task %u", task_info->pid);
+
+    vTaskDelete(NULL);
+}
+
+// This is the function that runs inside the Thread
+static void generic_thread(void *ti) {
+    // Final setup to be done inside of the task context before we launch our entrypoint
+    task_info_t *task_info = ti;
+
+    // YOLO
+    task_info->thread_entry(task_info->buffer);
+    ESP_LOGI(TAG, "Returning from thread entry for Task %u", task_info->pid);
 
     vTaskDelete(NULL);
 }
@@ -362,7 +451,7 @@ void task_record_resource_alloc(task_resource_type_t type, void *ptr) {
     if (task_info && task_info->pid) {
         khash_insert_unique_ptr(
             restable,
-            task_info->resources[type],
+            task_info->thread->resources[type],
             ptr,
             type,
             "Attempted allocate already allocated resource"
@@ -374,13 +463,13 @@ void task_record_resource_free(task_resource_type_t type, void *ptr) {
     task_info_t *task_info = get_task_info();
 
     if (task_info && task_info->pid) {
-        khash_del_ptr(restable, task_info->resources[type], ptr, "Attempted to free already freed resource");
+        khash_del_ptr(restable, task_info->thread->resources[type], ptr, "Attempted to free already freed resource");
     }
 }
 
 pid_t run_task_path(char const *path, uint16_t stack_size, task_type_t type, int argc, char *argv[]) {
     if (!(type == TASK_TYPE_ELF || type == TASK_TYPE_ELF_PATH)) {
-        ESP_LOGE(TAG, "Can only run ELF non-rom files");
+        ESP_LOGE(TAG, "Can only run ELF files");
         return -1;
     }
 
@@ -398,32 +487,12 @@ pid_t run_task_path(char const *path, uint16_t stack_size, task_type_t type, int
 }
 
 pid_t run_task(void const *buffer, uint16_t stack_size, task_type_t type, int argc, char *argv[]) {
-    task_info_t *parent_task_info = get_task_info();
-    pid_t        pid              = pid_allocate();
-    if (pid <= 0) {
-        ESP_LOGW(TAG, "Cannot allocate PID for new task");
+    if (!(type == TASK_TYPE_ELF || type == TASK_TYPE_ELF_PATH)) {
+        ESP_LOGE(TAG, "Can only run ELF files");
         return -1;
     }
 
-    stack_size = stack_size < MIN_STACK_SIZE ? MIN_STACK_SIZE : stack_size;
-
-    task_info_t *task_info = task_info_init();
-    if (!task_info) {
-        goto error;
-    }
-
-    task_info->heap_start = (uintptr_t)VADDR_TASK_START;
-    task_info->heap_end   = task_info->heap_start;
-    // ESP_LOGI(TAG, "Setting watchpoint on %p core %i", &task_info->pad, esp_cpu_get_core_id());
-    // esp_cpu_set_watchpoint(0, &task_info->pad, 4, ESP_CPU_WATCHPOINT_STORE);
-
-    task_info->type       = type;
-    task_info->pid        = pid;
-    task_info->parent     = parent_task_info->pid;
-    task_info->buffer     = buffer;
-    task_info->file_path  = NULL;
-    task_info->argc       = argc;
-    task_info->stack_size = stack_size;
+    task_info_t *parent_task_info = get_task_info();
 
     // Pack up argv in a nice compact list
     size_t argv_size = argc * sizeof(char *);
@@ -431,47 +500,74 @@ pid_t run_task(void const *buffer, uint16_t stack_size, task_type_t type, int ar
         argv_size += strlen(argv[i]) + 1;
     }
 
-    task_info->argv = malloc(argv_size);
-    if (!task_info->argv) {
+    char **new_argv = malloc(argv_size);
+    if (!new_argv) {
         ESP_LOGE(TAG, "Out of memory trying to allocate argv buffer");
-        goto error;
+        return -1;
     }
-
-    // In case someone tries something clever
-    task_info->argv_back = task_info->argv;
-    task_info->argv_size = argv_size;
 
     size_t offset = argc * sizeof(char *);
     for (int i = 0; i < argc; ++i) {
-        char *arg_address  = ((void *)task_info->argv) + offset;
-        task_info->argv[i] = arg_address;
+        char *arg_address = ((void *)new_argv) + offset;
+        new_argv[i]       = arg_address;
         strcpy(arg_address, argv[i]);
         offset += strlen(argv[i]) + 1;
     }
 
-    switch (type) {
-        case TASK_TYPE_ELF: task_info->task_entry = elf_task; break;
-        case TASK_TYPE_ELF_PATH:
-            task_info->file_path  = strdup((char const *)buffer);
-            task_info->buffer     = NULL;
-            task_info->task_entry = elf_task_path;
-            break;
-        default: ESP_LOGE(TAG, "Unknown task type %i", type); goto error;
+    zeus_command_message_t *c = calloc(1, sizeof(zeus_command_message_t));
+    if (!c) {
+        ESP_LOGW(TAG, "Couldn't allocate zeus command message");
+        return -1;
     }
 
-    xQueueSend(zeus_queue, &task_info, portMAX_DELAY);
+    c->ready            = xSemaphoreCreateBinary();
+    c->parent_task_info = parent_task_info;
+    c->type             = type;
+    c->argc             = argc;
+    c->stack_size       = stack_size;
+    c->buffer           = buffer;
+    c->argv             = new_argv;
+    c->argv_size        = argv_size;
+
+    xQueueSend(zeus_queue, &c, portMAX_DELAY);
+    xSemaphoreTake(c->ready, portMAX_DELAY);
+    pid_t pid = c->pid;
+    vSemaphoreDelete(c->ready);
+    free(c);
+
     return pid;
-error:
-    task_info_delete(task_info);
-    pid_free(pid);
-    return -1;
+}
+
+pid_t thread_create(void (*thread_entry)(void *user_data), void *user_data, uint16_t stack_size) {
+    task_info_t *parent_task_info = get_task_info();
+
+    zeus_command_message_t *c = calloc(1, sizeof(zeus_command_message_t));
+    if (!c) {
+        ESP_LOGW(TAG, "Couldn't allocate zeus command message");
+        return -1;
+    }
+
+    c->ready            = xSemaphoreCreateBinary();
+    c->parent_task_info = parent_task_info;
+    c->type             = TASK_TYPE_THREAD;
+    c->stack_size       = stack_size;
+    c->buffer           = user_data;
+    c->thread_entry     = thread_entry;
+
+    xQueueSend(zeus_queue, &c, portMAX_DELAY);
+    xSemaphoreTake(c->ready, portMAX_DELAY);
+    vSemaphoreDelete(c->ready);
+    pid_t pid = c->pid;
+    free(c);
+
+    return pid;
 }
 
 void IRAM_ATTR task_switched_in_hook(TaskHandle_t volatile *handle) {
     task_info_t *task_info = get_task_info();
     if (task_info && task_info->pid) {
         // ESP_DRAM_LOGW(DRAM_STR("task_switched_hook"), "Switching to task %u, heap_start %p, heap_end %p",
-        // task_info->pid, (void*)task_info->heap_start, (void*)task_info->heap_end);
+        // task_info->pid, (void*)task_info->thread_start, (void*)task_info->thread_end);
         remap_task(task_info);
     }
 }
@@ -480,7 +576,7 @@ void IRAM_ATTR task_switched_out_hook(TaskHandle_t volatile *handle) {
     task_info_t *task_info = get_task_info();
     if (task_info && task_info->pid) {
         // ESP_DRAM_LOGW(DRAM_STR("task_switched_hook"), "Switching to task %u, heap_start %p, heap_end %p",
-        // task_info->pid, (void*)task_info->heap_start, (void*)task_info->heap_end);
+        // task_info->pid, (void*)task_info->thread_start, (void*)task_info->thread_end);
         unmap_task(task_info);
     }
 }
@@ -501,15 +597,30 @@ static void IRAM_ATTR hades(void *ignored) {
             if (task_info) {
                 switch (task_info->type) {
                     case TASK_TYPE_ELF_PATH: // Fallthrough
-                    case TASK_TYPE_ELF: free(task_info->data); break;
+                    case TASK_TYPE_ELF:      // Fallthrough
+                    case TASK_TYPE_THREAD: break;
                     default: ESP_LOGE(TAG, "Unknown task type %i", task_info->type);
                 }
 
                 process_table_remove_task(task_info);
-                if (task_info->heap_size) {
-                    pages_deallocate(task_info->allocations);
-                }
+                task_thread_destroy(task_info->thread);
                 task_info_delete(task_info);
+
+                if (xSemaphoreTake(process_table_lock, portMAX_DELAY) != pdTRUE) {
+                    ESP_LOGE(TAG, "Failed to get process table mutex");
+                    abort();
+                }
+
+                // Clean up any threads this process might have left behind
+                for (int i = 1; i < MAX_PID; ++i) {
+                    if (process_table[i] && process_table[i]->type == TASK_TYPE_THREAD &&
+                        process_table[i]->parent == dead_pid) {
+                        // See you soon...
+                        vTaskDelete(process_table[i]->handle);
+                    }
+                }
+
+                xSemaphoreGive(process_table_lock);
 
                 // Don't free our PID until the last moment
                 pid_free(dead_pid);
@@ -523,7 +634,7 @@ static void IRAM_ATTR hades(void *ignored) {
 }
 
 static void IRAM_ATTR zeus(void *ignored) {
-    task_info_t *task_info;
+    zeus_command_message_t *command;
 #if (NUM_PIDS > 999)
 #error "If you hit this assertion change the allocation for the task name to match the new size"
 #endif
@@ -532,11 +643,71 @@ static void IRAM_ATTR zeus(void *ignored) {
 
     while (1) {
         // Block until a new tasks wants to be born
-        if (xQueueReceive(zeus_queue, &task_info, portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(zeus_queue, &command, portMAX_DELAY) == pdTRUE) {
+            task_info_t *task_info = NULL;
+            command->pid           = pid_allocate();
+            if (command->pid <= 0) {
+                ESP_LOGW(TAG, "Cannot allocate PID for new task");
+                goto error;
+            }
+
+            command->stack_size = command->stack_size < MIN_STACK_SIZE ? MIN_STACK_SIZE : command->stack_size;
+
+            task_info = task_info_init();
+            if (!task_info) {
+                ESP_LOGW(TAG, "Cannot allocate task info");
+                goto error;
+            }
+
+            if (command->type == TASK_TYPE_THREAD) {
+                task_info->thread = task_thread_ref(command->parent_task_info->thread);
+                if (!task_info->thread) {
+                    ESP_LOGW(TAG, "Tried to create a thread from a dying parent, even I can't do this");
+                    goto error;
+                }
+            } else {
+                task_info->thread = task_thread_init((uintptr_t)VADDR_TASK_START);
+                if (!task_info->thread) {
+                    ESP_LOGW(TAG, "Cannot allocate task heap");
+                    goto error;
+                }
+            }
+            // ESP_LOGI(TAG, "Setting watchpoint on %p core %i", &task_info->pad, esp_cpu_get_core_id());
+            // esp_cpu_set_watchpoint(0, &task_info->pad, 4, ESP_CPU_WATCHPOINT_STORE);
+
+            task_info->pid        = command->pid;
+            task_info->type       = command->type;
+            task_info->parent     = command->parent_task_info->pid;
+            task_info->buffer     = command->buffer;
+            task_info->file_path  = NULL;
+            task_info->argc       = command->argc;
+            task_info->argv       = command->argv;
+            task_info->argv_size  = command->argv_size;
+            task_info->stack_size = command->stack_size;
+
+            // In case someone tries something clever
+            task_info->argv_back = task_info->argv;
+
+            TaskFunction_t task_entry = generic_task;
+            switch (command->type) {
+                case TASK_TYPE_ELF: task_info->task_entry = elf_task; break;
+                case TASK_TYPE_ELF_PATH:
+                    task_info->file_path  = strdup((char const *)command->buffer);
+                    task_info->buffer     = NULL;
+                    task_info->task_entry = elf_task_path;
+                    break;
+                case TASK_TYPE_THREAD:
+                    task_entry              = generic_thread;
+                    task_info->thread_entry = command->thread_entry;
+                    break;
+                default: ESP_LOGE(TAG, "Unknown task type %i", command->type); goto error;
+            }
+
             ESP_LOGI("ZEUS", "Breathing life into PID %d", task_info->pid);
+
             TaskHandle_t new_task;
             BaseType_t   res = xTaskCreatePinnedToCore(
-                generic_task,
+                task_entry,
                 task_name,
                 task_info->stack_size,
                 (void *)task_info,
@@ -550,21 +721,27 @@ static void IRAM_ATTR zeus(void *ignored) {
                 process_table_add_task(task_info);
                 vTaskSetThreadLocalStoragePointer(new_task, 1, task_info);
                 vTaskSetApplicationTaskTag(new_task, (void *)0x12345678);
+                command->handle = new_task;
                 ESP_LOGV("ZEUS", "PID %d sprung forth fully formed from my forehead", task_info->pid);
                 ++num_tasks;
-            } else {
-                ESP_LOGE("ZEUS", "PID %d could not be started, too good for this world", task_info->pid);
-                pid_free(task_info->pid);
-                task_info_delete(task_info);
+                goto out;
             }
+        error:
+            ESP_LOGE("ZEUS", "Process could not be started, too good for this world");
+            pid_free(command->pid);
+            task_info_delete(task_info);
+        out:
+            xSemaphoreGive(command->ready);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
         }
     }
 }
 
 void kernel_task_base(void *pvParameters) {
-    kernel_task_param_t *params = pvParameters;
     vTaskSetThreadLocalStoragePointer(NULL, 1, &kernel_task);
     vTaskSetApplicationTaskTag(NULL, (void *)0x12345678);
+
+    kernel_task_param_t *params = pvParameters;
 
     TaskFunction_t entry           = params->entry;
     void          *task_parameters = params->pvParameters;
@@ -628,6 +805,6 @@ void task_init() {
     create_kernel_task(hades, "Hades", 3072, NULL, 11, &hades_handle, 1);
 
     ESP_DRAM_LOGI(DRAM_STR("task_init"), "Starting Zeus process");
-    zeus_queue = xQueueCreate(16, sizeof(task_info_t *));
-    create_kernel_task(zeus, "Zeus", 2048, NULL, 10, &zeus_handle, 1);
+    zeus_queue = xQueueCreate(16, sizeof(zeus_command_message_t *));
+    create_kernel_task(zeus, "Zeus", 3072, NULL, 10, &zeus_handle, 1);
 }

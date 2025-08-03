@@ -32,13 +32,13 @@
 #include "stdio_private.h"
 
 int
-sscanf(const char *s, const char *fmt, ...)
+why_sscanf(const char *s, const char *fmt, ...)
 {
 	va_list ap;
 	int i;
 	struct __file_str f = FDEV_SETUP_STRING_READ(s);
 	va_start(ap, fmt);
-	i = vfscanf(&f.file, fmt, ap);
+	i = why_vfscanf(&f.file, fmt, ap);
 	va_end(ap);
 
 	return i;

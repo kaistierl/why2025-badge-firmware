@@ -74,7 +74,7 @@ IRAM_ATTR void dump_mmu() {
             continue;
 
         esp_rom_printf("\n*********** PID %02u MAP   ***********\n", task_info->pid);
-        allocation_range_t *r = task_info->allocations;
+        allocation_range_t *r = task_info->thread->pages;
         while (r) {
             for (int i = 0; i < r->size / SOC_MMU_PAGE_SIZE; ++i) {
                 esp_rom_printf(
@@ -248,14 +248,14 @@ IRAM_ATTR void remap_task(task_info_t *task_info) {
 
     uint32_t mmu_id = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
-    allocation_range_t *r = task_info->allocations;
+    allocation_range_t *r = task_info->thread->pages;
     while (r) {
         why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
         r = r->next;
     }
 
     // Invalidate all caches at once
-    invalidate_caches(task_info->heap_start, task_info->heap_size);
+    invalidate_caches(task_info->thread->start, task_info->thread->size);
     current_mapped_task = task_info->pid;
 }
 
@@ -271,7 +271,7 @@ void IRAM_ATTR unmap_task(task_info_t *task_info) {
     }
 
     // esp_rom_printf("Unmappingg %u\n", task_info->pid);
-    allocation_range_t *r = task_info->allocations;
+    allocation_range_t *r = task_info->thread->pages;
     if (!r) {
         // Nothing to do, whatever is in ram is still in ram
         goto out;
@@ -279,7 +279,7 @@ void IRAM_ATTR unmap_task(task_info_t *task_info) {
 
     uint32_t mmu_id = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
-    writeback_caches(task_info->heap_start, task_info->heap_size);
+    writeback_caches(task_info->thread->start, task_info->thread->size);
 
     while (r) {
         why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
@@ -428,7 +428,7 @@ void IRAM_ATTR framebuffer_unmap_pages(allocation_range_t *head_range) {
 
 void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
     task_info_t *task_info = get_task_info();
-    uintptr_t    old       = task_info->heap_end;
+    uintptr_t    old       = task_info->thread->end;
     ESP_LOGI("sbrk", "Calling sbrk(%zi) from task %d", increment, task_info->pid);
 
     if (!increment)
@@ -436,7 +436,7 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
 
     if (increment > 0) {
         // Allocating new pages
-        uintptr_t vaddr_start = task_info->heap_end;
+        uintptr_t vaddr_start = task_info->thread->end;
 
         if (vaddr_start + increment > SOC_EXTRAM_HIGH) {
             goto error;
@@ -460,7 +460,7 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
             task_info->pid,
             head_range,
             tail_range,
-            task_info->allocations
+            task_info->thread->pages
         );
 
         // Map our new page table entries in one atomic operation
@@ -468,20 +468,20 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
         {
             map_regions(head_range, tail_range);
 
-            tail_range->next       = task_info->allocations;
-            task_info->allocations = head_range;
+            tail_range->next         = task_info->thread->pages;
+            task_info->thread->pages = head_range;
 
-            task_info->heap_size += increment;
-            task_info->heap_end  += increment;
+            task_info->thread->size += increment;
+            task_info->thread->end  += increment;
         }
         critical_exit();
     } else {
         // increment is negative
-        int32_t  decrement_amount = task_info->heap_size + increment;
+        int32_t  decrement_amount = task_info->thread->size + increment;
         int32_t  to_decrement     = decrement_amount;
         uint32_t mmu_id           = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
-        allocation_range_t *r = task_info->allocations;
+        allocation_range_t *r = task_info->thread->pages;
         while (r && to_decrement) {
             // We always free from the end
             if (r->size <= to_decrement) {
@@ -501,7 +501,7 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
                 critical_enter();
                 {
                     why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
-                    task_info->allocations = n;
+                    task_info->thread->pages = n;
                 }
                 critical_exit();
 
@@ -534,19 +534,19 @@ void IRAM_ATTR NOINLINE_ATTR *why_sbrk(intptr_t increment) {
                 to_decrement = 0;
             }
         }
-        task_info->heap_size -= decrement_amount;
-        task_info->heap_end  -= decrement_amount;
+        task_info->thread->size -= decrement_amount;
+        task_info->thread->end  -= decrement_amount;
     }
 
 out:
     ESP_LOGI(
         "sbrk",
-        "Calling sbrk(%zi) from task %d, returning %p, heap_size=%zi, heap_end=%p",
+        "Calling sbrk(%zi) from task %d, returning %p, thread->size=%zi, thread->end=%p",
         increment,
         task_info->pid,
         (void *)old,
-        task_info->heap_size,
-        (void *)task_info->heap_end
+        task_info->thread->size,
+        (void *)task_info->thread->end
     );
     return (void *)old;
 
@@ -696,8 +696,8 @@ size_t get_total_psram_pages() {
 void writeback_and_invalidate_task(task_info_t *task_info) {
     critical_enter();
     {
-        writeback_caches(task_info->heap_start, task_info->heap_size);
-        invalidate_caches(task_info->heap_start, task_info->heap_size);
+        writeback_caches(task_info->thread->start, task_info->thread->size);
+        invalidate_caches(task_info->thread->start, task_info->thread->size);
     }
     critical_exit();
 }

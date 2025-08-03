@@ -39,7 +39,7 @@ why_snprintf(char *s, size_t n, const char *fmt, ...)
 	struct __file_str f = FDEV_SETUP_STRING_WRITE(s, FDEV_STRING_WRITE_END(s, n));
 
 	va_start(ap, fmt);
-	i = vfprintf(&f.file, fmt, ap);
+	i = why_vfprintf(&f.file, fmt, ap);
 	va_end(ap);
 
 	if (n)
@@ -48,4 +48,4 @@ why_snprintf(char *s, size_t n, const char *fmt, ...)
 	return i;
 }
 
-__ieee128_reference(snprintf, __snprintfieee128);
+__ieee128_reference(why_snprintf, __why_snprintfieee128);

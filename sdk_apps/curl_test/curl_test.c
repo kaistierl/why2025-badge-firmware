@@ -65,6 +65,7 @@ typedef struct {
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, MemoryStruct *mem) {
     size_t realsize = size * nmemb;
+    printf("Callback recieved %u bytes\n", realsize);
 
     char *ptr = realloc(mem->memory, mem->size + realsize + 1);
     if (!ptr) {
@@ -94,6 +95,7 @@ void capture_response_example() {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
+        curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 128);
 
         res = curl_easy_perform(curl);
         if (res != CURLE_OK) {

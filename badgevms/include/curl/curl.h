@@ -96,7 +96,8 @@ typedef enum {
     CURLOPT_PROXYTYPE = 101,
     CURLOPT_PROXYPORT = 59,
     CURLOPT_HTTPAUTH = 107,
-    CURLOPT_PROXYAUTH = 111
+    CURLOPT_PROXYAUTH = 111,
+    CURLOPT_BUFFERSIZE = 98,
 } curl_easy_option_t;
 
 typedef enum {

@@ -1,7 +1,8 @@
+#include "test_keyboard.h"
+
 #include "badgevms/event.h"
 #include "badgevms/keyboard.h"
 #include "test_badge.h"
-#include "test_keyboard.h"
 #include "thirdparty/microui.h"
 
 #include <stdio.h>

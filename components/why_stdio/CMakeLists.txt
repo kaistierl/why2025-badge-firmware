@@ -1,7 +1,7 @@
 idf_component_register( SRCS
   ctype.c
-  #asnprintf.c
-  #asprintf.c
+  asnprintf.c
+  asprintf.c
   #atold_engine.c
   bufio.c
   #clearerr.c
@@ -84,13 +84,13 @@ idf_component_register( SRCS
   setlinebuf.c
   setvbuf.c
   sflags.c
-  #snprintf.c
-  #snprintfd.c
-  #snprintff.c
-  #sprintf.c
-  #sprintfd.c
-  #sprintff.c
-  #sscanf.c
+  snprintf.c
+  snprintfd.c
+  snprintff.c
+  sprintf.c
+  sprintfd.c
+  sprintff.c
+  sscanf.c
   #strfromd.c
   #strfromf.c
   #strfroml.c
@@ -118,8 +118,8 @@ idf_component_register( SRCS
   #tmpnam.c
   ungetc.c
   #ungetwc.c
-  #vasnprintf.c
-  #vasprintf.c
+  vasnprintf.c
+  vasprintf.c
   #vffprintf.c
   #vffscanf.c
   #vfiprintf.c

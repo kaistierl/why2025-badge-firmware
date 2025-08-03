@@ -36,19 +36,19 @@
 #include "stdio_private.h"
 
 char * __disable_sanitizer
-vasnprintf(char *str, size_t *lenp, const char *fmt, va_list ap)
+why_vasnprintf(char *str, size_t *lenp, const char *fmt, va_list ap)
 {
 	struct __file_str f = FDEV_SETUP_STRING_ALLOC_BUF(str, *lenp);
 	int i;
 
-	i = vfprintf(&f.file, fmt, ap);
+	i = why_vfprintf(&f.file, fmt, ap);
 
         /*
          * Use fputc to append a NULL to handle
          * buffer overflow cases
          */
 	if (i >= 0) {
-                if (fputc('\0', &f.file) < 0)
+                if (why_fputc('\0', &f.file) < 0)
                         i = EOF;
         }
 

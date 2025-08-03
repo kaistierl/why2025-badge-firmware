@@ -1,10 +1,9 @@
 #include "test_drawing_helper.h"
 
-#include <stdlib.h>
-
 #include "badgevms/framebuffer.h"
-
 #include "thirdparty/microui.h"
+
+#include <stdlib.h>
 
 #include <string.h>
 #include <time.h>

@@ -2,7 +2,7 @@
 
 BadgeVMS is the most used Badge operating system on the WHY2025 camp.
 
-![BadgeVMS Logo](flash_storage/BadgeVMS.png)
+![BadgeVMS Logo](flash_storage/skel/BadgeVMS.png)
 
 Some feature highlights:
 
@@ -26,6 +26,18 @@ idf.py build flash monitor
 ```
 
 _Note: When you do a `git pull` please run an `idf.py fullclean` before rebuilding so changes to sdkconfig.defaults are picked up_
+
+# Example applications
+
+The directory [sdk_apps](sdk_apps) has several small programs in it.
+
+* [framebuffer_test](sdk_apps/framebuffer_test) shows you how to directly interact with the windowing system and keyboard input.
+* [sdl_test](sdk_apps/sdl_test) does the same, but for SDL.
+* [curl_test](sdk_apps/curl_test) shows you how to do http(s) calls, 
+* [thread_test](sdk_apps/thread_test) has a simple example of creating a thread and how to interact with workers.
+* And many more!
+
+Finally as a more complete example there is also [doomgeneric](sdk_apps/doomgeneric) a full-fledged doom port! In particular check out [doomgeneric_badgevms.c](sdk_apps/doomgeneric/doomgeneric/doomgeneric_badgevms.c) for examples of framebuffers, scaling, window handling, input, etc.
 
 # Building applications
 
@@ -60,5 +72,4 @@ In order to link properly with an `.a` file for BadgeVMS please use `-Wl,--exclu
 
  * UNIX paths do not work! Paths are in the form of `DEVICE:[directory.subdirectory]filename.ext`
  * The various GCC options above are not optional. BadgeVMS binaries are position independent ELF shared objects. Other types of binaries will not load.
- * No threading
  * No shared libraries, you there is no `dlopen()` either, all of your dependencies (that is, symbols that come from places other than what is included with the sdk) must be fully statically linked.

@@ -118,6 +118,8 @@ static cookie_entry_t *parse_set_cookie(char const *set_cookie_header) {
         return NULL;
     }
 
+    ESP_LOGW(TAG, "Parsing header '%s'", set_cookie_header);
+
     cookie_entry_t *cookie = dlcalloc(1, sizeof(cookie_entry_t));
     if (!cookie) {
         ESP_LOGW(TAG, "Cookie dlmalloc failed (cookie)");
@@ -175,7 +177,7 @@ static cookie_entry_t *parse_set_cookie(char const *set_cookie_header) {
         return NULL;
     }
 
-    cookie->domain    = why_strdup("");
+    cookie->domain    = why_strdup("example.com");
     cookie->path      = why_strdup("/");
     cookie->expires   = 0;
     cookie->secure    = false;
@@ -446,7 +448,7 @@ static int save_cookies_to_file(curl_handle_t *curl, char const *filename) {
     }
 
     why_fprintf(file, "# BadgeVMS cookie jar file\n");
-    why_fprintf(file, "# Format: name\\tvalue\\tdomain\\tpath\\texpires\\tsecure\\thttp_only\\tsamesite\n");
+    why_fprintf(file, "# Format: name\\tvalue\\tdomain\\tpath\\texpires\\tsecure\\thttp_only\\tsamesite\t\n");
 
     int    cookies_saved = 0;
     time_t current_time  = time(NULL);
@@ -462,7 +464,7 @@ static int save_cookies_to_file(curl_handle_t *curl, char const *filename) {
 
         why_fprintf(
             file,
-            "%s\t%s\t%s\t%s\t%ld\t%d\t%d\t%d\n",
+            "%s\t%s\t%s\t%s\t%ld\t%d\t%d\t%d\t\n",
             cookie->name ? cookie->name : "",
             cookie->value ? cookie->value : "",
             cookie->domain ? cookie->domain : "",
@@ -470,15 +472,16 @@ static int save_cookies_to_file(curl_handle_t *curl, char const *filename) {
             (long)cookie->expires,
             cookie->secure ? 1 : 0,
             cookie->http_only ? 1 : 0,
-            cookie->samesite
+            cookie->samesite ? 1 : 0
         );
 
         cookies_saved++;
         cookie = cookie->next;
     }
 
+    ESP_LOGW(TAG, "Closing jar");
     why_fclose(file);
-    ESP_LOGI(TAG, "Saved %d cookies to file: %s", cookies_saved, filename);
+    ESP_LOGW(TAG, "Saved %d cookies to file: %s", cookies_saved, filename);
     return cookies_saved;
 }
 
@@ -522,7 +525,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
 
                 char *tmp_header = dlmalloc(key_len + val_len + 2);
                 memcpy(tmp_header, evt->header_key, key_len);
-                tmp_header[key_len] = ':';
+                tmp_header[key_len]     = ':';
                 tmp_header[key_len + 1] = ' ';
                 memcpy(&tmp_header[key_len + 2], evt->header_value, val_len);
 
@@ -805,6 +808,13 @@ CURLcode curl_easy_setopt(CURL *curl_handle, CURLoption option, ...) {
             char const *filename = va_arg(args, char const *);
             dlfree(curl->cookie_jar);
             curl->cookie_jar = why_strdup(filename);
+            break;
+        }
+
+        case CURLOPT_BUFFERSIZE: {
+            long size                = va_arg(args, long);
+            curl->config.buffer_size = size;
+            va_end(args);
             break;
         }
 

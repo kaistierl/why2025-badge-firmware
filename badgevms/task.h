@@ -53,6 +53,7 @@ typedef enum {
 typedef enum {
     TASK_TYPE_ELF,
     TASK_TYPE_ELF_PATH,
+    TASK_TYPE_THREAD,
 } task_type_t;
 
 typedef struct {
@@ -61,21 +62,34 @@ typedef struct {
     device_t *device;
 } file_handle_t;
 
+typedef struct {
+    allocation_range_t  *pages;
+    uintptr_t            start;
+    uintptr_t            end;
+    size_t               size;
+    atomic_int           refcount;
+    size_t               max_memory;
+    size_t               max_files;
+    size_t               current_files;
+    file_handle_t        file_handles[MAXFD];
+    struct malloc_state  malloc_state;
+    struct malloc_params malloc_params;
+    khash_t(restable) * resources[RES_RESOURCE_TYPE_MAX];
+} task_thread_t;
+
 typedef struct task_info {
     // Pointers
-    TaskHandle_t handle;
-    khash_t(restable) * resources[RES_RESOURCE_TYPE_MAX];
-    allocation_range_t *allocations;
-    void const         *buffer;
-    void               *data;
-    char               *file_path;
-    char              **argv;
-    char              **argv_back;
-    char               *strtok_saveptr;
-    uintptr_t           heap_start;
-    uintptr_t           heap_end;
-    uint16_t            stack_size;
+    TaskHandle_t   handle;
+    task_thread_t *thread;
+    void const    *buffer;
+    void          *data;
+    char          *file_path;
+    char         **argv;
+    char         **argv_back;
+    char          *strtok_saveptr;
+    uint16_t       stack_size;
     void (*task_entry)(struct task_info *task_info);
+    void (*thread_entry)(void *user_data);
 
     // Small variables
     pid_t        pid;
@@ -83,25 +97,17 @@ typedef struct task_info {
     int          argc;
     int          _errno;
     task_type_t  type;
-    size_t       heap_size;
     size_t       argv_size;
-    size_t       max_memory;
-    size_t       current_memory;
-    size_t       max_files;
-    size_t       current_files;
     unsigned int seed;
 
     // Buffers
-    file_handle_t file_handles[MAXFD];
-    char          strerror_buf[STRERROR_BUFLEN];
-    char          asctime_buf[26];
-    char          ctime_buf[26];
+    char strerror_buf[STRERROR_BUFLEN];
+    char asctime_buf[26];
+    char ctime_buf[26];
 
     // Structured
-    struct tm            gmtime_tm;
-    struct tm            localtime_tm;
-    struct malloc_state  malloc_state;
-    struct malloc_params malloc_params;
+    struct tm gmtime_tm;
+    struct tm localtime_tm;
 
     void *pad; // For debugging
 } task_info_t;

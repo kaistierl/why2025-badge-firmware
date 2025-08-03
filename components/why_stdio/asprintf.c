@@ -43,7 +43,7 @@ why_asprintf(char **strp, const char *fmt, ...)
 	int i;
 
 	va_start(ap, fmt);
-	i = vfprintf(&f.file, fmt, ap);
+	i = why_vfprintf(&f.file, fmt, ap);
 	va_end(ap);
         char *buf = POINTER_MINUS(f.end, f.size);
 	if (i >= 0) {
@@ -56,6 +56,6 @@ why_asprintf(char **strp, const char *fmt, ...)
 		}
 	}
         if (i < 0)
-                free(buf);
+                why_free(buf);
 	return i;
 }

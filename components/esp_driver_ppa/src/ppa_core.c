@@ -393,6 +393,7 @@ static void ppa_free_transaction(ppa_trans_t *trans_elm)
     }
 }
 
+IRAM_ATTR
 bool ppa_recycle_transaction(ppa_client_handle_t ppa_client, ppa_trans_t *trans_elm)
 {
     // Reset transaction and send back to client's trans_elm_ptr_queue

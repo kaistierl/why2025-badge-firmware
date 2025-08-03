@@ -49,4 +49,7 @@
   - Needed here because it implicitly depends on esptool_py Kconfig.
 
 * esp_http_client (From esp-idf v5.5)
-  - Switch all allocations to dlmalloc
+  - use why_io_port to switch all allocations to task context
+
+* esp-tls (From esp-idf v5.5)
+  - use why_io_port to switch all allocations to task context

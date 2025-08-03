@@ -96,7 +96,7 @@ size_t	__locale_mb_cur_max (void);
 #define MB_CUR_MAX __locale_mb_cur_max()
 
 /* Declare free up here so it can be used with __malloc_like */
-void	free (void *) __nothrow;
+void	why_free (void *) __nothrow;
 
 #if __ISO_C_VISIBLE >= 1999
 __noreturn void	_Exit (int __status);
@@ -107,7 +107,7 @@ long    a64l (const char *__input);
 __noreturn void	abort (void);
 int	abs (int);
 #if __ISO_C_VISIBLE >= 2011 || __GNU_VISIBLE
-void   *aligned_alloc(size_t, size_t) __malloc_like __alloc_align(1)
+void   *why_aligned_alloc(size_t, size_t) __alloc_align(1)
                          __alloc_size(2) __warn_unused_result __nothrow;
 #endif
 #if __BSD_VISIBLE
@@ -133,7 +133,7 @@ void *	bsearch (const void *__key,
                  size_t __nmemb,
                  size_t __size,
                  __compar_fn_t _compar);
-void	*calloc(size_t, size_t) __malloc_like __warn_unused_result
+void	*why_calloc(size_t, size_t) __warn_unused_result
 	     __alloc_size2(1, 2) __nothrow;
 div_t	div (int __numer, int __denom);
 #if __SVID_VISIBLE || __XSI_VISIBLE
@@ -180,7 +180,7 @@ lldiv_t	lldiv (long long __numer, long long __denom);
 long   lrand48 (void);
 long   _lrand48_r (struct _rand48 *);
 #endif
-void	*malloc(size_t) __malloc_like __warn_unused_result __alloc_size(1) __nothrow;
+void	*malloc(size_t) __warn_unused_result __alloc_size(1) __nothrow;
 int	mblen (const char *, size_t);
 size_t	mbstowcs (wchar_t *__restrict, const char *__restrict, size_t);
 int	mbtowc (wchar_t *__restrict, const char *__restrict, size_t);
@@ -240,10 +240,10 @@ int	rand_r (unsigned *__seed);
 #if __SVID_VISIBLE || __XSI_VISIBLE >= 4 || __BSD_VISIBLE
 long	random (void);
 #endif
-void	*realloc(void *, size_t) __warn_unused_result __alloc_size(2) __nothrow;
+void	*why_realloc(void *, size_t) __warn_unused_result __alloc_size(2) __nothrow;
 #if __BSD_VISIBLE
-void	*reallocarray(void *, size_t, size_t) __warn_unused_result __alloc_size2(2, 3);
-void	*reallocf(void *, size_t) __warn_unused_result __alloc_size(2);
+void	*why_reallocarray(void *, size_t, size_t) __warn_unused_result __alloc_size2(2, 3);
+void	*why_reallocf(void *, size_t) __warn_unused_result __alloc_size(2);
 #endif
 #if __BSD_VISIBLE || __XSI_VISIBLE >= 4
 char *	realpath (const char *__restrict path, char *__restrict resolved_path);
@@ -342,7 +342,7 @@ int	unsetenv (const char *__string);
 #endif
 size_t	wcstombs (char *__restrict, const wchar_t *__restrict, size_t);
 int	wctomb (char *, wchar_t);
-void   *valloc (size_t) __malloc_like __warn_unused_result __alloc_size(1) __nothrow;
+void   *valloc (size_t) __warn_unused_result __alloc_size(1) __nothrow;
 #if __SVID_VISIBLE || __XSI_VISIBLE >= 4
 char   *l64a (long __input);
 #endif

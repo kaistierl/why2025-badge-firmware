@@ -39,18 +39,22 @@ static int fatfs_open(void *dev, path_t *path, int flags, mode_t mode) {
     return ret;
 }
 
+IRAM_ATTR
 static int fatfs_close(void *dev, int fd) {
     return close(fd);
 }
 
+IRAM_ATTR
 static ssize_t fatfs_write(void *dev, int fd, void const *buf, size_t count) {
     return write(fd, buf, count);
 }
 
+IRAM_ATTR
 static ssize_t fatfs_read(void *dev, int fd, void *buf, size_t count) {
     return read(fd, buf, count);
 }
 
+IRAM_ATTR
 static ssize_t fatfs_lseek(void *dev, int fd, off_t offset, int whence) {
     return lseek(fd, offset, whence);
 }

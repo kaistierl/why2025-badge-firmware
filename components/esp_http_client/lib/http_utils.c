@@ -14,8 +14,6 @@
 #include "esp_check.h"
 #include "http_utils.h"
 
-#include "thirdparty/dlmalloc.h"
-
 #ifndef mem_check
 #define mem_check(x) assert(x)
 #endif
@@ -28,7 +26,7 @@ char *http_utils_join_string(const char *first_str, size_t len_first, const char
     size_t second_str_len = len_second > 0 ? len_second : strlen(second_str);
     char *ret = NULL;
     if (first_str_len + second_str_len > 0) {
-        ret = dlcalloc(1, first_str_len + second_str_len + 1);
+        ret = calloc(1, first_str_len + second_str_len + 1);
         ESP_RETURN_ON_FALSE(ret, NULL, TAG, "Memory exhausted");
         memcpy(ret, first_str, first_str_len);
         memcpy(ret + first_str_len, second_str, second_str_len);
@@ -47,11 +45,11 @@ char *http_utils_assign_string(char **str, const char *new_str, int len)
         l = strlen(new_str);
     }
     if (old_str) {
-        old_str = dlrealloc(old_str, l + 1);
+        old_str = realloc(old_str, l + 1);
         ESP_RETURN_ON_FALSE(old_str, NULL, TAG, "Memory exhausted");
         old_str[l] = 0;
     } else {
-        old_str = dlcalloc(1, l + 1);
+        old_str = calloc(1, l + 1);
         ESP_RETURN_ON_FALSE(old_str, NULL, TAG, "Memory exhausted");
     }
     memcpy(old_str, new_str, l);
@@ -70,11 +68,11 @@ char *http_utils_append_string(char **str, const char *new_str, int len)
         }
         if (old_str) {
             old_len = strlen(old_str);
-            old_str = dlrealloc(old_str, old_len + l + 1);
+            old_str = realloc(old_str, old_len + l + 1);
             ESP_RETURN_ON_FALSE(old_str, NULL, TAG, "Memory exhausted");
             old_str[old_len + l] = 0;
         } else {
-            old_str = dlcalloc(1, l + 1);
+            old_str = calloc(1, l + 1);
             ESP_RETURN_ON_FALSE(old_str, NULL, TAG, "Memory exhausted");
         }
         memcpy(old_str + old_len, new_str, l);
@@ -120,7 +118,7 @@ esp_err_t http_utils_get_string_between(const char *str, const char *begin, cons
         found += strlen(begin);
         char *found_end = strcasestr(found, end);
         if (found_end) {
-            *out = dlcalloc(1, found_end - found + 1);
+            *out = calloc(1, found_end - found + 1);
             ESP_RETURN_ON_FALSE(*out, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
             memcpy(*out, found, found_end - found);
         }
@@ -136,7 +134,7 @@ esp_err_t http_utils_get_string_after(const char *str, const char *begin, char *
         found += strlen(begin);
         char *found_end = (char *)str + strlen(str);
         if (found_end) {
-            *out = dlcalloc(1, found_end - found + 1);
+            *out = calloc(1, found_end - found + 1);
             ESP_RETURN_ON_FALSE(*out, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
             memcpy(*out, found, found_end - found);
         }

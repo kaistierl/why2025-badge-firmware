@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "thirdparty/dlmalloc.h"
+
 #include <stdio.h>
 
 #include <fcntl.h>
@@ -47,5 +49,8 @@ int why_vfprintf(FILE *restrict stream, char const *restrict format, va_list ap)
 int why_vdprintf(int fd, char const *restrict format, va_list ap);
 int why_vsprintf(char *restrict str, char const *restrict format, va_list ap);
 int why_vsnprintf(char *str, size_t size, char const *restrict format, va_list ap);
+
+int why_asprintf(char **restrict strp, char const *restrict fmt, ...);
+int why_vasprintf(char **restrict strp, char const *restrict fmt, va_list ap);
 
 char *why_strdup(char const *s);
