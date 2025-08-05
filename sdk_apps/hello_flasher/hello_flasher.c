@@ -1,11 +1,13 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
 #include "badgevms/misc_funcs.h"
+#include "badgevms/process.h"
 #include "badgevms/wifi.h"
 #include "curl/curl.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <string.h>
+#include <unistd.h>
 
 #define VERSION_FILE "FLASH0:hello_version.txt"
 #define ELF_FILE "FLASH0:hello.elf"
@@ -56,17 +58,24 @@ int get_local_version() {
     return atoi(version_str);
 }
 
-void reboot(void) {
-    die("App update complete. Rebooting...");
+pid_t pid = -1;
+void restart_app(void) {
+    char *name      = "hello";
+    char *path = "FLASH0:hello.elf";
+    printf("Starting %s (%s)\n", name, path);
+    pid = process_create(path, 8192, 0, NULL);
+    if (pid == -1) {
+        printf("Failed to start %s (%s)\n", name, path);
+    }
 }
 
 int main(int argc, char *argv[]) {
-    printf("Starting hello_flasher app...\n");
+    printf("HELLO_FLASHER: Starting hello_flasher app...\n");
 
     // Connect to WiFi
-    printf("Connecting to WiFi...\n");
+    printf("HELLO_FLASHER: Connecting to WiFi...\n");
     wifi_connect();
-    printf("WiFi connected.\n");
+    printf("HELLO_FLASHER: WiFi connected.\n");
 
     // Initialize curl
     curl_global_init(0);
@@ -87,7 +96,7 @@ int main(int argc, char *argv[]) {
             curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
             curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
 
-            printf("Checking for new version at %s\n", LATEST_VERSION_URL);
+            printf("HELLO_FLASHER: Checking for new version at %s\n", LATEST_VERSION_URL);
             res = curl_easy_perform(curl_handle);
 
             if (res != CURLE_OK) {
@@ -98,10 +107,10 @@ int main(int argc, char *argv[]) {
                 if (http_code == 200) {
                     int remote_version = atoi(chunk.memory);
                     int local_version  = get_local_version();
-                    printf("Server version: %d, Local version: %d\n", remote_version, local_version);
+                    printf("HELLO_FLASHER: Server version: %d, Local version: %d\n", remote_version, local_version);
 
                     if (remote_version > local_version) {
-                        printf("New version available. Downloading...\n");
+                        printf("HELLO_FLASHER: New version available. Downloading...\n");
 
                         // Construct download URL
                         char download_url[256];
@@ -120,16 +129,16 @@ int main(int argc, char *argv[]) {
                                 long download_http_code = 0;
                                 curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &download_http_code);
                                 if (download_http_code == 200) {
-                                    printf("Download successful. Updating version file.\n");
+                                    printf("HELLO_FLASHER: Download successful. Updating version file.\n");
                                     // Update the version file
                                     fp = fopen(VERSION_FILE, "w");
                                     if (fp) {
                                         fprintf(fp, "%d", remote_version);
                                         fclose(fp);
-                                        printf("Version file updated. Rebooting...\n");
-                                        reboot(); // Reboot the badge
+                                        printf("HELLO_FLASHER: Version file updated. Restarting app...\n");
+                                        restart_app(); // Reboot the badge
                                     } else {
-                                        printf("Failed to open version file for writing.\n");
+                                        printf("HELLO_FLASHER: Failed to open version file for writing.\n");
                                     }
                                 } else {
                                     fprintf(stderr, "Download failed with HTTP status code: %ld\n", download_http_code);
@@ -138,13 +147,13 @@ int main(int argc, char *argv[]) {
                                 fprintf(stderr, "Download failed: %s\n", curl_easy_strerror(res));
                             }
                         } else {
-                            printf("Failed to open file for writing: %s\n", ELF_FILE);
+                            printf("HELLO_FLASHER: Failed to open file for writing: %s\n", ELF_FILE);
                         }
                     } else {
-                        printf("Already on the latest version.\n");
+                        printf("HELLO_FLASHER: Already on the latest version.\n");
                     }
                 } else {
-                    printf("Server returned HTTP code %ld\n", http_code);
+                    printf("HELLO_FLASHER: Server returned HTTP code %ld\n", http_code);
                 }
             }
 
@@ -153,7 +162,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Wait for 2 seconds before checking again
-        printf("Sleeping for 2 seconds...\n");
+        printf("HELLO_FLASHER: Sleeping for 2 seconds...\n");
         usleep(2 * 1000 * 1000);
     }
 

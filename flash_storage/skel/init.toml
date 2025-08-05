@@ -5,10 +5,3 @@ restart_on_failure = false
 stack_size = 8192
 args = []
 
-[[apps]]
-name = "hello"
-path = "FLASH0:hello.elf"
-restart_on_failure = false
-stack_size = 8192
-args = []
-
