@@ -117,16 +117,22 @@ int main(int argc, char *argv[]) {
                             fclose(fp);
 
                             if (res == CURLE_OK) {
-                                printf("Download successful. Updating version file.\n");
-                                // Update the version file
-                                fp = fopen(VERSION_FILE, "w");
-                                if (fp) {
-                                    fprintf(fp, "%d", remote_version);
-                                    fclose(fp);
-                                    printf("Version file updated. Rebooting...\n");
-                                    reboot(); // Reboot the badge
+                                long download_http_code = 0;
+                                curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &download_http_code);
+                                if (download_http_code == 200) {
+                                    printf("Download successful. Updating version file.\n");
+                                    // Update the version file
+                                    fp = fopen(VERSION_FILE, "w");
+                                    if (fp) {
+                                        fprintf(fp, "%d", remote_version);
+                                        fclose(fp);
+                                        printf("Version file updated. Rebooting...\n");
+                                        reboot(); // Reboot the badge
+                                    } else {
+                                        printf("Failed to open version file for writing.\n");
+                                    }
                                 } else {
-                                    printf("Failed to open version file for writing.\n");
+                                    fprintf(stderr, "Download failed with HTTP status code: %ld\n", download_http_code);
                                 }
                             } else {
                                 fprintf(stderr, "Download failed: %s\n", curl_easy_strerror(res));
