@@ -117,12 +117,12 @@ build_app(hello_flasher
 )
 
 build_app(hello
-    SOURCES 
+    SOURCES
      hello/main.c
 )
 
 build_app(bench_basic_a
-    SOURCES 
+    SOURCES
      bench_basic_a/bench_basic_a.c
 )
 
