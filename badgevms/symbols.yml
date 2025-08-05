@@ -922,6 +922,7 @@ simple_function:
   - path_fileconcat
   - path_free
   - process_create
+  - process_kill
   - rm_rf
   - thread_create
   - vaddr_to_paddr
