@@ -25,6 +25,9 @@
 // Create a new process from the given filename, with argv, **argc, and a particular stack size.
 pid_t process_create(char const *path, size_t stack_size, int argc, char **argv);
 
+// Kill a process
+int process_kill(pid_t pid);
+
 // Create a thread with from thead_entry(void* user_data), the user_data to send, and the stack size for the new thread.
 pid_t thread_create(void (*thread_entry)(void *user_data), void *user_data, uint16_t stack_size);
 

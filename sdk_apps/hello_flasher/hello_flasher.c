@@ -9,9 +9,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#define VERSION_FILE "FLASH0:hello_version.txt"
-#define ELF_FILE "FLASH0:hello.elf"
-#define LATEST_VERSION_URL "https://badge.why2025.org/api/v3/project-latest-revisions/badgehub_dev"
+#define VERSION_FILE        "FLASH0:hello_version.txt"
+#define ELF_FILE            "FLASH0:hello.elf"
+#define LATEST_VERSION_URL  "https://badge.why2025.org/api/v3/project-latest-revisions/badgehub_dev"
 #define DOWNLOAD_URL_FORMAT "https://badge.why2025.org/api/v3/projects/badgehub_dev/rev%d/files/hello.elf"
 
 // Struct to hold memory buffer for curl responses
@@ -22,8 +22,8 @@ struct MemoryStruct {
 
 // Callback function for writing data from curl to a memory buffer
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
-    size_t              realsize = size * nmemb;
-    struct MemoryStruct *mem     = (struct MemoryStruct *)userp;
+    size_t               realsize = size * nmemb;
+    struct MemoryStruct *mem      = (struct MemoryStruct *)userp;
 
     char *ptr = realloc(mem->memory, mem->size + realsize + 1);
     if (ptr == NULL) {
@@ -34,8 +34,8 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = 0;
+    mem->size              += realsize;
+    mem->memory[mem->size]  = 0;
 
     return realsize;
 }
@@ -59,10 +59,15 @@ int get_local_version() {
 }
 
 pid_t pid = -1;
+
+
 void restart_app(void) {
-    char *name      = "hello";
+    char *name = "hello";
     char *path = "FLASH0:hello.elf";
     printf("Starting %s (%s)\n", name, path);
+    if (pid != -1) {
+        process_kill(pid);
+    }
     pid = process_create(path, 8192, 0, NULL);
     if (pid == -1) {
         printf("Failed to start %s (%s)\n", name, path);
@@ -81,8 +86,8 @@ int main(int argc, char *argv[]) {
     curl_global_init(0);
 
     while (1) {
-        CURL                *curl_handle;
-        CURLcode             res;
+        CURL               *curl_handle;
+        CURLcode            res;
         struct MemoryStruct chunk;
 
         chunk.memory = malloc(1); // will be grown as needed by the callback
@@ -165,5 +170,4 @@ int main(int argc, char *argv[]) {
         printf("HELLO_FLASHER: Sleeping for 2 seconds...\n");
         usleep(2 * 1000 * 1000);
     }
-
 }

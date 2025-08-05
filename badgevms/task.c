@@ -525,6 +525,24 @@ pid_t process_create(char const *path, size_t stack_size, int argc, char **argv)
     return run_task_path(path, stack_size, TASK_TYPE_ELF_PATH, argc, argv);
 }
 
+int process_kill(pid_t pid) {
+    if (pid < 0 || pid >= NUM_PIDS) {
+        ESP_LOGE(TAG, "Invalid PID %i", pid);
+        return -1;
+    }
+
+    task_info_t *task_info = get_taskinfo_for_pid(pid);
+    if (!task_info) {
+        ESP_LOGE(TAG, "No task info for PID %i", pid);
+        return -2;
+    }
+
+    ESP_LOGI(TAG, "Killing task with PID %i", pid);
+
+    vTaskDelete(task_info->handle);
+    return 0;
+}
+
 pid_t thread_create(void (*thread_entry)(void *user_data), void *user_data, uint16_t stack_size) {
     task_info_t *parent_task_info = get_task_info();
 

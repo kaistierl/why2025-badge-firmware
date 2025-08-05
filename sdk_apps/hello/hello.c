@@ -8,7 +8,7 @@
 #include <unistd.h> // for usleep
 
 // The current version of this application.
-int const CURRENT_VERSION = 12;
+int const CURRENT_VERSION = 16;
 
 // A thread-safe boolean flag to signal the main loop to exit.
 // We use atomic_bool to prevent race conditions between the threads.
@@ -26,7 +26,7 @@ int get_file_version() {
 
         return atoi(buffer); // Convert text to integer
     }
-    return -1
+    return -1;
 }
 /**
  * @brief This thread function runs in a loop, checking for a newer version.
@@ -64,9 +64,9 @@ void version_checker_thread(void *data) {
  */
 int main(int argc, char *argv[]) {
     startup_version = get_file_version();
-        // Create and start the version checker thread.
-        // Based on the example, we'll use a stack size of 4096.
-        thread_create(version_checker_thread, NULL, 4096);
+    // Create and start the version checker thread.
+    // Based on the example, we'll use a stack size of 4096.
+    // thread_create(version_checker_thread, NULL, 4096);
 
     // Loop until the version_checker_thread signals us to stop.
     while (!atomic_load(&should_stop)) {
