@@ -13,7 +13,8 @@
 #define ELF_FILE            "FLASH0:hello.elf"
 #define LATEST_VERSION_URL  "https://badge.why2025.org/api/v3/project-latest-revisions/badgehub_dev"
 #define DOWNLOAD_URL_FORMAT "https://badge.why2025.org/api/v3/projects/badgehub_dev/rev%d/files/hello.elf"
-
+#define VERBOSE 0
+#define CHECK_INTERVAL_SECONDS 1
 // Struct to hold memory buffer for curl responses
 struct MemoryStruct {
     char  *memory;
@@ -76,7 +77,7 @@ void restart_app(void) {
 
 int main(int argc, char *argv[]) {
     printf("HELLO_FLASHER: Starting hello_flasher app...\n");
-
+    restart_app();
     // Connect to WiFi
     printf("HELLO_FLASHER: Connecting to WiFi...\n");
     wifi_connect();
@@ -101,7 +102,7 @@ int main(int argc, char *argv[]) {
             curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
             curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
 
-            printf("HELLO_FLASHER: Checking for new version at %s\n", LATEST_VERSION_URL);
+            if (VERBOSE) printf("HELLO_FLASHER: Checking for new version at %s\n", LATEST_VERSION_URL);
             res = curl_easy_perform(curl_handle);
 
             if (res != CURLE_OK) {
@@ -112,7 +113,7 @@ int main(int argc, char *argv[]) {
                 if (http_code == 200) {
                     int remote_version = atoi(chunk.memory);
                     int local_version  = get_local_version();
-                    printf("HELLO_FLASHER: Server version: %d, Local version: %d\n", remote_version, local_version);
+                    if (VERBOSE) printf("HELLO_FLASHER: Server version: %d, Local version: %d\n", remote_version, local_version);
 
                     if (remote_version > local_version) {
                         printf("HELLO_FLASHER: New version available. Downloading...\n");
@@ -155,7 +156,7 @@ int main(int argc, char *argv[]) {
                             printf("HELLO_FLASHER: Failed to open file for writing: %s\n", ELF_FILE);
                         }
                     } else {
-                        printf("HELLO_FLASHER: Already on the latest version.\n");
+                        if (VERBOSE) printf("HELLO_FLASHER: Already on the latest version.\n");
                     }
                 } else {
                     printf("HELLO_FLASHER: Server returned HTTP code %ld\n", http_code);
@@ -167,7 +168,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Wait for 2 seconds before checking again
-        printf("HELLO_FLASHER: Sleeping for 2 seconds...\n");
-        usleep(2 * 1000 * 1000);
+        if (VERBOSE)  printf("HELLO_FLASHER: Sleeping for %d seconds...\n", CHECK_INTERVAL_SECONDS);
+        usleep(CHECK_INTERVAL_SECONDS * 1000 * 1000);
     }
 }
