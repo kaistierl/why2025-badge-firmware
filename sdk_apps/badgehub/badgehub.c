@@ -25,7 +25,7 @@ time_t unix_timestamp;
 
 void version_logger_thread(void *data) {
     while (true) {
-        printf("BADGEHUB VLOG: APP V[%d] started at[%ld], ", process_start_time, (long)unix_timestamp);
+        printf("__BADGEHUB VLOG: APP V[%d] started at[%ld]\n", process_start_time, (long)unix_timestamp);
         usleep(5 * 1000 * 1000);
     }
 }
@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
         int one_second_in_usec = 1000 * 1000;
         // Sleep for one second
         usleep(one_second_in_usec);
-        printf("BADGEHUB MAIN: APP V[%d] started at[%ld], ", process_start_time, (long)unix_timestamp);
+        printf("BADGEHUB MAIN: APP V[%d] started at[%ld]\n", process_start_time, (long)unix_timestamp);
     }
 
     printf("Exiting due to version update.\n");
