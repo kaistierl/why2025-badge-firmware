@@ -77,7 +77,6 @@ void restart_app(void) {
 
 int main(int argc, char *argv[]) {
     printf("HELLO_FLASHER: Starting hello_flasher app...\n");
-    restart_app();
     // Connect to WiFi
     printf("HELLO_FLASHER: Connecting to WiFi...\n");
     wifi_connect();
