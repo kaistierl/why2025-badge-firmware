@@ -15,6 +15,7 @@
 
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 enum State {
     AWAITING_WIFI,
@@ -400,6 +401,7 @@ void setup_wifi(void *data) {
 
     wifi_connect();
     curl_global_init(0);
+    ping_badgehub();
 
     app->state = IDLE;
     atomic_store(&app->thread_running, false);
@@ -423,7 +425,14 @@ void ping_badgehub(void) {
         printf("Ping URL: %s\n", pingUrl);
         curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
-        CURLcode ret = curl_easy_perform(curl);
+        printf("\nDoing Badgehub ping with url: %s\n", pingUrl);
+        let retries = 5;
+        while (retries && ((res = curl_easy_perform(curl) != CURLE_OK))) {
+            printf("\nDoing Badgehub ping with url Retry[%d]: %s\n", 11 - retries, url);
+            usleep(500);
+            --retries;
+        }
+
         printf("ping_badgehub: result %d", ret);
     } else {
         printf("ping_badgehub: Failed to create curl handle\n");
@@ -443,8 +452,6 @@ void check_for_update(void *data) {
     ota_get_running_version(running);
     strncpy(app->running_version, running, sizeof(app->running_version) - 1);
     printf("Running version: %s \n", running);
-
-    ping_badgehub();
 
     curl = curl_easy_init();
     if (curl) {
