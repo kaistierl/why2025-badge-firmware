@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "badgevms/compositor.h"
 #include "badgevms/framebuffer.h"
+#include "badgevms/misc_funcs.h"
 #include "badgevms/ota.h"
 #include "badgevms/process.h"
 #include "badgevms/wifi.h"
@@ -14,13 +15,15 @@
 
 #include <string.h>
 #include <time.h>
-
+#include <unistd.h>
 enum State {
     AWAITING_WIFI,
     IDLE,
     CHECKING_VERSION,
     NO_NEW_VERSION_AVAILABLE,
     NEW_VERSION_AVAILABLE,
+    WIFI_CONNECT_FAILED_STATE,
+    BADGEHUB_PING_FAILED,
     UPDATING,
     UPDATE_DONE,
 };
@@ -393,14 +396,58 @@ static size_t WriteOTACallback(void *contents, size_t size, size_t nmemb, app_st
     return realsize;
 }
 
+void handle_wifi_connect(void *data) {
+    app_state_t *app = (app_state_t *) data;
+    app->state = AWAITING_WIFI;
+    if (wifi_connect() != WIFI_CONNECTED) {
+        app->state = WIFI_CONNECT_FAILED_STATE;
+    } else {
+        app->state = IDLE;
+    }
+}
+void ping_badgehub(void *data) {
+    app_state_t *app = (app_state_t *) data;
+
+    CURL        *curl;
+    curl = curl_easy_init();
+    if (curl) {
+        uint64_t unique_id = get_unique_id();
+        char     pingUrl[200];
+
+        snprintf(
+            pingUrl,
+            sizeof(pingUrl),
+            "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX",
+            (uint32_t)(unique_id >> 32),
+            (uint32_t)unique_id
+        );
+        printf("Ping URL: %s\n", pingUrl);
+        curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
+        printf("\nDoing Badgehub ping with url: %s\n", pingUrl);
+        int retries = 5;
+        CURLcode res;
+        while (retries && ((res = curl_easy_perform(curl) != CURLE_OK))) {
+            printf("\nDoing Badgehub ping with url Retry[%d]: %s\n", 11 - retries, pingUrl);
+            usleep(500);
+            --retries;
+        }
+        printf("ping_badgehub: result %d", res);
+        if (retries == 0) {
+            app->state = BADGEHUB_PING_FAILED;
+        }
+    } else {
+        printf("ping_badgehub: Failed to create curl handle\n");
+    }
+}
+
 void setup_wifi(void *data) {
     app_state_t *app = (app_state_t *)data;
 
 
-    wifi_connect();
     curl_global_init(0);
-
-    app->state = IDLE;
+    handle_wifi_connect(data);
+    ping_badgehub(data);
     atomic_store(&app->thread_running, false);
     return;
 }
@@ -414,12 +461,13 @@ void check_for_update(void *data) {
     chunk.memory = malloc(1);
     chunk.size   = 0;
 
-    curl = curl_easy_init();
-
     char *running = (char *)calloc(32, sizeof(char));
     ota_get_running_version(running);
     strncpy(app->running_version, running, sizeof(app->running_version) - 1);
     printf("Running version: %s \n", running);
+    handle_wifi_connect(data);
+    ping_badgehub(data);
+    curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(
             curl,
@@ -530,6 +578,10 @@ void ui_update_prompt(app_state_t *app, mu_Context *ctx) {
             mu_text(ctx, "Update done! Restart the badge.");
         } else if (app->state == AWAITING_WIFI) {
             mu_text(ctx, "Waiting for a wifi connection");
+        }  else if (app-> state == WIFI_CONNECT_FAILED_STATE) {
+            mu_text(ctx, "WIFI Connect failed!.\nPress any button to try again.");
+        } else if (app-> state == BADGEHUB_PING_FAILED) {
+            mu_text(ctx, "Badgehub connection failed!.\nPress any button to try again.");
         } else {
             mu_text(ctx, "Press any button to check for new version");
         }
