@@ -16,20 +16,22 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
 enum State {
     AWAITING_WIFI,
     IDLE,
     CHECKING_VERSION,
     NO_NEW_VERSION_AVAILABLE,
     NEW_VERSION_AVAILABLE,
+    WIFI_CONNECT_FAILED_STATE,
+    BADGEHUB_PING_FAILED,
+    BADGEHUB_PING_OK,
     UPDATING,
     UPDATE_DONE,
 };
 
 typedef struct {
-    mu_Context *ctx;
-    framebuffer_t *fb;
+    mu_Context     *ctx;
+    framebuffer_t  *fb;
     window_handle_t window;
 
     char running_version[32];
@@ -46,11 +48,11 @@ typedef struct {
     atomic_bool thread_running;
 
     ota_handle_t ota_session;
-    bool ota_error;
+    bool         ota_error;
 } app_state_t;
 
 typedef struct {
-    char *memory;
+    char  *memory;
     size_t size;
 } MemoryStruct;
 
@@ -269,33 +271,33 @@ void draw_char(framebuffer_t *fb, char c, int x, int y, uint16_t color) {
 }
 
 void draw_text(framebuffer_t *fb, char const *text, int x, int y, mu_Color color) {
-    uint16_t color565 = rgb888_to_rgb565(color.r, color.g, color.b);
-    int current_x = x;
-    int current_y = y;
+    uint16_t color565  = rgb888_to_rgb565(color.r, color.g, color.b);
+    int      current_x = x;
+    int      current_y = y;
 
     for (int i = 0; text[i];) {
         if (text[i] == '\n') {
-            current_x = x;
+            current_x  = x;
             current_y += 10;
             i++;
             continue;
         }
 
         // Check for multi-byte UTF-8 sequences
-        if ((unsigned char) text[i] >= 0x80) {
-            char symbol[8] = {0};
-            int symbol_len = 0;
+        if ((unsigned char)text[i] >= 0x80) {
+            char symbol[8]  = {0};
+            int  symbol_len = 0;
 
-            while (text[i + symbol_len] && ((unsigned char) text[i + symbol_len] >= 0x80 ||
-                                            (symbol_len > 0 && (unsigned char) text[i + symbol_len] >= 0x80))) {
+            while (text[i + symbol_len] && ((unsigned char)text[i + symbol_len] >= 0x80 ||
+                                            (symbol_len > 0 && (unsigned char)text[i + symbol_len] >= 0x80))) {
                 symbol[symbol_len] = text[i + symbol_len];
                 symbol_len++;
                 if (symbol_len >= 7)
                     break;
             }
 
-            if (symbol_len == 0 && ((unsigned char) text[i] >= 0x80)) {
-                symbol[0] = text[i];
+            if (symbol_len == 0 && ((unsigned char)text[i] >= 0x80)) {
+                symbol[0]  = text[i];
                 symbol_len = 1;
             }
 
@@ -308,7 +310,7 @@ void draw_text(framebuffer_t *fb, char const *text, int x, int y, mu_Color color
             }
 
             current_x += 8;
-            i += symbol_len > 0 ? symbol_len : 1;
+            i         += symbol_len > 0 ? symbol_len : 1;
         } else {
             // Regular ASCII character
             draw_char(fb, text[i], current_x, current_y, color565);
@@ -325,25 +327,25 @@ int mu_text_width(mu_Font font, char const *text, int len) {
     int width = 0;
     for (int i = 0; i < len;) {
         // Check for multi-byte UTF-8 sequences
-        if ((unsigned char) text[i] >= 0x80) {
-            char symbol[8] = {0};
-            int symbol_len = 0;
+        if ((unsigned char)text[i] >= 0x80) {
+            char symbol[8]  = {0};
+            int  symbol_len = 0;
 
             while (i + symbol_len < len && text[i + symbol_len] &&
-                   ((unsigned char) text[i + symbol_len] >= 0x80 ||
-                    (symbol_len > 0 && (unsigned char) text[i + symbol_len] >= 0x80))) {
+                   ((unsigned char)text[i + symbol_len] >= 0x80 ||
+                    (symbol_len > 0 && (unsigned char)text[i + symbol_len] >= 0x80))) {
                 symbol[symbol_len] = text[i + symbol_len];
                 symbol_len++;
                 if (symbol_len >= 7)
                     break;
             }
 
-            if (symbol_len == 0 && ((unsigned char) text[i] >= 0x80)) {
+            if (symbol_len == 0 && ((unsigned char)text[i] >= 0x80)) {
                 symbol_len = 1;
             }
 
             width += 8;
-            i += symbol_len > 0 ? symbol_len : 1;
+            i     += symbol_len > 0 ? symbol_len : 1;
         } else {
             width += 8;
             i++;
@@ -377,12 +379,12 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, Mem
 }
 
 static size_t WriteOTACallback(void *contents, size_t size, size_t nmemb, app_state_t *app) {
-    bool err;
+    bool   err;
     size_t realsize = size * nmemb;
 
     printf("Size: %d \n", realsize);
 
-    char *buffer = (char *) calloc(realsize + 1, sizeof(char));
+    char *buffer = (char *)calloc(realsize + 1, sizeof(char));
 
     memcpy(buffer, contents, realsize);
 
@@ -399,21 +401,23 @@ void setup_wifi(void *data) {
     app_state_t *app = (app_state_t *) data;
 
 
-    wifi_connect();
     curl_global_init(0);
-    ping_badgehub();
+    handle_wifi_connect(data);
+    ping_badgehub(data);
 
     app->state = IDLE;
     atomic_store(&app->thread_running, false);
     return;
 }
 
-void ping_badgehub(void) {
+void ping_badgehub(void *data) {
+    app_state_t *app = (app_state_t *) data;
+
     CURL *curl;
     curl = curl_easy_init();
     if (curl) {
         uint64_t unique_id = get_unique_id();
-        char     pingUrl[200];
+        char pingUrl[200];
 
         snprintf(
             pingUrl,
@@ -432,11 +436,22 @@ void ping_badgehub(void) {
             usleep(500);
             --retries;
         }
-
         printf("ping_badgehub: result %d", ret);
+        if (retries == 0) {
+            app->state = BADGEHUB_PING_FAILED;
+        } else {
+            app->state = BADGEHUB_PING_OK;
+        }
     } else {
         printf("ping_badgehub: Failed to create curl handle\n");
     }
+}
+
+void handle_wifi_connect(void *data) {
+    app_state_t *app = (app_state_t *) data;
+    if (wifi_connect() != WIFI_CONNECTED) {
+        app->state = WIFI_CONNECT_FAILED_STATE;
+    };
 }
 
 void check_for_update(void *data) {
@@ -452,7 +467,8 @@ void check_for_update(void *data) {
     ota_get_running_version(running);
     strncpy(app->running_version, running, sizeof(app->running_version) - 1);
     printf("Running version: %s \n", running);
-
+    handle_wifi_connect(data);
+    ping_badgehub(data);
     curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(
@@ -564,6 +580,12 @@ void ui_update_prompt(app_state_t *app, mu_Context *ctx) {
             mu_text(ctx, "Update done! Restart the badge.");
         } else if (app->state == AWAITING_WIFI) {
             mu_text(ctx, "Waiting for a wifi connection");
+        }  else if (app-> state == WIFI_CONNECT_FAILED_STATE) {
+            mu_text(ctx, "WIFI Connect failed!.\nPress any button to try again.");
+        } else if (app-> state == BADGEHUB_PING_FAILED) {
+            mu_text(ctx, "Badgehub connection failed!.\nPress any button to try again.");
+        } else if (app-> state == BADGEHUB_PING_OK) {
+            mu_text(ctx, "Badgehub connection OK.\nChecking for a new version!");
         } else {
             mu_text(ctx, "Press any button to check for new version");
         }
