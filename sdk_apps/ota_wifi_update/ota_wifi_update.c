@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "badgevms/compositor.h"
 #include "badgevms/framebuffer.h"
+#include "badgevms/misc_funcs.h"
 #include "badgevms/ota.h"
 #include "badgevms/process.h"
 #include "badgevms/wifi.h"
@@ -405,6 +406,23 @@ void setup_wifi(void *data) {
     return;
 }
 
+void ping_badgehub(void) {
+    CURL        *curl;
+    curl = curl_easy_init();
+    uint64_t unique_id = get_unique_id();
+    char *pingUrl = (char *)calloc(256, sizeof(char));
+    snprintf(
+        pingUrl,
+        sizeof(pingUrl),
+        "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX",
+        (uint32_t)(unique_id >> 32),
+        (uint32_t)unique_id
+    );
+    curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
+    curl_easy_perform(curl);
+}
+
 void check_for_update(void *data) {
     app_state_t *app = (app_state_t *)data;
     CURL        *curl;
@@ -414,12 +432,14 @@ void check_for_update(void *data) {
     chunk.memory = malloc(1);
     chunk.size   = 0;
 
-    curl = curl_easy_init();
-
     char *running = (char *)calloc(32, sizeof(char));
     ota_get_running_version(running);
     strncpy(app->running_version, running, sizeof(app->running_version) - 1);
     printf("Running version: %s \n", running);
+
+    ping_badgehub();
+
+    curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(
             curl,

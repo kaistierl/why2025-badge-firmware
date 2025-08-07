@@ -26,7 +26,7 @@ int ping_badgehub(void) {
     snprintf(
         url,
         sizeof(url),
-        "https://badge.why2025.org/api/v3/ping?mac=badge_mac&id=%08lX%08lX",
+        "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX",
         (uint32_t)(unique_id >> 32),
         (uint32_t)unique_id
     );
