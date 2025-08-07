@@ -525,9 +525,9 @@ void ui_update_prompt(app_state_t *app, mu_Context *ctx) {
         } else if (app->state == CHECKING_VERSION) {
             mu_text(ctx, "Checking for new versions");
         } else if (app->state == UPDATING) {
-            mu_text(ctx, "Updating badge, Sit tight! \nThis might take a minute.");
+            mu_text(ctx, "Updating badge, sit tight!\nThis might take a minute.");
         } else if (app->state == UPDATE_DONE) {
-            mu_text(ctx, "Update done! Resatrt the badge.");
+            mu_text(ctx, "Update done! Restart the badge.");
         } else if (app->state == AWAITING_WIFI) {
             mu_text(ctx, "Waiting for a wifi connection");
         } else {
