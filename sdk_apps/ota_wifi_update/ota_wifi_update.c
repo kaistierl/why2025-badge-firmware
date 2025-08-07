@@ -27,8 +27,8 @@ enum State {
 };
 
 typedef struct {
-    mu_Context     *ctx;
-    framebuffer_t  *fb;
+    mu_Context *ctx;
+    framebuffer_t *fb;
     window_handle_t window;
 
     char running_version[32];
@@ -45,11 +45,11 @@ typedef struct {
     atomic_bool thread_running;
 
     ota_handle_t ota_session;
-    bool         ota_error;
+    bool ota_error;
 } app_state_t;
 
 typedef struct {
-    char  *memory;
+    char *memory;
     size_t size;
 } MemoryStruct;
 
@@ -268,33 +268,33 @@ void draw_char(framebuffer_t *fb, char c, int x, int y, uint16_t color) {
 }
 
 void draw_text(framebuffer_t *fb, char const *text, int x, int y, mu_Color color) {
-    uint16_t color565  = rgb888_to_rgb565(color.r, color.g, color.b);
-    int      current_x = x;
-    int      current_y = y;
+    uint16_t color565 = rgb888_to_rgb565(color.r, color.g, color.b);
+    int current_x = x;
+    int current_y = y;
 
     for (int i = 0; text[i];) {
         if (text[i] == '\n') {
-            current_x  = x;
+            current_x = x;
             current_y += 10;
             i++;
             continue;
         }
 
         // Check for multi-byte UTF-8 sequences
-        if ((unsigned char)text[i] >= 0x80) {
-            char symbol[8]  = {0};
-            int  symbol_len = 0;
+        if ((unsigned char) text[i] >= 0x80) {
+            char symbol[8] = {0};
+            int symbol_len = 0;
 
-            while (text[i + symbol_len] && ((unsigned char)text[i + symbol_len] >= 0x80 ||
-                                            (symbol_len > 0 && (unsigned char)text[i + symbol_len] >= 0x80))) {
+            while (text[i + symbol_len] && ((unsigned char) text[i + symbol_len] >= 0x80 ||
+                                            (symbol_len > 0 && (unsigned char) text[i + symbol_len] >= 0x80))) {
                 symbol[symbol_len] = text[i + symbol_len];
                 symbol_len++;
                 if (symbol_len >= 7)
                     break;
             }
 
-            if (symbol_len == 0 && ((unsigned char)text[i] >= 0x80)) {
-                symbol[0]  = text[i];
+            if (symbol_len == 0 && ((unsigned char) text[i] >= 0x80)) {
+                symbol[0] = text[i];
                 symbol_len = 1;
             }
 
@@ -307,7 +307,7 @@ void draw_text(framebuffer_t *fb, char const *text, int x, int y, mu_Color color
             }
 
             current_x += 8;
-            i         += symbol_len > 0 ? symbol_len : 1;
+            i += symbol_len > 0 ? symbol_len : 1;
         } else {
             // Regular ASCII character
             draw_char(fb, text[i], current_x, current_y, color565);
@@ -324,25 +324,25 @@ int mu_text_width(mu_Font font, char const *text, int len) {
     int width = 0;
     for (int i = 0; i < len;) {
         // Check for multi-byte UTF-8 sequences
-        if ((unsigned char)text[i] >= 0x80) {
-            char symbol[8]  = {0};
-            int  symbol_len = 0;
+        if ((unsigned char) text[i] >= 0x80) {
+            char symbol[8] = {0};
+            int symbol_len = 0;
 
             while (i + symbol_len < len && text[i + symbol_len] &&
-                   ((unsigned char)text[i + symbol_len] >= 0x80 ||
-                    (symbol_len > 0 && (unsigned char)text[i + symbol_len] >= 0x80))) {
+                   ((unsigned char) text[i + symbol_len] >= 0x80 ||
+                    (symbol_len > 0 && (unsigned char) text[i + symbol_len] >= 0x80))) {
                 symbol[symbol_len] = text[i + symbol_len];
                 symbol_len++;
                 if (symbol_len >= 7)
                     break;
             }
 
-            if (symbol_len == 0 && ((unsigned char)text[i] >= 0x80)) {
+            if (symbol_len == 0 && ((unsigned char) text[i] >= 0x80)) {
                 symbol_len = 1;
             }
 
             width += 8;
-            i     += symbol_len > 0 ? symbol_len : 1;
+            i += symbol_len > 0 ? symbol_len : 1;
         } else {
             width += 8;
             i++;
@@ -376,12 +376,12 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, Mem
 }
 
 static size_t WriteOTACallback(void *contents, size_t size, size_t nmemb, app_state_t *app) {
-    bool   err;
+    bool err;
     size_t realsize = size * nmemb;
 
     printf("Size: %d \n", realsize);
 
-    char *buffer = (char *)calloc(realsize + 1, sizeof(char));
+    char *buffer = (char *) calloc(realsize + 1, sizeof(char));
 
     memcpy(buffer, contents, realsize);
 
@@ -395,7 +395,7 @@ static size_t WriteOTACallback(void *contents, size_t size, size_t nmemb, app_st
 }
 
 void setup_wifi(void *data) {
-    app_state_t *app = (app_state_t *)data;
+    app_state_t *app = (app_state_t *) data;
 
 
     wifi_connect();
@@ -407,11 +407,12 @@ void setup_wifi(void *data) {
 }
 
 void ping_badgehub(void) {
-    CURL        *curl;
+    CURL *curl;
     curl = curl_easy_init();
     if (curl) {
         uint64_t unique_id = get_unique_id();
-        char *pingUrl = (char *)calloc(256, sizeof(char));
+        char     pingUrl[200];
+
         snprintf(
             pingUrl,
             sizeof(pingUrl),
@@ -419,22 +420,26 @@ void ping_badgehub(void) {
             (uint32_t)(unique_id >> 32),
             (uint32_t)unique_id
         );
+        printf("Ping URL: %s\n", pingUrl);
         curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
-        curl_easy_perform(curl);
+        CURLcode ret = curl_easy_perform(curl);
+        printf("ping_badgehub: result %d", ret);
+    } else {
+        printf("ping_badgehub: Failed to create curl handle\n");
     }
 }
 
 void check_for_update(void *data) {
-    app_state_t *app = (app_state_t *)data;
-    CURL        *curl;
-    CURLcode     res;
+    app_state_t *app = (app_state_t *) data;
+    CURL *curl;
+    CURLcode res;
     MemoryStruct chunk;
 
     chunk.memory = malloc(1);
-    chunk.size   = 0;
+    chunk.size = 0;
 
-    char *running = (char *)calloc(32, sizeof(char));
+    char *running = (char *) calloc(32, sizeof(char));
     ota_get_running_version(running);
     strncpy(app->running_version, running, sizeof(app->running_version) - 1);
     printf("Running version: %s \n", running);
@@ -460,7 +465,7 @@ void check_for_update(void *data) {
         }
         printf("BadgeHub firmware revision: %s \n", chunk.memory);
         strncpy(app->badgehub_revision, chunk.memory, sizeof(app->badgehub_revision) - 1);
-        char *url = (char *)calloc(256, sizeof(char));
+        char *url = (char *) calloc(256, sizeof(char));
         sprintf(
             url,
             "https://badge.why2025.org/api/v3/projects/heplaphon_why_firmware_ota_test/rev%s/files/version.txt",
@@ -483,7 +488,7 @@ void check_for_update(void *data) {
         printf("version compare: %d", cmp);
         if (cmp < 0) {
             app->update_available = true;
-            app->state            = NEW_VERSION_AVAILABLE;
+            app->state = NEW_VERSION_AVAILABLE;
         } else if (cmp >= 0) {
             app->state = NO_NEW_VERSION_AVAILABLE;
         }
@@ -498,17 +503,17 @@ void check_for_update(void *data) {
 }
 
 void update_badge(void *data) {
-    app_state_t *app = (app_state_t *)data;
-    CURL        *curl;
-    CURLcode     res;
+    app_state_t *app = (app_state_t *) data;
+    CURL *curl;
+    CURLcode res;
 
     curl = curl_easy_init();
 
-    app->ota_error   = false;
+    app->ota_error = false;
     app->ota_session = ota_session_open();
 
     if (curl) {
-        char *url = (char *)calloc(256, sizeof(char));
+        char *url = (char *) calloc(256, sizeof(char));
         sprintf(
             url,
             "https://badge.why2025.org/api/v3/projects/heplaphon_why_firmware_ota_test/rev%s/files/badgevms.bin",
@@ -531,7 +536,7 @@ void update_badge(void *data) {
     }
     curl_easy_cleanup(curl);
     app->key_pressed = false;
-    app->state       = UPDATE_DONE;
+    app->state = UPDATE_DONE;
     atomic_store(&app->thread_running, false);
     return;
 }
@@ -571,7 +576,7 @@ void ui_update_prompt(app_state_t *app, mu_Context *ctx) {
     if (app->key_pressed && !app->updated && app->update_available == false) {
         app->key_pressed = false;
         if (atomic_load(&app->thread_running) == false) {
-            app->state         = CHECKING_VERSION;
+            app->state = CHECKING_VERSION;
             pid_t check_thread = thread_create(check_for_update, app, 4096);
             atomic_store(&app->thread_running, true);
         }
@@ -580,7 +585,7 @@ void ui_update_prompt(app_state_t *app, mu_Context *ctx) {
     if (app->key_pressed && !app->updated && app->update_available) {
         app->key_pressed = false;
         if (atomic_load(&app->thread_running) == false) {
-            app->state         = UPDATING;
+            app->state = UPDATING;
             pid_t check_thread = thread_create(update_badge, app, 4096);
             atomic_store(&app->thread_running, true);
         }
@@ -605,7 +610,8 @@ void render_ui(app_state_t *app) {
             case MU_COMMAND_TEXT:
                 draw_text(app->fb, cmd->text.str, cmd->text.pos.x, cmd->text.pos.y, cmd->text.color);
                 break;
-            case MU_COMMAND_RECT: draw_rect(app->fb, cmd->rect.rect, cmd->rect.color); break;
+            case MU_COMMAND_RECT: draw_rect(app->fb, cmd->rect.rect, cmd->rect.color);
+                break;
             case MU_COMMAND_ICON:
             case MU_COMMAND_CLIP: break;
         }
@@ -615,19 +621,31 @@ void render_ui(app_state_t *app) {
 int main() {
     app_state_t app = {0};
 
-    app.window = window_create("OTA update", (window_size_t){720, 720}, WINDOW_FLAG_DOUBLE_BUFFERED);
+    app.window = window_create("OTA update", (window_size_t) {
+        720, 720
+    }
+    ,
+    WINDOW_FLAG_DOUBLE_BUFFERED
+    )
+    ;
     //int fb_num;
-    app.fb = window_framebuffer_create(app.window, (window_size_t){720, 720}, BADGEVMS_PIXELFORMAT_RGB565);
+    app.fb = window_framebuffer_create(app.window, (window_size_t) {
+        720, 720
+    }
+    ,
+    BADGEVMS_PIXELFORMAT_RGB565
+    )
+    ;
 
     app.ctx = malloc(sizeof(mu_Context));
     mu_init(app.ctx);
-    app.ctx->text_width  = mu_text_width;
+    app.ctx->text_width = mu_text_width;
     app.ctx->text_height = mu_text_height;
 
     app.state = AWAITING_WIFI;
     atomic_store(&app.thread_running, false);
 
-    bool       running              = true;
+    bool running = true;
     long const target_frame_time_us = 16667;
 
     memset(app.fb->pixels, 0x55, 720 * 720 * 2);
@@ -644,7 +662,7 @@ int main() {
         while (1) {
             clock_gettime(CLOCK_MONOTONIC, &cur_time);
             long elapsed_us =
-                (cur_time.tv_sec - start_time.tv_sec) * 1000000L + (cur_time.tv_nsec - start_time.tv_nsec) / 1000L;
+                    (cur_time.tv_sec - start_time.tv_sec) * 1000000L + (cur_time.tv_nsec - start_time.tv_nsec) / 1000L;
             long sleep_time = target_frame_time_us - elapsed_us;
 
             if (sleep_time <= 0) {
@@ -654,9 +672,11 @@ int main() {
             event_t event = window_event_poll(app.window, false, sleep_time / 1000);
 
             switch (event.type) {
-                case EVENT_QUIT: running = false; break;
+                case EVENT_QUIT: running = false;
+                    break;
                 case EVENT_KEY_DOWN:
-                case EVENT_KEY_UP: handle_keyboard_event(&app, &event.keyboard); break;
+                case EVENT_KEY_UP: handle_keyboard_event(&app, &event.keyboard);
+                    break;
                 default: break;
             }
 
