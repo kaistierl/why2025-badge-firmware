@@ -409,18 +409,20 @@ void setup_wifi(void *data) {
 void ping_badgehub(void) {
     CURL        *curl;
     curl = curl_easy_init();
-    uint64_t unique_id = get_unique_id();
-    char *pingUrl = (char *)calloc(256, sizeof(char));
-    snprintf(
-        pingUrl,
-        sizeof(pingUrl),
-        "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX",
-        (uint32_t)(unique_id >> 32),
-        (uint32_t)unique_id
-    );
-    curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
-    curl_easy_perform(curl);
+    if (curl) {
+        uint64_t unique_id = get_unique_id();
+        char *pingUrl = (char *)calloc(256, sizeof(char));
+        snprintf(
+            pingUrl,
+            sizeof(pingUrl),
+            "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX",
+            (uint32_t)(unique_id >> 32),
+            (uint32_t)unique_id
+        );
+        curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
+        curl_easy_perform(curl);
+    }
 }
 
 void check_for_update(void *data) {
