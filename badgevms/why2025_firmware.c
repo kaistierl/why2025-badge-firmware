@@ -15,7 +15,6 @@
  */
 
 #include "esp_idf_version.h"
-
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 5, 0)
 #error "BadgeVMS requires esp-idf 5.50 (or maybe later, who knows)"
 #endif
@@ -46,10 +45,16 @@
 #include "nvs_flash.h"
 #include "ota_private.h"
 #include "task.h"
+#include <stdio.h>
+#include "driver/gpio.h"
+
+// Define the GPIO pin for the LED
+#define LED_GPIO_PIN GPIO_NUM_51
 
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+
 
 extern void __real_esp_panic_handler(panic_info_t *info);
 
@@ -71,9 +76,17 @@ void IRAM_ATTR __wrap_esp_panic_handler(panic_info_t *info) {
 
     __real_esp_panic_handler(info);
 }
-
+void configure_blue_led()
+{
+    // Configure the GPIO pin as an output
+    gpio_reset_pin(LED_GPIO_PIN); // Reset the pin to default state
+    gpio_set_direction(LED_GPIO_PIN, GPIO_MODE_OUTPUT); // Set as output
+    gpio_set_level(LED_GPIO_PIN, 1); // Turn LED on
+}
 int app_main(void) {
     printf("BadgeVMS Initializing...\n");
+    configure_blue_led();
+
     size_t free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     ESP_LOGW(TAG, "Free main memory: %zi", free_ram);
 
