@@ -24,7 +24,6 @@ enum State {
     NEW_VERSION_AVAILABLE,
     WIFI_CONNECT_FAILED_STATE,
     BADGEHUB_PING_FAILED,
-    BADGEHUB_PING_OK,
     UPDATING,
     UPDATE_DONE,
 };
@@ -397,19 +396,15 @@ static size_t WriteOTACallback(void *contents, size_t size, size_t nmemb, app_st
     return realsize;
 }
 
-void setup_wifi(void *data) {
-    app_state_t *app = (app_state_t *)data;
-
-
-    curl_global_init(0);
-    handle_wifi_connect(data);
-    ping_badgehub(data);
-
-    app->state = IDLE;
-    atomic_store(&app->thread_running, false);
-    return;
+void handle_wifi_connect(void *data) {
+    app_state_t *app = (app_state_t *) data;
+    app->state = AWAITING_WIFI;
+    if (wifi_connect() != WIFI_CONNECTED) {
+        app->state = WIFI_CONNECT_FAILED_STATE;
+    } else {
+        app->state = IDLE;
+    }
 }
-
 void ping_badgehub(void *data) {
     app_state_t *app = (app_state_t *) data;
 
@@ -430,28 +425,31 @@ void ping_badgehub(void *data) {
         curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
         printf("\nDoing Badgehub ping with url: %s\n", pingUrl);
-        let retries = 5;
+        int retries = 5;
+        CURLcode res;
         while (retries && ((res = curl_easy_perform(curl) != CURLE_OK))) {
-            printf("\nDoing Badgehub ping with url Retry[%d]: %s\n", 11 - retries, url);
+            printf("\nDoing Badgehub ping with url Retry[%d]: %s\n", 11 - retries, pingUrl);
             usleep(500);
             --retries;
         }
-        printf("ping_badgehub: result %d", ret);
+        printf("ping_badgehub: result %d", res);
         if (retries == 0) {
             app->state = BADGEHUB_PING_FAILED;
-        } else {
-            app->state = BADGEHUB_PING_OK;
         }
     } else {
         printf("ping_badgehub: Failed to create curl handle\n");
     }
 }
 
-void handle_wifi_connect(void *data) {
-    app_state_t *app = (app_state_t *) data;
-    if (wifi_connect() != WIFI_CONNECTED) {
-        app->state = WIFI_CONNECT_FAILED_STATE;
-    };
+void setup_wifi(void *data) {
+    app_state_t *app = (app_state_t *)data;
+
+
+    curl_global_init(0);
+    handle_wifi_connect(data);
+    ping_badgehub(data);
+    atomic_store(&app->thread_running, false);
+    return;
 }
 
 void check_for_update(void *data) {
@@ -584,8 +582,6 @@ void ui_update_prompt(app_state_t *app, mu_Context *ctx) {
             mu_text(ctx, "WIFI Connect failed!.\nPress any button to try again.");
         } else if (app-> state == BADGEHUB_PING_FAILED) {
             mu_text(ctx, "Badgehub connection failed!.\nPress any button to try again.");
-        } else if (app-> state == BADGEHUB_PING_OK) {
-            mu_text(ctx, "Badgehub connection OK.\nChecking for a new version!");
         } else {
             mu_text(ctx, "Press any button to check for new version");
         }
