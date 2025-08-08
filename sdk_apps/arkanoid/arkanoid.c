@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
@@ -12,12 +13,22 @@
 #define BAR_WIDTH                   50
 #define BAR_HEIGHT                  15
 
+#define BALL_SIZE                    5
+#define BALL_VELOCITY                5
+
 #define ARROW_LEFT  (1 << 0)
 #define ARROW_RIGHT (1 << 1)
 
 typedef struct {
     unsigned char arrow_pressed;
+
+    short         pv;
+
     float         bar_xpos;
+    float         ball_xpos;
+    float         ball_ypos;
+    float         ball_xvel;
+    float         ball_yvel;
 } GameContext;
 
 typedef struct {
@@ -28,7 +39,15 @@ typedef struct {
 } AppState;
 
 static void game_initialize(GameContext *ctx) {
-    ctx->bar_xpos = SDL_WINDOW_WIDTH / 2;
+    ctx->pv = 3;
+
+    ctx->bar_xpos = SDL_WINDOW_WIDTH * 1/4;
+
+    ctx->ball_xpos = BALL_SIZE / 2;
+    ctx->ball_ypos = SDL_WINDOW_HEIGHT * 3/4 - BALL_SIZE/2;
+
+    ctx->ball_xvel = BALL_VELOCITY * M_SQRT2;
+    ctx->ball_yvel = BALL_VELOCITY * M_SQRT2;
 }
 
 static void game_step(GameContext *ctx) {
@@ -42,6 +61,31 @@ static void game_step(GameContext *ctx) {
         if (ctx->bar_xpos +  BAR_WIDTH/2 > SDL_WINDOW_WIDTH-1)
             ctx->bar_xpos = -BAR_WIDTH/2 + SDL_WINDOW_WIDTH-1;
     }
+
+    // ball motion
+    ctx->ball_xpos += ctx->ball_xvel;
+    ctx->ball_ypos += ctx->ball_yvel;
+
+    // side bounces
+    if (ctx->ball_xpos < BALL_SIZE/2)
+        ctx->ball_xvel *= -1;
+    if (ctx->ball_xpos + BALL_SIZE/2 > SDL_WINDOW_WIDTH-1)
+        ctx->ball_xvel *= -1;
+
+    // bottom bounce
+    if (ctx->ball_ypos - BALL_SIZE/2 > SDL_WINDOW_HEIGHT - BAR_HEIGHT - 1) {
+        if (ctx->bar_xpos - BAR_WIDTH/2 >= ctx->ball_xpos || ctx->ball_xpos >= ctx->bar_xpos + BAR_WIDTH/2) {
+            ctx->pv--;
+
+        ctx->ball_yvel *= -1;
+        ctx->ball_ypos += ctx->ball_yvel;
+    }
+
+    // top bounce
+    if (ctx->ball_ypos < BALL_SIZE/2) {
+        ctx->ball_yvel *= -1;
+        ctx->ball_ypos += ctx->ball_yvel;
+    }
 }
 
 static void game_draw_bar(SDL_Renderer *renderer, GameContext *ctx) {
@@ -54,8 +98,19 @@ static void game_draw_bar(SDL_Renderer *renderer, GameContext *ctx) {
     SDL_RenderFillRect(renderer, &r);
 }
 
+static void game_draw_ball(SDL_Renderer *renderer, GameContext *ctx) {
+    SDL_FRect r;
+    r.x = ctx->ball_xpos - BALL_SIZE/2;
+    r.y = ctx->ball_ypos - BALL_SIZE/2;
+    r.w = BALL_SIZE;
+    r.h = BALL_SIZE;
+    SDL_SetRenderDrawColor(renderer, 255, 0, 255, SDL_ALPHA_OPAQUE);
+    SDL_RenderFillRect(renderer, &r);
+}
+
 static void game_draw(SDL_Renderer *renderer, GameContext *ctx) {
     game_draw_bar(renderer, ctx);
+    game_draw_ball(renderer, ctx);
 }
 
 static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_code) {
@@ -68,18 +123,19 @@ static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_
         /* Restart the game as if the program was launched. */
         case SDL_SCANCODE_ESCAPE:
         case SDL_SCANCODE_R:
-            game_initialize(ctx); break;
+            game_initialize(ctx);
+            break;
 
-        case SDL_SCANCODE_LEFT:  ctx->arrow_pressed |= ARROW_LEFT;  break;
-        case SDL_SCANCODE_RIGHT: ctx->arrow_pressed |= ARROW_RIGHT; break;
+        case 0x126: ctx->arrow_pressed |= ARROW_LEFT;  break;
+        case 0x127: ctx->arrow_pressed |= ARROW_RIGHT; break;
     }
     return SDL_APP_CONTINUE;
 }
 
 static SDL_AppResult handle_key_release_event_(GameContext *ctx, SDL_Scancode key_code) {
     switch (key_code) {
-        case SDL_SCANCODE_LEFT:  ctx->arrow_pressed &= ~ARROW_LEFT;  break;
-        case SDL_SCANCODE_RIGHT: ctx->arrow_pressed &= ~ARROW_RIGHT; break;
+        case 0x126: ctx->arrow_pressed &= ~ARROW_LEFT;  break;
+        case 0x127: ctx->arrow_pressed &= ~ARROW_RIGHT; break;
     }
     return SDL_APP_CONTINUE;
 }
