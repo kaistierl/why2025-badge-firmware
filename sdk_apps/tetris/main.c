@@ -14,7 +14,8 @@ uint64_t time_last;
 #define WINDOW_WIDTH 400
 #define WINDOW_HEIGHT 500
 
-#define STEP_TIME 1000
+#define BASE_STEP_TIME 1000
+#define MIN_STEP_TIME 100
 
 // Field size in blocks
 #define FIELD_WIDTH 10
@@ -84,7 +85,7 @@ const int8_t piece_data[] = {
 // Tetris state
 uint8_t field[FIELD_HEIGHT][FIELD_WIDTH];
 int piece_type, piece_rot, piece_x, piece_y;
-int score, game_over;
+int score, level, game_over, level_lines_cleared, level_step_time;
 
 
 
@@ -95,10 +96,22 @@ void tetris_spawn_new_piece() {
     piece_y = 0;
 }
 
+void tetris_level_up() {
+    level++;
+    level_lines_cleared = 0;
+
+    if (level_step_time > MIN_STEP_TIME) {
+        level_step_time -= 100;
+    }
+}
+
 void tetris_init() {
     srand(time(NULL));
     score = 0;
+    level = 1;
     game_over = 0;
+    level_lines_cleared = 0;
+    level_step_time = BASE_STEP_TIME;
 
     // Reset field
     for (int x = 0; x < FIELD_WIDTH; ++x) {
@@ -176,6 +189,7 @@ void tetris_rotate_piece() {
 
 
 void tetris_check_for_filled_lines() {
+    int lines_cleared = 0;
     for (int y = 0; y < FIELD_HEIGHT; ++y) {
         int fill_count = 0;
 
@@ -183,7 +197,7 @@ void tetris_check_for_filled_lines() {
             fill_count += (field[y][x] != 255);
         }
         if (fill_count == 10) {
-            score += 10;
+            lines_cleared++;
 
             // remove line (everything above goes down one)
             for (int row2 = y; row2 > 0; row2--) {
@@ -192,6 +206,23 @@ void tetris_check_for_filled_lines() {
                 }
             }
         }
+    }
+
+    if (lines_cleared == 1) {
+        score += 100 * level;
+    } else if (lines_cleared == 2) {
+        score += 300 * level;
+    } else if (lines_cleared == 3) {
+        score += 500 * level;
+    } else if (lines_cleared == 4) {
+        score += 800 * level;
+        // TETRIS! TODO: blink lights?
+    }
+
+    level_lines_cleared += lines_cleared;
+    if (level_lines_cleared >= level * 10) {
+        // level up every level * 10 lines
+        tetris_level_up();
     }
 }
 
@@ -406,14 +437,17 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
 
     char score_str[256];
         sprintf(score_str, "Score: %d", score);
+    char level_str[256];
+        sprintf(level_str, "Level: %d", level);
     if (game_over) {
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
         SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 50, WINDOW_HEIGHT / 2, "GAME OVER");
         SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 50, WINDOW_HEIGHT / 2 + 20, score_str);
-        SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 120, WINDOW_HEIGHT / 2 + 40, "(press enter to try again)");
+        SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 50, WINDOW_HEIGHT / 2 + 40, level_str);
+        SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 120, WINDOW_HEIGHT / 2 + 60, "(press enter to try again)");
     } else {
             // update
-            if (now - time_last >= STEP_TIME) {
+            if (now - time_last >= level_step_time) {
                 tetris_lower_piece();
                 time_last = now;
             }
@@ -426,6 +460,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             // score
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
             SDL_RenderDebugText(renderer, FIELD_OFF_X + BLOCK_SIZE * FIELD_WIDTH + BLOCK_SIZE, FIELD_OFF_Y, score_str);
+            SDL_RenderDebugText(renderer, FIELD_OFF_X + BLOCK_SIZE * FIELD_WIDTH + BLOCK_SIZE, FIELD_OFF_Y + 20, level_str);
 
     }
     
