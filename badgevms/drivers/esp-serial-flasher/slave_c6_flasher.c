@@ -41,6 +41,11 @@ esp_err_t flash_slave_c6_if_needed() {
             goto out;
         }
 
+        if (!verify_why2025_binaries(&bin)) {
+            ESP_LOGE(TAG, "Failed to verify firmware files, aborting");
+            goto out;
+        }
+
         if (esp_loader_flash_verify_known_md5(bin.boot.addr, bin.boot.size, bin.boot.md5) != ESP_LOADER_SUCCESS) {
             ESP_LOGW(TAG, "Bootloader MD5 mismatch, flashing...");
             flash_binary(bin.boot.fp, bin.boot.size, bin.boot.addr);

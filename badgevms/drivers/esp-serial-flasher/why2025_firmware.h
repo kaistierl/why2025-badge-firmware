@@ -71,6 +71,7 @@ typedef struct why2025_bin_segment {
 
 bool get_why2025_binaries(why2025_binaries_t *binaries);
 bool get_why2025_network_adapter_binary(why2025_binaries_t *bins);
+bool verify_why2025_binaries(const why2025_binaries_t *bins);
 void free_why2025_binaries(why2025_binaries_t *bins);
 
 esp_loader_error_t connect_to_target(uint32_t higher_transmission_rate);

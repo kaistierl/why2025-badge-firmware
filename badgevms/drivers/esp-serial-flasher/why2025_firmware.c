@@ -19,10 +19,12 @@
 #include "esp_loader.h"
 #include "esp_loader_io.h"
 #include "esp_log.h"
+#include "esp_rom_md5.h"
 #include "why_io.h"
 
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -149,6 +151,87 @@ bool get_why2025_binaries(why2025_binaries_t *bins) {
     }
 
     return true;
+}
+
+static bool verify_why2025_binary(const partition_attr_t *const part)
+{
+    md5_context_t ctx;
+    uint8_t computed_u8[16];
+    esp_rom_md5_init(&ctx);
+
+    static uint8_t verify_buf[1024];
+    ssize_t size = part->size;
+    why_fseek(part->fp, 0, SEEK_SET);
+    while (size > 0)
+    {
+        const size_t to_read = MIN(size, sizeof(verify_buf));
+        const size_t read = why_fread(verify_buf, 1, to_read, part->fp);
+        esp_rom_md5_update(&ctx, verify_buf, read);
+        size -= read;
+    }
+    why_fseek(part->fp, 0, SEEK_SET);
+
+    esp_rom_md5_final(computed_u8, &ctx);
+
+    char computed_strz[32 + 1];
+    snprintf(
+        computed_strz, sizeof(computed_strz),
+        "%02x%02x%02x%02x"
+        "%02x%02x%02x%02x"
+        "%02x%02x%02x%02x"
+        "%02x%02x%02x%02x",
+        computed_u8[0], computed_u8[1], computed_u8[2], computed_u8[3],
+        computed_u8[4], computed_u8[5], computed_u8[6], computed_u8[7],
+        computed_u8[8], computed_u8[9], computed_u8[10], computed_u8[11],
+        computed_u8[12], computed_u8[13], computed_u8[14], computed_u8[15]
+    );
+
+    const uint8_t *const flash_u8 = part->md5;
+    const char *const flash_strz = (const char *)flash_u8;
+
+    ESP_LOGW(TAG, "Computed hash: %s", computed_strz);
+    ESP_LOGW(TAG, "Hash on flash: %s", flash_strz);
+
+    return strcmp(computed_strz, flash_strz) == 0;
+}
+
+bool verify_why2025_binaries(const why2025_binaries_t *bins)
+{
+    bool res = true;
+
+    ESP_LOGW(TAG, "Verifying bootloader.bin");
+    if (bins->boot.fp == NULL)
+    {
+        ESP_LOGW(TAG, "Missing bootloader.bin and, skipping");
+    }
+    else if (!verify_why2025_binary(&bins->boot))
+    {
+        ESP_LOGE(TAG, "Computed md5sum of bootloader.bin doesn't match bootloader.bin.md5");
+        res = false;
+    }
+
+    ESP_LOGW(TAG, "Verifying partition-table.bin");
+    if (bins->part.fp == NULL)
+    {
+        ESP_LOGW(TAG, "Missing partition-table.bin, skipping");
+    }
+    else if (!verify_why2025_binary(&bins->part))
+    {
+        ESP_LOGE(TAG, "Computed md5sum of partition-table.bin doesn't match partition-table.bin.md5");
+        res = false;
+    }
+
+    ESP_LOGW(TAG, "Verifying network_adapter.bin");
+    if (bins->app.fp == NULL)
+    {
+        ESP_LOGW(TAG, "Missing network_adapter.bin, skipping");
+    }
+    else if (!verify_why2025_binary(&bins->app))
+    {
+        ESP_LOGE(TAG, "Computed md5sum of network_adapter.bin doesn't match network_adapter.bin.md5");
+        res = false;
+    }
+    return res;
 }
 
 void free_why2025_binaries(why2025_binaries_t *bins) {
