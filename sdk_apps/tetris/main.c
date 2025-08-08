@@ -134,7 +134,8 @@ int tetris_is_collision() {
 
 void tetris_move_left() {
     piece_x--;
-    if (tetris_is_collision() == 1) {
+    int col = tetris_is_collision();
+    if (col != 2 && col > 0) {
         piece_x++;
     }
 }
@@ -142,7 +143,8 @@ void tetris_move_left() {
 
 void tetris_move_right() {
     piece_x++;
-    if (tetris_is_collision() == 2) {
+    int col = tetris_is_collision();
+    if (col != 1 && col > 0) {
         piece_x--;
     }
 }
