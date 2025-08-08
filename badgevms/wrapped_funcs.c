@@ -38,6 +38,8 @@
 #include <time.h>
 #include <wchar.h>
 
+#include "esp_mac.h"
+
 static char const *TAG = "wrapped_functions";
 
 // Our implementation of dlmalloc is not thread safe.
@@ -631,6 +633,36 @@ char *inet_ntoa(struct in_addr __in) {
 int inet_aton(char const *__cp, struct in_addr *__inp) {
     return ip4addr_aton(__cp, (ip4_addr_t *)__inp);
 }
+
+void get_mac_address_str(char* mac_str, uint32_t size) {
+    // Check if the provided buffer is valid
+    if (mac_str == NULL || size < 18) {
+        ESP_LOGE("MAC_ADDR", "Provided buffer is too small or NULL. A size of 18 is required.");
+        if (mac_str != NULL && size > 0) {
+            mac_str[0] = '\0'; // Ensure buffer is null-terminated if possible
+        }
+        return;
+    }
+
+    uint8_t mac[6];
+
+    // Attempt to read the base MAC address. This is the universal MAC address
+    // from which other interface-specific MAC addresses are derived.
+    esp_err_t ret = esp_read_mac(mac, ESP_MAC_BASE);
+    if (ret != ESP_OK) {
+        // Log an error if the read operation fails
+        ESP_LOGE("MAC_ADDR", "Failed to get base MAC address with error code %d", ret);
+        // Clear the string on failure
+        strncpy(mac_str, "00:00:00:00:00:00", size - 1);
+        mac_str[size - 1] = '\0';
+        return;
+    }
+
+    // Format the 6-byte MAC address array into a colon-separated string
+    snprintf(mac_str, size, "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
 
 uint64_t get_unique_id(void) {
     uint64_t  chip_id;
