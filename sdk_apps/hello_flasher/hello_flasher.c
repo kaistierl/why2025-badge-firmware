@@ -10,9 +10,12 @@
 #include <unistd.h>
 
 #define VERSION_FILE        "FLASH0:hello_version.txt"
-#define ELF_FILE            "FLASH0:hello.elf"
-#define LATEST_VERSION_URL  "https://badge.why2025.org/api/v3/project-latest-revisions/badgehub_dev"
-#define DOWNLOAD_URL_FORMAT "https://badge.why2025.org/api/v3/projects/badgehub_dev/rev%d/files/hello.elf"
+
+#define ELF_NAME            "my_app_slug.elf"
+#define ELF_FILE_PATH            "FLASH0:" ELF_NAME
+#define PROJECT_SLUG        "my_app_slug"
+#define LATEST_VERSION_URL  "https://badge.why2025.org/api/v3/project-latest-revisions/" PROJECT_SLUG
+#define DOWNLOAD_URL_FORMAT "https://badge.why2025.org/api/v3/projects/" PROJECT_SLUG "/rev%d/files/hello.elf"
 #define VERBOSE 0
 #define CHECK_INTERVAL_SECONDS 1
 // Struct to hold memory buffer for curl responses
@@ -63,8 +66,8 @@ pid_t pid = -1;
 
 
 void restart_app(void) {
-    char *name = "hello";
-    char *path = "FLASH0:hello.elf";
+    char *name = PROJECT_SLUG;
+    char *path = ELF_FILE_PATH;
     printf("Starting %s (%s)\n", name, path);
     if (pid != -1) {
         process_kill(pid);
@@ -122,7 +125,7 @@ int main(int argc, char *argv[]) {
                         snprintf(download_url, sizeof(download_url), DOWNLOAD_URL_FORMAT, remote_version);
 
                         // Download the new ELF file
-                        FILE *fp = fopen(ELF_FILE, "wb");
+                        FILE *fp = fopen(ELF_FILE_PATH, "wb");
                         if (fp) {
                             curl_easy_setopt(curl_handle, CURLOPT_URL, download_url);
                             curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteFileCallback);
@@ -152,7 +155,7 @@ int main(int argc, char *argv[]) {
                                 fprintf(stderr, "Download failed: %s\n", curl_easy_strerror(res));
                             }
                         } else {
-                            printf("HELLO_FLASHER: Failed to open file for writing: %s\n", ELF_FILE);
+                            printf("HELLO_FLASHER: Failed to open file for writing: %s\n", ELF_FILE_PATH);
                         }
                     } else {
                         if (VERBOSE) printf("HELLO_FLASHER: Already on the latest version.\n");
