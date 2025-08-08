@@ -54,14 +54,12 @@ function(build_app app_name)
     endforeach()
 
     set(LIBRARY_FLAGS "")
-    set(LIBRARY_DEPENDENCIES "")
     if(APP_LIBRARIES)
         list(APPEND LIBRARY_FLAGS -L${SDK_LIB_DIR})
         foreach(LIB ${APP_LIBRARIES})
             list(APPEND LIBRARY_FLAGS -l${LIB})
             # This prevents unused symbols from ending up in the final elf
             list(APPEND LIBRARY_FLAGS -Wl,--exclude-libs,lib${LIB}.a)
-            list(APPEND LIBRARY_DEPENDENCIES ${SDK_LIB_DIR}/lib${LIB}.a)
         endforeach()
     endif()
 
@@ -84,7 +82,6 @@ function(build_app app_name)
             ${DEFINE_FLAGS}
         DEPENDS
          ${ABSOLUTE_SOURCES}
-         ${LIBRARY_DEPENDENCIES}
          final_sdk_staging
         COMMENT "Building app ELF: ${app_name}"
         VERBATIM
@@ -95,19 +92,17 @@ function(build_app app_name)
     )
 
     get_property(STORAGE_STAGING_DIR GLOBAL PROPERTY STORAGE_STAGING_DIR)
-    add_custom_command(
-        OUTPUT ${STORAGE_STAGING_DIR}/${app_name}.elf
+    add_custom_target(storage_staging_add_app_${app_name} ALL
         COMMAND ${CMAKE_COMMAND} -E copy ${APP_ELF_DIR}/${app_name}.elf ${STORAGE_STAGING_DIR}/${app_name}.elf
         COMMAND ${CMAKE_STRIP} ${STORAGE_STAGING_DIR}/${app_name}.elf
         DEPENDS
          build_app_${app_name}
          init_storage_staging
          ${APP_ELF_DIR}/${app_name}.elf
+        BYPRODUCTS
+         ${STORAGE_STAGING_DIR}/${app_name}.elf
         COMMENT "Copying ${app_name}.elf to storage staging and stripping"
         VERBATIM
-    )
-    add_custom_target(storage_staging_add_app_${app_name} ALL
-        DEPENDS ${STORAGE_STAGING_DIR}/${app_name}.elf
     )
     add_dependencies(final_storage_staging storage_staging_add_app_${app_name})
 

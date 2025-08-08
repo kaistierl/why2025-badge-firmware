@@ -63,18 +63,15 @@ function(build_sdk_library lib_name)
     target_include_directories(${lib_name} PRIVATE ${SDK_STAGING_DIR}/include)
     add_dependencies(${lib_name} init_sdk_staging)
 
-    add_custom_command(
-        OUTPUT ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
+    add_custom_target(sdk_staging_add_lib_${lib_name} ALL
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${lib_name}> ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
         DEPENDS
          ${lib_name}
          init_sdk_staging
+        BYPRODUCTS
+         ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
         COMMENT "Copying lib${lib_name}.a to SDK staging"
         VERBATIM
-    )
-    add_custom_target(sdk_staging_add_lib_${lib_name} ALL
-        DEPENDS
-         ${SDK_STAGING_DIR}/lib/lib${lib_name}.a
     )
     add_dependencies(final_sdk_staging sdk_staging_add_lib_${lib_name})
 

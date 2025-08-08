@@ -586,7 +586,7 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
                                 break;
                             case KEY_SCANCODE_CROSS:
                                 window_t    *window    = window_stack;
-                                task_info_t *task_info = (task_info_t*)atomic_load(&window->task_info);
+                                task_info_t *task_info = (task_info_t *)atomic_load(&window->task_info);
                                 remove_window(window);
                                 // So we don't end up deleting this window twice
                                 window->next = NULL;
@@ -633,7 +633,7 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
             window_t *window = window_stack->prev; // Start with back window
 
             do {
-                task_info_t *task_info = (task_info_t*)atomic_load(&window->task_info);
+                task_info_t *task_info = (task_info_t *)atomic_load(&window->task_info);
                 if (!task_info) {
                     remove_window(window);
                     break;
@@ -646,7 +646,7 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
                     } else {
                         vTaskPrioritySet(task_info->handle, TASK_PRIORITY);
                     }
-                } 
+                }
 
                 managed_framebuffer_t *framebuffer = window->framebuffers[window->front_fb];
 
@@ -818,7 +818,12 @@ framebuffer_t *window_framebuffer_create(window_t *window, window_size_t size, p
 
     window->framebuffers[0] = window_framebuffer_allocate(window, size, pixel_format);
     if (!window->framebuffers[0]) {
-        ESP_LOGW(TAG, "Unable to allocate framebuffer 0 for window %p, task %u", window, ((task_info_t*)window->task_info)->pid);
+        ESP_LOGW(
+            TAG,
+            "Unable to allocate framebuffer 0 for window %p, task %u",
+            window,
+            ((task_info_t *)window->task_info)->pid
+        );
         return NULL;
     }
 
@@ -865,12 +870,12 @@ window_t *window_create(char const *title, window_size_t size, window_flag_t fla
         goto error;
     }
 
-    window->flags     = flags;
-    window->rect.x    = 0;
-    window->rect.y    = 0;
-    size              = window_clamp_size(window, size);
-    window->rect.w    = size.w;
-    window->rect.h    = size.h;
+    window->flags  = flags;
+    window->rect.x = 0;
+    window->rect.y = 0;
+    size           = window_clamp_size(window, size);
+    window->rect.w = size.w;
+    window->rect.h = size.h;
 
     atomic_store(&window->task_info, (uintptr_t)task_info);
 

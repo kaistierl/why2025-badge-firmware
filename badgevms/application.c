@@ -425,7 +425,7 @@ FILE *application_create_file(application_t *app, char const *file_path) {
     return ret;
 }
 
-application_list_handle application_list(application_t **out) {
+application_list_handle application_list(application_t const **out) {
     if (!applications_base_dir[0])
         return NULL;
 
@@ -495,7 +495,7 @@ application_list_handle application_list(application_t **out) {
     return list;
 }
 
-application_t *application_list_get_next(application_list_handle list) {
+application_t const *application_list_get_next(application_list_handle list) {
     if (!list)
         return NULL;
 

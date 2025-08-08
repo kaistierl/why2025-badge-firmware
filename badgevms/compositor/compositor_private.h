@@ -58,12 +58,12 @@ typedef struct window {
     char                  *title;
     int                    fb_dirty;
 
-    window_rect_t rect;
+    window_rect_t    rect;
     // Store the previous rect if we go fullscreen/maximized
-    window_rect_t rect_orig;
-    rect_array_t  visible;
-    atomic_uintptr_t  task_info;
-    QueueHandle_t event_queue;
+    window_rect_t    rect_orig;
+    rect_array_t     visible;
+    atomic_uintptr_t task_info;
+    QueueHandle_t    event_queue;
 
     struct window *next;
     struct window *prev;

@@ -30,6 +30,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string.h>
 #include <time.h>
 
@@ -45,11 +46,11 @@ typedef struct {
     int      argc;
     int      fail_count;
     pid_t    pid;
-    uint32_t start_every;      // Seconds between periodic starts (0 = disabled)
-    uint32_t start_delay;      // Seconds to wait after boot before first start (0 = immediate)
-    time_t   last_started;     // Timestamp when process was last started
-    bool     should_start;     // Track whether we should start this at all
-    bool     nvs_write;        // Track whether we have updated this app NVS entry
+    uint32_t start_every;  // Seconds between periodic starts (0 = disabled)
+    uint32_t start_delay;  // Seconds to wait after boot before first start (0 = immediate)
+    time_t   last_started; // Timestamp when process was last started
+    bool     should_start; // Track whether we should start this at all
+    bool     nvs_write;    // Track whether we have updated this app NVS entry
 } startup_app_t;
 
 typedef struct {
@@ -116,10 +117,10 @@ int parse_app(toml_datum_t app_table, startup_app_t *app) {
 
     // Parse start_every and start_delay (new fields)
     toml_datum_t start_every = toml_get(app_table, "start_every");
-    app->start_every = (start_every.type == TOML_INT64) ? (uint32_t)start_every.u.int64 : 0;
-    
+    app->start_every         = (start_every.type == TOML_INT64) ? (uint32_t)start_every.u.int64 : 0;
+
     toml_datum_t start_delay = toml_get(app_table, "start_delay");
-    app->start_delay = (start_delay.type == TOML_INT64) ? (uint32_t)start_delay.u.int64 : 0;
+    app->start_delay         = (start_delay.type == TOML_INT64) ? (uint32_t)start_delay.u.int64 : 0;
 
     toml_datum_t args = toml_get(app_table, "args");
     if (args.type == TOML_ARRAY) {
@@ -238,8 +239,8 @@ pid_t start_app(startup_app_t *app) {
         return -1;
     }
     printf("Started %s (%s) pid %u\n", app->name, app->path, pid);
-    
-    app->pid = pid;
+
+    app->pid          = pid;
     app->last_started = time(NULL);
     return pid;
 }
@@ -248,30 +249,30 @@ bool maybe_start_app(startup_app_t *app, nvs_handle_t nvs_handle, time_t boot_ti
     if (app->pid != 0 || !app->should_start) {
         return false;
     }
-    
+
     if (app->run_once) {
-        uint8_t run_once = 0;
-        esp_err_t err = nvs_get_u8(nvs_handle, app->name, &run_once);
+        uint8_t   run_once = 0;
+        esp_err_t err      = nvs_get_u8(nvs_handle, app->name, &run_once);
         if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGE(TAG, "Error (%s) reading NVS for %s!", esp_err_to_name(err), app->name);
         }
-        
+
         if (run_once == 1) {
             return false;
         }
     }
-    
-    bool in_startup_delay = (current_time - boot_time < app->start_delay);
-    bool should_start = false;
-    const char *reason = "";
+
+    bool        in_startup_delay = (current_time - boot_time < app->start_delay);
+    bool        should_start     = false;
+    char const *reason           = "";
 
     if (!in_startup_delay && app->start_every > 0) {
         if (current_time - app->last_started >= app->start_every) {
             should_start = true;
-            reason = "periodic restart";
+            reason       = "periodic restart";
         }
     }
-    
+
     // Handle start delay
     if (!app->last_started && current_time - boot_time >= app->start_delay) {
         should_start = true;
@@ -294,13 +295,19 @@ bool maybe_start_app(startup_app_t *app, nvs_handle_t nvs_handle, time_t boot_ti
     if (app->start_delay > 0) {
         printf("%s for %s (%s) - %lld seconds since boot\n", reason, app->name, app->path, current_time - boot_time);
     } else if (app->start_every > 0) {
-        printf("%s for %s (%s) - %lld seconds since last start\n", reason, app->name, app->path, current_time - app->last_started);
+        printf(
+            "%s for %s (%s) - %lld seconds since last start\n",
+            reason,
+            app->name,
+            app->path,
+            current_time - app->last_started
+        );
     }
-    
+
     if (start_app(app) == -1) {
         return false;
     }
-    
+
     return true;
 }
 
@@ -312,8 +319,8 @@ void run_init(void) {
         return;
     }
 
-    startup_config_t config = {0};
-    time_t boot_time = time(NULL);
+    startup_config_t config    = {0};
+    time_t           boot_time = time(NULL);
 
     printf("Loading %s\n", "FLASH0:init.toml");
     if (load_config("FLASH0:init.toml", &config) != 0) {
@@ -329,18 +336,18 @@ void run_init(void) {
     for (size_t i = 0; i < config.count; ++i) {
         startup_app_t *app = &config.apps[i];
         // Initially just mark all applications as should start
-        app->should_start = true;
-        
+        app->should_start  = true;
+
         if (app->run_once) {
-            uint8_t run_once = 0;
-            esp_err_t err = nvs_get_u8(nvs_handle, app->name, &run_once);
+            uint8_t   run_once = 0;
+            esp_err_t err      = nvs_get_u8(nvs_handle, app->name, &run_once);
             if (err == ESP_OK && run_once == 1) {
                 printf("%s (%s) has already run once\n", app->name, app->path);
                 app->should_start = false;
                 continue;
             }
         }
-        
+
         if (app->start_delay > 0) {
             printf("%s (%s) will start in %lu seconds\n", app->name, app->path, app->start_delay);
         }
@@ -350,10 +357,10 @@ void run_init(void) {
     validate_ota_partition();
 
     printf("Entering main supervision loop...\n");
-    
+
     while (1) {
         time_t current_time = time(NULL);
-        
+
         size_t free_ram = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
         printf(
             "Init: Free main memory: %zi, free PSRAM pages: %zi/%zi, running processes %lu\n",
@@ -381,8 +388,8 @@ void run_init(void) {
 
                     // App has run once
                     if (app->run_once && !app->nvs_write) {
-                        uint8_t run_once = 1;
-                        esp_err_t err = nvs_set_u8(nvs_handle, app->name, run_once);
+                        uint8_t   run_once = 1;
+                        esp_err_t err      = nvs_set_u8(nvs_handle, app->name, run_once);
 
                         if (err != ESP_OK) {
                             ESP_LOGE(TAG, "Error (%s) writing NVS for %s!", esp_err_to_name(err), app->name);

@@ -21,6 +21,7 @@
 #endif
 
 #include "application_private.h"
+#include "badgevms_config.h"
 #include "badgevms/device.h"
 #include "badgevms/process.h"
 #include "compositor/compositor_private.h"
@@ -145,7 +146,7 @@ int app_main(void) {
         invalidate_ota_partition();
     }
 
-    if (!device_register("I2CBUS0", badgevms_i2c_bus_create("I2CBUS0", 0, 400 * 1000))) {
+    if (!device_register("I2CBUS0", badgevms_i2c_bus_create("I2CBUS0", 0, I2C0_MASTER_FREQ_HZ))) {
         ESP_LOGE(TAG, "Failed to initialize I2CBUS0 driver");
         invalidate_ota_partition();
     }

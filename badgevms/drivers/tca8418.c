@@ -209,12 +209,12 @@ static ssize_t tca8418_read(void *dev, int fd, void *buf, size_t count) {
     size_t written = 0;
     while (written <= count) {
         if (tca8418_get_event_count(device->keyboard)) {
-            char    c     = tca8418_get_key(device->keyboard);
-	    uint8_t key = c & 0x7F;
-	    if (key > 0x50) {
-		ESP_LOGD(TAG, "Illegal scancode 0x%02x, skipping", c);
-	    	continue;
-	    }
+            char    c   = tca8418_get_key(device->keyboard);
+            uint8_t key = c & 0x7F;
+            if (key > 0x50) {
+                ESP_LOGD(TAG, "Illegal scancode 0x%02x, skipping", c);
+                continue;
+            }
             event_t event = scancode_to_event(dev, c);
             ESP_LOGW(TAG, "Got keyboard event raw 0x%02x scancode 0x%02x", c, event.keyboard.scancode);
             if (written + sizeof(event_t) > count) {

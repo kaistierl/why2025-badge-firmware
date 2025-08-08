@@ -113,12 +113,12 @@ add_custom_command(
     COMMAND ${PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/generate_symbols.py
             ${CMAKE_CURRENT_SOURCE_DIR}/symbols.yml
             ${CMAKE_CURRENT_BINARY_DIR}/generated_symbols.c
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/symbols.yml
-            ${CMAKE_CURRENT_SOURCE_DIR}/generate_symbols.py
+    DEPENDS
+     ${CMAKE_CURRENT_SOURCE_DIR}/symbols.yml
+     ${CMAKE_CURRENT_SOURCE_DIR}/generate_symbols.py
     COMMENT "Generating symbol table from symbols.yml"
     VERBATIM
 )
-
 add_custom_target(generated_symbols
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/generated_symbols.c
 )

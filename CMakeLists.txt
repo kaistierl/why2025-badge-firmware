@@ -43,6 +43,7 @@ add_subdirectory(sdk_libs)
 # TODO: might want to split this into a subdirectory, along with init/final_sdk_staging
 get_property(SDK_STAGING_DIR GLOBAL PROPERTY SDK_STAGING_DIR)
 add_custom_target(sdk
+    COMMAND ${CMAKE_COMMAND} -E rm -rf -- ${CMAKE_SOURCE_DIR}/sdk_dist
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${SDK_STAGING_DIR} ${CMAKE_SOURCE_DIR}/sdk_dist
     DEPENDS final_sdk_staging
     COMMENT "Creating SDK distribution in sdk_dist/"
@@ -53,16 +54,7 @@ add_custom_target(sdk
 #  target: SDK_APP_BUILD_TARGETS, sdk_app_build_all
 add_subdirectory(sdk_apps)
 
-file(WRITE ${CMAKE_BINARY_DIR}/generate_md5.cmake "
-function(generate_md5_file input_file)
-    file(MD5 \${input_file} file_md5)
-    file(WRITE \${input_file}.md5 \"\${file_md5}\")
-endfunction()
-
-generate_md5_file(\${INPUT_FILE})
-")
-
-# Build connectivity_esp_hosted/ as network_adapter.bin (target )
+# Build connectivity_esp_hosted/ as network_adapter.bin
 #  output: connectivity.bin
 #  target: connectivity_esp_hosted-install
 ExternalProject_Add(connectivity_esp_hosted
@@ -71,22 +63,27 @@ ExternalProject_Add(connectivity_esp_hosted
     CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env IDF_TARGET=esp32c6 idf.py reconfigure
     BUILD_COMMAND ${CMAKE_COMMAND} -E env IDF_TARGET=esp32c6 idf.py build
     BUILD_ALWAYS true
-    BUILD_BYPRODUCTS build/network_adapter.bin build/partition_table/partition-table.bin build/bootloader/bootloader.bin
-    INSTALL_COMMAND 
-        ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/c6firmware &&
-        ${CMAKE_COMMAND} -E copy build/network_adapter.bin build/partition_table/partition-table.bin build/bootloader/bootloader.bin ${CMAKE_BINARY_DIR}/c6firmware
+    BUILD_BYPRODUCTS
+     build/bootloader/bootloader.bin
+     build/partition_table/partition-table.bin
+     build/network_adapter.bin
+    INSTALL_COMMAND
+     ${CMAKE_COMMAND} -E rm -rf -- ${CMAKE_BINARY_DIR}/c6firmware
+     && ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/c6firmware
+     && ${CMAKE_COMMAND} -E copy build/network_adapter.bin build/partition_table/partition-table.bin build/bootloader/bootloader.bin ${CMAKE_BINARY_DIR}/c6firmware
 )
 ExternalProject_Add_StepTargets(connectivity_esp_hosted install)
+# Copy to storage_staging and generate md5 hashes
+file(WRITE ${CMAKE_BINARY_DIR}/generate_md5.cmake "
+function(generate_md5_file input_file)
+    file(MD5 \${input_file} file_md5)
+    file(WRITE \${input_file}.md5 \"\${file_md5}\")
+endfunction()
 
+generate_md5_file(\${INPUT_FILE})
+")
 get_property(STORAGE_STAGING_DIR GLOBAL PROPERTY STORAGE_STAGING_DIR)
-add_custom_command(
-    OUTPUT
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/network_adapter.bin
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/partition-table.bin
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/bootloader.bin
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/network_adapter.bin.md5
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/partition-table.bin.md5
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/bootloader.bin.md5
+add_custom_target(storage_staging_add_connectivity ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/c6firmware/network_adapter.bin ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/c6firmware/partition-table.bin ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6
@@ -98,22 +95,18 @@ add_custom_command(
     DEPENDS
      connectivity_esp_hosted-install
      init_storage_staging
+    BYPRODUCTS
+     ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/network_adapter.bin
+     ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/partition-table.bin
+     ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/bootloader.bin
+     ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/network_adapter.bin.md5
+     ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/partition-table.bin.md5
+     ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/bootloader.bin.md5
     COMMENT "Copying slave c6 firmware to storage staging and generating MD5 checksums"
     VERBATIM
-)
-
-add_custom_target(storage_staging_add_connectivity ALL
-    DEPENDS
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/network_adapter.bin
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/partition-table.bin
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/bootloader.bin
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/network_adapter.bin.md5
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/partition-table.bin.md5
-        ${STORAGE_STAGING_DIR}/BADGEVMS/APPS/why2025_firmware_ota_c6/bootloader.bin.md5
 )
 add_dependencies(final_storage_staging storage_staging_add_connectivity)
 
 # Add our binaries to the flash target
-# bootloader, partition-table and otadata are done automatically
-# esptool_py_flash_to_partition(flash "ota_0"   "${CMAKE_BINARY_DIR}/badgevms.bin")
+# bootloader, partition-table, otadata and ota_0 are done automatically
 esptool_py_flash_to_partition(flash "storage" "${CMAKE_BINARY_DIR}/storage.bin")

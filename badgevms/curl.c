@@ -574,8 +574,8 @@ CURL *curl_easy_init(void) {
         return NULL;
     }
 
-    // curl->write_function  = default_write_callback;
-    // curl->header_function = default_header_callback;
+    curl->write_function  = default_write_callback;
+    curl->header_function = default_header_callback;
 
     memset(&curl->config, 0, sizeof(esp_http_client_config_t));
     curl->config.event_handler = http_event_handler;

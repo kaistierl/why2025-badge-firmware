@@ -107,14 +107,14 @@ bool get_why2025_binaries(why2025_binaries_t *bins) {
     bins->boot.addr = BOOTLOADER_ADDRESS_V1;
     bins->part.addr = PARTITION_ADDRESS;
     bins->app.addr  = APPLICATION_ADDRESS;
-    bins->boot.fp = NULL;
-    bins->part.fp  = NULL;
-    bins->app.fp  = NULL;
+    bins->boot.fp   = NULL;
+    bins->part.fp   = NULL;
+    bins->app.fp    = NULL;
     bins->boot.md5  = NULL;
     bins->part.md5  = NULL;
     bins->app.md5   = NULL;
 
-    if (!read_file_size( "APPS:[why2025_firmware_ota_c6]bootloader.bin", (void **)NULL, &bins->boot.size, false)) {
+    if (!read_file_size("APPS:[why2025_firmware_ota_c6]bootloader.bin", (void **)NULL, &bins->boot.size, false)) {
         ESP_LOGE(TAG, "Failed to read bootloader.bin");
         return false;
     }
@@ -125,13 +125,18 @@ bool get_why2025_binaries(why2025_binaries_t *bins) {
         return false;
     }
 
-    if (!read_file_size( "APPS:[why2025_firmware_ota_c6]partition-table.bin", (void **)NULL, &bins->part.size, false)) {
+    if (!read_file_size("APPS:[why2025_firmware_ota_c6]partition-table.bin", (void **)NULL, &bins->part.size, false)) {
         ESP_LOGE(TAG, "Failed to read partition-table.bin");
         return false;
     }
     bins->part.fp = why_fopen("APPS:[why2025_firmware_ota_c6]partition-table.bin", "r");
 
-    if (!read_file_size( "APPS:[why2025_firmware_ota_c6]partition-table.bin.md5", (void **)(&bins->part.md5), NULL, true)) {
+    if (!read_file_size(
+            "APPS:[why2025_firmware_ota_c6]partition-table.bin.md5",
+            (void **)(&bins->part.md5),
+            NULL,
+            true
+        )) {
         ESP_LOGE(TAG, "Failed to read partition-table.bin.md5");
         return false;
     }
@@ -143,7 +148,12 @@ bool get_why2025_binaries(why2025_binaries_t *bins) {
 
     bins->app.fp = why_fopen("APPS:[why2025_firmware_ota_c6]network_adapter.bin", "r");
 
-    if (!read_file_size( "APPS:[why2025_firmware_ota_c6]network_adapter.bin.md5", (void **)(&bins->app.md5), NULL, true)) {
+    if (!read_file_size(
+            "APPS:[why2025_firmware_ota_c6]network_adapter.bin.md5",
+            (void **)(&bins->app.md5),
+            NULL,
+            true
+        )) {
         ESP_LOGE(TAG, "Failed to read network_adapter.bin.md5");
         return false;
     }
@@ -152,9 +162,15 @@ bool get_why2025_binaries(why2025_binaries_t *bins) {
 }
 
 void free_why2025_binaries(why2025_binaries_t *bins) {
-    why_fclose(bins->boot.fp);
-    why_fclose(bins->part.fp);
-    why_fclose(bins->app.fp);
+    if (bins->boot.fp) {
+        why_fclose(bins->boot.fp);
+    }
+    if (bins->part.fp) {
+        why_fclose(bins->part.fp);
+    }
+    if (bins->app.fp) {
+        why_fclose(bins->app.fp);
+    }
     heap_caps_free((void *)bins->boot.md5);
     heap_caps_free((void *)bins->part.md5);
     heap_caps_free((void *)bins->app.md5);
@@ -292,7 +308,7 @@ esp_loader_error_t flash_binary(FILE *bin, size_t size, size_t address) {
 
     while (size > 0) {
         size_t to_read = MIN(size, sizeof(payload));
-	why_fread(payload, to_read, 1, bin);
+        why_fread(payload, to_read, 1, bin);
 
         err = esp_loader_flash_write(payload, to_read);
         if (err != ESP_LOADER_SUCCESS) {
@@ -300,8 +316,8 @@ esp_loader_error_t flash_binary(FILE *bin, size_t size, size_t address) {
             return err;
         }
 
-        size     -= to_read;
-        written  += to_read;
+        size    -= to_read;
+        written += to_read;
 
         int progress = (int)(((float)written / binary_size) * 100);
         printf("\rProgress: %d %%", progress);

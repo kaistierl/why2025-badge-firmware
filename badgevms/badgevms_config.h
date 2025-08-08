@@ -30,3 +30,5 @@
 #define MAX_WINDOWS 10
 
 #define DISPLAY_FRAMEBUFFERS 3
+
+#define I2C0_MASTER_FREQ_HZ 100 * 1000 // i2c bus speed for the i2c bus on the carrier board, being I2C_NUM_0

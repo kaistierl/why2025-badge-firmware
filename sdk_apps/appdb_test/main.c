@@ -86,12 +86,12 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     printf("Listing all applications...\n");
-    application_t          *first_app;
+    const application_t          *first_app;
     application_list_handle list = application_list(&first_app);
 
     if (list) {
         int            count   = 0;
-        application_t *current = first_app;
+        const application_t *current = first_app;
         while (current) {
             count++;
             printf(

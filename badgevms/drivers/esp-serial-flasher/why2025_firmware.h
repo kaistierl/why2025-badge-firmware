@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include "why_io.h"
 #include "esp_loader.h"
+#include "why_io.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,7 +32,7 @@ extern "C" {
 #define ESP_RAM_BLOCK       0x1800
 
 typedef struct {
-    FILE *fp;
+    FILE          *fp;
     uint32_t       size;
     uint32_t       addr;
     uint8_t const *md5;

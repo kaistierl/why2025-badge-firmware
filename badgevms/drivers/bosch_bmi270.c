@@ -16,6 +16,7 @@
 
 #include "bosch_bmi270.h"
 
+#include "badgevms_config.h"
 #include "bmi270.h"
 #include "esp_log.h"
 
@@ -30,9 +31,9 @@
 #define I2C_MASTER_SDA_IO 18
 #define I2C_MASTER_SCL_IO 20
 
-#define I2C_MASTER_NUM     I2C_NUM_0  /*!< I2C port number for master dev */
-#define I2C_MASTER_FREQ_HZ 400 * 1000 /*!< I2C master clock frequency */
-#define I2C_MASTER_TIMEOUT 100        /*!< I2C master timeout in milliseconds */
+#define I2C_MASTER_NUM     I2C_NUM_0           /*!< I2C port number for master dev */
+#define I2C_MASTER_FREQ_HZ I2C0_MASTER_FREQ_HZ /*!< I2C master clock frequency */
+#define I2C_MASTER_TIMEOUT 100                 /*!< I2C master timeout in milliseconds */
 
 #define GRAVITY_EARTH (9.80665f)
 

@@ -16,6 +16,7 @@
 
 #include "badgevms_i2c_bus.h"
 
+#include "badgevms_config.h"
 #include "esp_log.h"
 #include "i2c_bus.h"
 #include "task.h"
@@ -29,7 +30,7 @@
 #define I2C_MASTER_SCL_IO  SCL_PIN
 #define I2C_MASTER_SDA_IO  SDA_PIN
 #define I2C_MASTER_NUM     I2C_NUM_0
-#define I2C_MASTER_FREQ_HZ 400 * 1000
+#define I2C_MASTER_FREQ_HZ I2C0_MASTER_FREQ_HZ
 #define I2C_MASTER_TIMEOUT 100
 
 #define TAG "badgevms_i2c_bus"

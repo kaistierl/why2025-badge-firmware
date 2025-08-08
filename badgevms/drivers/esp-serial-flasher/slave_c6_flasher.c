@@ -6,7 +6,6 @@
 #include "esp_loader.h"
 #include "esp_log.h"
 #include "why2025_firmware.h"
-
 #include "why_io.h"
 
 static char const *TAG = "slave_c6_flasher";

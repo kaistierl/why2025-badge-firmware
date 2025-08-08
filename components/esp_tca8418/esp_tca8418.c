@@ -7,6 +7,7 @@
 
 #include "sys/param.h"
 
+#include "badgevms_config.h"
 #include "driver/gpio.h"
 #include "i2c_bus.h"
 #include "esp_idf_version.h"
@@ -94,7 +95,7 @@ tca8418_dev_t *tca8418_create(gpio_num_t scl_pin, gpio_num_t sda_pin, uint8_t i2
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_io_num = tca8418_dev->scl_pin,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 400 * 1000,
+        .master.clk_speed = I2C0_MASTER_FREQ_HZ,
     };
     ESP_LOGI(TAG, "Initializing I2C bus (scl:%d, sda:%d)", tca8418_dev->scl_pin, tca8418_dev->sda_pin);
     tca8418_dev->bus_handle = i2c_bus_create(I2C_NUM_0, &conf);

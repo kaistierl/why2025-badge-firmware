@@ -85,10 +85,11 @@ FILE *application_create_file(application_t *application, char const *file_path)
 
 // Query the list of installed applications, giving a list and the first application in the list.
 // out can be NULL.
-application_list_handle application_list(application_t **out);
+application_list_handle application_list(application_t const **out);
 
-// Get the next application_t* in the list
-application_t *application_list_get_next(application_list_handle list);
+// Get the next application_t* in the list, application*'s do not need to be separately
+// application_free()'d they will be freed by application_list_close()
+application_t const *application_list_get_next(application_list_handle list);
 
 // Close the application list and free associated resources
 void application_list_close(application_list_handle list);
