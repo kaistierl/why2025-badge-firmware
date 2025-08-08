@@ -1,0 +1,390 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+
+
+SDL_Window   *window = NULL;
+SDL_Renderer *renderer = NULL;
+uint64_t time_last;
+
+#define WINDOW_WIDTH 400
+#define WINDOW_HEIGHT 500
+
+#define STEP_TIME 1000
+
+// Field size in blocks
+#define FIELD_WIDTH 10
+#define FIELD_HEIGHT 20
+
+#define BLOCK_SIZE 20
+#define FIELD_OFF_X 100
+#define FIELD_OFF_Y 40
+
+const uint8_t piece_rotations[] = {
+    1, 2, 2, 2, 4, 4, 4
+};
+const int8_t piece_data[] = {
+    // square block
+    0, 0, -1, 0, -1, -1, 0, -1, 
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    // line block
+    0, 0, -2, 0, -1, 0, 1, 0,
+    0, 0, 0, 1, 0, -1, 0, -2,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    // S-block
+    0, 0, -1, -1, 0, -1, 1, 0, 
+    0, 0, 0, 1, 1, 0, 1, -1, 
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    // Z-block
+    0, 0, -1, 0, 0, -1, 1, -1, 
+    0, 0, 1, 1, 1, 0, 0, -1, 
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+
+    // L-block
+    0, 0, -1, 0, -1, -1, 1, 0, 
+    0, 0, 0, 1, 0, -1, 1, -1, 
+    0, 0, -1, 0, 1, 0, 1, 1, 
+    0, 0, -1, 1, 0, 1, 0, -1, 
+
+    // J-block
+    0, 0, -1, 0, 1, 0, 1, -1, 
+    0, 0, 0, 1, 0, -1, 1, 1, 
+    0, 0, -1, 1, -1, 0, 1, 0, 
+    0, 0, 0, 1, 0, -1, -1, -1, 
+
+    // T-block
+    0, 0, -1, 0, 0, -1, 1, 0,  
+    0, 0, 0, 1, 0, -1, 1, 0, 
+    0, 0, -1, 0, 0, 1, 1, 0, 
+    0, 0, -1, 0, 0, 1, 0, -1
+};
+
+// Tetris state
+uint8_t field[FIELD_HEIGHT][FIELD_WIDTH];
+int piece_type, piece_rot, piece_x, piece_y;
+
+
+
+
+void tetris_spawn_new_piece() {
+    piece_type = rand() % 7;
+    piece_rot = 0;
+    piece_x = FIELD_WIDTH / 2 - 1;
+    piece_y = 0;
+}
+
+void tetris_init() {
+    // Reset field
+    for (int x = 0; x < FIELD_WIDTH; ++x) {
+        for (int y = 0; y < FIELD_HEIGHT; ++y) {
+            field[y][x] = 0;
+        }
+    }
+
+    tetris_spawn_new_piece();
+
+}
+
+void tetris_rotate_piece() {
+    piece_rot++;
+
+    if (piece_rot >= piece_rotations[piece_type]) {
+        piece_rot = 0;
+    }
+}
+
+int tetris_is_side_collision() {
+    for (int square = 0; square < 4; square++) {
+        int x_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 0];
+        int y_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 1];
+        
+        int abs_x = piece_x + x_off;
+        int abs_y = piece_y + y_off;
+
+        // collision with walls
+        if (abs_x < 0 || abs_x >= 10) {
+            return 1;
+        }
+
+        // collision with field blocks
+        if (field[abs_y][abs_x]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void tetris_move_left() {
+    piece_x--;
+    if (tetris_is_side_collision()) {
+        piece_x++;
+    }
+}
+
+
+void tetris_move_right() {
+    piece_x++;
+    if (tetris_is_side_collision()) {
+        piece_x--;
+    }
+}
+
+void tetris_check_for_filled_lines() {
+    for (int y = 0; y < FIELD_HEIGHT; ++y) {
+        int fill_count = 0;
+
+        for (int x = 0; x < FIELD_WIDTH; ++x) {
+            fill_count += field[y][x];
+        }
+        if (fill_count == 10) {
+            // TODO inc score
+
+            // remove line (everything above goes down one)
+            for (int row2 = y; row2 >= 0; row2--) {
+                for (int x = 0; x < FIELD_WIDTH; ++x) {
+                    field[row2][x] = field[row2 - 1][x];
+                }
+            }
+        }
+    }
+}
+
+
+
+void tetris_lower_piece() {
+    piece_y += 1;
+
+    int collision = 0;
+
+    for (int square = 0; square < 4; ++square) {
+        int x_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 0];
+        int y_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 1];
+        
+        int abs_x = piece_x + x_off;
+        int abs_y = piece_y + y_off;
+
+        if (abs_y >= 20 || field[abs_y][abs_x]) {
+            collision = 1;
+            break;
+        }
+    }
+
+    if (collision) {
+        if (piece_y == 1) {
+            printf("game over!\n");
+            // TODO draw game over screen
+            tetris_init();
+        }
+
+        // add to field
+        piece_y -= 1;
+        for (int square = 0; square < 4; ++square) {
+            int x_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 0];
+            int y_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 1];
+
+            int abs_x = piece_x + x_off;
+            int abs_y = piece_y + y_off;
+
+            field[abs_y][abs_x] = 1;
+        }
+
+        // check for line clears
+        tetris_check_for_filled_lines();
+
+        // Spawn new piece
+        tetris_spawn_new_piece();
+    }
+
+}
+
+
+void tetris_draw_square(int x, int y, int state) {
+    if (x < 0 || y < 0 || x >= FIELD_WIDTH || y >= FIELD_HEIGHT) {
+        // skip
+        return;
+    }
+    SDL_FRect r;
+    r.x = FIELD_OFF_X + BLOCK_SIZE * x;
+    r.y = FIELD_OFF_Y + BLOCK_SIZE * y;
+    r.w = BLOCK_SIZE;
+    r.h = BLOCK_SIZE;
+
+    if (state) {
+        // filled, fancy square
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+        SDL_RenderFillRect(renderer, &r);
+
+        SDL_SetRenderDrawColor(renderer, 128, 128, 128, SDL_ALPHA_OPAQUE);
+        r.x += 1;
+        r.y += 1;
+        r.w -= 1;
+        r.h -= 1;
+        SDL_RenderFillRect(renderer, &r);
+    } else {
+        // Not filled, just black
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+        SDL_RenderFillRect(renderer, &r);
+    }
+
+}
+
+void tetris_draw_field() {
+    for (int x = 0; x < FIELD_WIDTH; ++x) {
+        for (int y = 0; y < FIELD_HEIGHT; ++y) {
+
+            tetris_draw_square(x, y, field[y][x]);
+        }
+    }
+}
+
+void tetris_draw_current_piece() {
+    for (int square = 0; square < 4; ++square) {
+        int x_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 0];
+        int y_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 1];
+
+        int abs_x = piece_x + x_off;
+        int abs_y = piece_y + y_off;
+
+        tetris_draw_square(abs_x, abs_y, 1);
+    }
+}
+
+void tetris_draw_field_outlines() {
+    // vertical
+    // for (int x = 0; x < FIELD_WIDTH; ++x) {
+    //     SDL_RenderDrawLine(x, y, x, y);
+    
+    // }
+    // for (int y = 0; y < FIELD_HEIGHT; ++y) {
+
+    // }
+
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
+    
+    // Veritcal
+    SDL_RenderLine(renderer,
+        FIELD_OFF_X,
+        FIELD_OFF_Y,
+        FIELD_OFF_X,
+        FIELD_OFF_Y + FIELD_HEIGHT * BLOCK_SIZE
+    );
+
+    SDL_RenderLine(renderer,
+        FIELD_OFF_X + FIELD_WIDTH * BLOCK_SIZE,
+        FIELD_OFF_Y,
+        FIELD_OFF_X + FIELD_WIDTH * BLOCK_SIZE,
+        FIELD_OFF_Y + FIELD_HEIGHT * BLOCK_SIZE
+    );
+
+    // Horizontal
+    SDL_RenderLine(renderer,
+        FIELD_OFF_X,
+        FIELD_OFF_Y,
+        FIELD_OFF_X + FIELD_WIDTH * BLOCK_SIZE,
+        FIELD_OFF_Y
+    );
+    
+    SDL_RenderLine(renderer,
+        FIELD_OFF_X,
+        FIELD_OFF_Y + FIELD_HEIGHT * BLOCK_SIZE,
+        FIELD_OFF_X + FIELD_WIDTH * BLOCK_SIZE,
+        FIELD_OFF_Y + FIELD_HEIGHT * BLOCK_SIZE
+    );
+    
+}
+
+SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        printf("Couldn't initialize SDL: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    }
+    
+    // Create window first
+    window = SDL_CreateWindow("examples/demo/snake", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    if (!window) {
+        printf("Failed to create window: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    }
+
+
+    // Create renderer
+    renderer = SDL_CreateRenderer(window, NULL);
+    if (!renderer) {
+        printf("Failed to create renderer: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    }
+
+    time_last = SDL_GetTicks();
+
+    tetris_init();
+
+    return SDL_APP_CONTINUE;
+}
+
+SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
+    switch (event->type) {
+        case SDL_EVENT_QUIT: return SDL_APP_SUCCESS;
+        case SDL_EVENT_KEY_DOWN:
+            switch (event->key.scancode) {
+                case SDL_SCANCODE_RIGHT:
+                    tetris_move_right();
+                    break;
+                case SDL_SCANCODE_LEFT:
+                    tetris_move_left();
+                    break;
+                case SDL_SCANCODE_UP:
+                    tetris_rotate_piece();
+                    break;
+                case SDL_SCANCODE_DOWN:
+                    tetris_lower_piece();
+                    break;
+            }
+        default: break;
+    }
+    return SDL_APP_CONTINUE;
+}
+
+// Draw / game loop
+SDL_AppResult SDL_AppIterate(void *appstate) {
+    uint64_t now = SDL_GetTicks();
+
+    // Black bg
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
+
+    
+    // update
+    if (now - time_last >= STEP_TIME) {
+        tetris_lower_piece();
+        time_last = now;
+    }
+
+    // draw
+    tetris_draw_field();
+    tetris_draw_current_piece();
+    tetris_draw_field_outlines();
+    
+    SDL_RenderPresent(renderer); // swap
+    return SDL_APP_CONTINUE;
+
+}
+
+void SDL_AppQuit(void *appstate, SDL_AppResult result) {
+    if (renderer) {
+        SDL_DestroyRenderer(renderer);
+    }
+    if (window) {
+        SDL_DestroyWindow(window);
+    }
+}
