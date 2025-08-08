@@ -22,13 +22,15 @@
 typedef struct {
     unsigned char arrow_pressed;
 
-    short         pv;
+    short              pv;
+    unsigned long long score;
 
-    float         bar_xpos;
-    float         ball_xpos;
-    float         ball_ypos;
-    float         ball_xvel;
-    float         ball_yvel;
+    float bar_xpos;
+
+    float ball_xpos;
+    float ball_ypos;
+    float ball_xvel;
+    float ball_yvel;
 } GameContext;
 
 typedef struct {
@@ -38,9 +40,7 @@ typedef struct {
     Uint64        last_step;
 } AppState;
 
-static void game_initialize(GameContext *ctx) {
-    ctx->pv = 3;
-
+static void game_init_ball(GameContext *ctx) {
     ctx->bar_xpos = SDL_WINDOW_WIDTH * 1/4;
 
     ctx->ball_xpos = BALL_SIZE / 2;
@@ -50,7 +50,17 @@ static void game_initialize(GameContext *ctx) {
     ctx->ball_yvel = BALL_VELOCITY * M_SQRT2;
 }
 
+static void game_init(GameContext *ctx) {
+    ctx->pv    = 3;
+    ctx->score = 0;
+
+    game_init_ball(ctx);
+}
+
 static void game_step(GameContext *ctx) {
+    if (ctx->pv <= 0)
+        return;
+
     if (ctx->arrow_pressed & ARROW_LEFT) {
         ctx->bar_xpos -= 10;
         if (ctx->bar_xpos - BAR_WIDTH/2 < 0)
@@ -76,9 +86,12 @@ static void game_step(GameContext *ctx) {
     if (ctx->ball_ypos - BALL_SIZE/2 > SDL_WINDOW_HEIGHT - BAR_HEIGHT - 1) {
         if (ctx->bar_xpos - BAR_WIDTH/2 >= ctx->ball_xpos || ctx->ball_xpos >= ctx->bar_xpos + BAR_WIDTH/2) {
             ctx->pv--;
-
-        ctx->ball_yvel *= -1;
-        ctx->ball_ypos += ctx->ball_yvel;
+            game_init_ball(ctx);
+        }
+        else {
+            ctx->ball_yvel *= -1;
+            ctx->ball_ypos += ctx->ball_yvel;
+        }
     }
 
     // top bounce
@@ -88,27 +101,50 @@ static void game_step(GameContext *ctx) {
     }
 }
 
-static void game_draw_bar(SDL_Renderer *renderer, GameContext *ctx) {
+static void game_draw_gameover(SDL_Renderer *renderer) {
+    const char  *text       = "Game Over :3";
+    const float  text_width = 180;            // fuck that shit
+
+    SDL_SetRenderDrawColor(renderer, 0xff,0x00,0x00, SDL_ALPHA_OPAQUE);
+    SDL_RenderDebugText(renderer, SDL_WINDOW_WIDTH/2 - text_width, SDL_WINDOW_HEIGHT/2, text);
+}
+
+static void game_draw_info(SDL_Renderer *renderer, const GameContext *ctx) {
+    char info_text[256];
+    snprintf(info_text, sizeof(info_text), "PV: %hd SCORE: %llu", ctx->pv, ctx->score);
+    info_text[sizeof(info_text)-1] = '\0';
+
+    SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
+    SDL_RenderDebugText(renderer, 10, 10, info_text);
+}
+
+static void game_draw_bar(SDL_Renderer *renderer, const GameContext *ctx) {
     SDL_FRect r;
     r.x = ctx->bar_xpos - BAR_WIDTH/2;
     r.y = SDL_WINDOW_HEIGHT - BAR_HEIGHT;
     r.w = BAR_WIDTH;
     r.h = BAR_HEIGHT;
-    SDL_SetRenderDrawColor(renderer, 255, 255, 0, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderDrawColor(renderer, 0xff,0xff,0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderFillRect(renderer, &r);
 }
 
-static void game_draw_ball(SDL_Renderer *renderer, GameContext *ctx) {
+static void game_draw_ball(SDL_Renderer *renderer, const GameContext *ctx) {
     SDL_FRect r;
     r.x = ctx->ball_xpos - BALL_SIZE/2;
     r.y = ctx->ball_ypos - BALL_SIZE/2;
     r.w = BALL_SIZE;
     r.h = BALL_SIZE;
-    SDL_SetRenderDrawColor(renderer, 255, 0, 255, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
     SDL_RenderFillRect(renderer, &r);
 }
 
-static void game_draw(SDL_Renderer *renderer, GameContext *ctx) {
+static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
+    if (ctx->pv <= 0) {
+        game_draw_gameover(renderer);
+        return;
+    }
+
+    game_draw_info(renderer, ctx);
     game_draw_bar(renderer, ctx);
     game_draw_ball(renderer, ctx);
 }
@@ -123,7 +159,7 @@ static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_
         /* Restart the game as if the program was launched. */
         case SDL_SCANCODE_ESCAPE:
         case SDL_SCANCODE_R:
-            game_initialize(ctx);
+            game_init(ctx);
             break;
 
         case 0x126: ctx->arrow_pressed |= ARROW_LEFT;  break;
@@ -150,7 +186,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         as->last_step += STEP_RATE_IN_MILLISECONDS;
     }
 
-    SDL_SetRenderDrawColor(as->renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_SetRenderDrawColor(as->renderer, 0x00,0x00,0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(as->renderer);
 
     game_draw(as->renderer, ctx);
@@ -219,7 +255,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         }
     }
 
-    game_initialize(&as->game_ctx);
+    game_init(&as->game_ctx);
     as->last_step = SDL_GetTicks();
 
     return SDL_APP_CONTINUE;
