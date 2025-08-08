@@ -206,6 +206,13 @@ build_app(sponsor_app
      sponsor_app/image.c
 )
 
+build_app(tetris
+    SOURCES
+     tetris/main.c
+    LIBRARIES
+     sdl3
+)
+
 build_app(doom
     SOURCES
      doomgeneric/doomgeneric/am_map.c
