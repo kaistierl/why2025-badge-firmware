@@ -96,15 +96,7 @@ void tetris_init() {
 
 }
 
-void tetris_rotate_piece() {
-    piece_rot++;
-
-    if (piece_rot >= piece_rotations[piece_type]) {
-        piece_rot = 0;
-    }
-}
-
-int tetris_is_side_collision() {
+int tetris_is_collision() {
     for (int square = 0; square < 4; square++) {
         int x_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 0];
         int y_off = piece_data[piece_type * 32 + piece_rot * 8 + square * 2 + 1];
@@ -113,13 +105,13 @@ int tetris_is_side_collision() {
         int abs_y = piece_y + y_off;
 
         // collision with walls
-        if (abs_x < 0 || abs_x >= 10) {
-            return 1;
+        if (abs_x < 0 || abs_x >= FIELD_WIDTH) {
+            return abs_x < 0 ? 1 : 2;
         }
 
         // collision with field blocks
         if (field[abs_y][abs_x]) {
-            return 1;
+            return 3;
         }
     }
     return 0;
@@ -127,7 +119,7 @@ int tetris_is_side_collision() {
 
 void tetris_move_left() {
     piece_x--;
-    if (tetris_is_side_collision()) {
+    if (tetris_is_collision() == 1) {
         piece_x++;
     }
 }
@@ -135,10 +127,36 @@ void tetris_move_left() {
 
 void tetris_move_right() {
     piece_x++;
-    if (tetris_is_side_collision()) {
+    if (tetris_is_collision() == 2) {
         piece_x--;
     }
 }
+
+
+
+void tetris_rotate_piece() {
+    piece_rot++;
+
+    if (piece_rot >= piece_rotations[piece_type]) {
+        piece_rot = 0;
+    }
+
+    // hack: check twice for case of I piece sticking out by 2 blocks
+    for (int i = 0; i < 2; ++i) {
+        int collision = tetris_is_collision();
+        if (collision) {
+            if (collision == 1) {
+                tetris_move_right();
+                printf("left wall collision during rotation\n");
+            } else {
+                tetris_move_left();
+                printf("right wall collision during rotation\n");
+            }
+        }
+    }
+}
+
+
 
 void tetris_check_for_filled_lines() {
     for (int y = 0; y < FIELD_HEIGHT; ++y) {
