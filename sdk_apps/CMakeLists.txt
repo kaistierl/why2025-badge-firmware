@@ -191,6 +191,13 @@ build_app(hello
 #     main.c
 #)
 
+#build_app(arkanoid
+#    SOURCES
+#     arkanoid.c
+#    LIBRARIES
+#     sdl3
+#)
+
 #build_app(readdir_test
 #    SOURCES
 #     main.c
