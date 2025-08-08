@@ -5,19 +5,71 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-#define STEP_RATE_IN_MILLISECONDS   50
+#define STEP_RATE_IN_MILLISECONDS 50
 
-#define SDL_WINDOW_WIDTH           500
-#define SDL_WINDOW_HEIGHT          500
-
-#define BAR_WIDTH                   50
-#define BAR_HEIGHT                  15
-
-#define BALL_SIZE                    5
-#define BALL_VELOCITY                5
+#define SDL_WINDOW_WIDTH  500
+#define SDL_WINDOW_HEIGHT 500
 
 #define ARROW_LEFT  (1 << 0)
 #define ARROW_RIGHT (1 << 1)
+
+#define BAR_WIDTH     50
+#define BAR_HEIGHT    15
+#define BALL_SIZE      5
+#define BALL_VELOCITY  5
+
+#define BRICKS_NCOL   7
+#define BRICKS_NROW  10
+#define BRICKS_YMIN  60
+#define BRICKS_YMAX 340
+#define BRICKS_MGIN   5
+
+#define COLL_TOP    (1 << 0)
+#define COLL_LEFT   (1 << 1)
+#define COLL_RIGHT  (1 << 2)
+#define COLL_BOTTOM (1 << 3)
+#define COLL_V      (COLL_TOP  | COLL_BOTTOM)
+#define COLL_H      (COLL_LEFT | COLL_RIGHT )
+
+static SDL_FRect brick2rect(unsigned short col, unsigned short row) {
+    SDL_FRect r;
+    r.w = ( SDL_WINDOW_WIDTH           - (BRICKS_NCOL + 1)*BRICKS_MGIN)/BRICKS_NCOL;
+    r.h = ((BRICKS_YMAX - BRICKS_YMIN) - (BRICKS_NROW + 1)*BRICKS_MGIN)/BRICKS_NROW;
+
+    r.x = BRICKS_MGIN + col * (r.w + BRICKS_MGIN);
+    r.y = BRICKS_YMIN + row * (r.h + BRICKS_MGIN);
+
+    return r;
+}
+
+static unsigned char test_coll(const SDL_FPoint *p, const SDL_FRect *r) {
+    // look, it's 2 am and I just had my 8th coffe...
+
+    if (p->x < r->x)
+        return 0;
+    if (r->x + r->w < p->x)
+        return 0;
+    if (p->y < r->y)
+        return 0;
+    if (r->y + r->h < p->y)
+        return 0;
+
+    float diag_nw_se_y = r->y        + r->h * (p->x - r->x) / r->w;
+    float diag_sw_ne_y = r->y + r->h - r->h * (p->x - r->y) / r->w;
+
+    if (p->y <= diag_nw_se_y) {
+        if (p->y <= diag_sw_ne_y)
+            return COLL_BOTTOM;
+        else
+            return COLL_LEFT;
+    }
+    else {
+        if (p->y <= diag_sw_ne_y)
+            return COLL_RIGHT;
+        else
+            return COLL_TOP;
+    }
+}
 
 typedef struct {
     unsigned char arrow_pressed;
@@ -31,6 +83,8 @@ typedef struct {
     float ball_ypos;
     float ball_xvel;
     float ball_yvel;
+
+    unsigned char bricks_alive[BRICKS_NROW][BRICKS_NCOL];
 } GameContext;
 
 typedef struct {
@@ -48,6 +102,10 @@ static void game_init_ball(GameContext *ctx) {
 
     ctx->ball_xvel = BALL_VELOCITY * M_SQRT2;
     ctx->ball_yvel = BALL_VELOCITY * M_SQRT2;
+
+    for (int col=0; col < BRICKS_NCOL; col++)
+        for (int row=0; row < BRICKS_NROW; row++)
+            ctx->bricks_alive[row][col] = 1;
 }
 
 static void game_init(GameContext *ctx) {
@@ -55,6 +113,22 @@ static void game_init(GameContext *ctx) {
     ctx->score = 0;
 
     game_init_ball(ctx);
+}
+
+static void game_test_brick(GameContext *ctx, const SDL_FRect *brick, unsigned char *alive) {
+    if (! *alive)
+        return;
+
+    SDL_FPoint p = (SDL_FPoint){.x = ctx->ball_xpos, .y = ctx->ball_ypos};
+    unsigned char coll = test_coll(&p, brick);
+    if (coll & COLL_V) {
+        ctx->ball_xvel *= -1;
+        *alive = 0;
+    }
+    else if (coll & COLL_H) {
+        ctx->ball_yvel *= -1;
+        *alive = 0;
+    }
 }
 
 static void game_step(GameContext *ctx) {
@@ -88,22 +162,26 @@ static void game_step(GameContext *ctx) {
             ctx->pv--;
             game_init_ball(ctx);
         }
-        else {
+        else
             ctx->ball_yvel *= -1;
-            ctx->ball_ypos += ctx->ball_yvel;
-        }
     }
 
     // top bounce
-    if (ctx->ball_ypos < BALL_SIZE/2) {
+    if (ctx->ball_ypos < BALL_SIZE/2)
         ctx->ball_yvel *= -1;
-        ctx->ball_ypos += ctx->ball_yvel;
+
+    // brick collision
+    for (int col=0; col < BRICKS_NCOL; col++) {
+        for (int row=0; row < BRICKS_NROW; row++) {
+            SDL_FRect brick = brick2rect(col, row);
+            game_test_brick(ctx, &brick, &ctx->bricks_alive[row][col]);
+        }
     }
 }
 
 static void game_draw_gameover(SDL_Renderer *renderer) {
     const char  *text       = "Game Over :3";
-    const float  text_width = 180;            // fuck that shit
+    const float  text_width = 60;             // fuck that shit
 
     SDL_SetRenderDrawColor(renderer, 0xff,0x00,0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderDebugText(renderer, SDL_WINDOW_WIDTH/2 - text_width, SDL_WINDOW_HEIGHT/2, text);
@@ -147,6 +225,35 @@ static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
     game_draw_info(renderer, ctx);
     game_draw_bar(renderer, ctx);
     game_draw_ball(renderer, ctx);
+
+    const SDL_FPoint ball_center = (SDL_FPoint) {
+        .x = ctx->ball_xpos,
+        .y = ctx->ball_ypos,
+    };
+#if 0
+    for (int col=0; col < BRICKS_NCOL; col++) {
+        for (int row=0; row < BRICKS_NROW; row++) {
+            SDL_FRect r = brick2rect(col, row);
+            if (SDL_PointInRectFloat(&ball_center, &r)) {
+                SDL_SetRenderDrawColor(renderer, 0x00,0x00,0xff, SDL_ALPHA_OPAQUE);
+                SDL_RenderFillRect(renderer, &r);
+            }
+            else {
+                SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
+                SDL_RenderFillRect(renderer, &r);
+            }
+        }
+    }
+#else
+    SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
+    for (int col=0; col < BRICKS_NCOL; col++) {
+        for (int row=0; row < BRICKS_NROW; row++) {
+            SDL_FRect r = brick2rect(col, row);
+            if (ctx->bricks_alive[row][col])
+                SDL_RenderFillRect(renderer, &r);
+        }
+    }
+#endif
 }
 
 static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_code) {
