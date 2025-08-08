@@ -4,7 +4,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-#define STEP_RATE_IN_MILLISECONDS  125
+#define STEP_RATE_IN_MILLISECONDS   50
 
 #define SDL_WINDOW_WIDTH           500
 #define SDL_WINDOW_HEIGHT          500
@@ -12,8 +12,12 @@
 #define BAR_WIDTH                   50
 #define BAR_HEIGHT                  15
 
+#define ARROW_LEFT  (1 << 0)
+#define ARROW_RIGHT (1 << 1)
+
 typedef struct {
-    short bar_xpos;
+    unsigned char arrow_pressed;
+    float         bar_xpos;
 } GameContext;
 
 typedef struct {
@@ -28,27 +32,21 @@ static void game_initialize(GameContext *ctx) {
 }
 
 static void game_step(GameContext *ctx) {
-    (void)ctx;
-}
-
-typedef enum {
-    MOVE_DIR_LEFT,
-    MOVE_DIR_RIGHT,
-} MoveDir;
-static void game_move_bar(GameContext *ctx, MoveDir dir) {
-    switch (dir) {
-    case MOVE_DIR_LEFT:
+    if (ctx->arrow_pressed & ARROW_LEFT) {
         ctx->bar_xpos -= 10;
-        break;
-    case MOVE_DIR_RIGHT:
+        if (ctx->bar_xpos - BAR_WIDTH/2 < 0)
+            ctx->bar_xpos = BAR_WIDTH/2;
+    }
+    if (ctx->arrow_pressed & ARROW_RIGHT) {
         ctx->bar_xpos += 10;
-        break;
+        if (ctx->bar_xpos +  BAR_WIDTH/2 > SDL_WINDOW_WIDTH-1)
+            ctx->bar_xpos = -BAR_WIDTH/2 + SDL_WINDOW_WIDTH-1;
     }
 }
 
 static void game_draw_bar(SDL_Renderer *renderer, GameContext *ctx) {
     SDL_FRect r;
-    r.x = ctx->bar_xpos - BAR_WIDTH / 2;
+    r.x = ctx->bar_xpos - BAR_WIDTH/2;
     r.y = SDL_WINDOW_HEIGHT - BAR_HEIGHT;
     r.w = BAR_WIDTH;
     r.h = BAR_HEIGHT;
@@ -60,7 +58,7 @@ static void game_draw(SDL_Renderer *renderer, GameContext *ctx) {
     game_draw_bar(renderer, ctx);
 }
 
-static SDL_AppResult handle_key_event_(GameContext *ctx, SDL_Scancode key_code) {
+static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_code) {
     switch (key_code) {
         /* Quit. */
         //case SDL_SCANCODE_ESCAPE:
@@ -72,9 +70,16 @@ static SDL_AppResult handle_key_event_(GameContext *ctx, SDL_Scancode key_code) 
         case SDL_SCANCODE_R:
             game_initialize(ctx); break;
 
-        /* Decide new direction of the snake. */
-        case SDL_SCANCODE_LEFT:  game_move_bar(ctx, MOVE_DIR_LEFT);  break;
-        case SDL_SCANCODE_RIGHT: game_move_bar(ctx, MOVE_DIR_RIGHT); break;
+        case SDL_SCANCODE_LEFT:  ctx->arrow_pressed |= ARROW_LEFT;  break;
+        case SDL_SCANCODE_RIGHT: ctx->arrow_pressed |= ARROW_RIGHT; break;
+    }
+    return SDL_APP_CONTINUE;
+}
+
+static SDL_AppResult handle_key_release_event_(GameContext *ctx, SDL_Scancode key_code) {
+    switch (key_code) {
+        case SDL_SCANCODE_LEFT:  ctx->arrow_pressed &= ~ARROW_LEFT;  break;
+        case SDL_SCANCODE_RIGHT: ctx->arrow_pressed &= ~ARROW_RIGHT; break;
     }
     return SDL_APP_CONTINUE;
 }
@@ -170,7 +175,9 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         case SDL_EVENT_QUIT:
             return SDL_APP_SUCCESS;
         case SDL_EVENT_KEY_DOWN:
-            return handle_key_event_(ctx, event->key.scancode);
+            return handle_key_press_event_(ctx, event->key.scancode);
+        case SDL_EVENT_KEY_UP:
+            return handle_key_release_event_(ctx, event->key.scancode);
     }
     return SDL_APP_CONTINUE;
 }
