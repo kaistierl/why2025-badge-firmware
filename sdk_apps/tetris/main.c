@@ -18,6 +18,7 @@ uint64_t time_last;
 #define MIN_STEP_TIME 100
 
 #define KEY_REPEAT_TIME 80
+#define KEY_REPEAT_INITIAL_TIME 200
 
 // Field size in blocks
 #define FIELD_WIDTH 10
@@ -145,6 +146,11 @@ int tetris_is_collision() {
         if (field[abs_y][abs_x] != 255) {
             return 3;
         }
+
+        // when rotating and colliding with the bottom
+        if (abs_y >= FIELD_HEIGHT) {
+            return 4;
+        }
     }
     return 0;
 }
@@ -178,14 +184,20 @@ void tetris_rotate_piece() {
     // hack: check twice for case of I piece sticking out by 2 blocks
     for (int i = 0; i < 2; ++i) {
         int collision = tetris_is_collision();
-        if (collision) {
+        if (collision < 4) {
             if (collision == 1) {
                 tetris_move_right();
                 printf("left wall collision during rotation\n");
-            } else {
+            } else if (collision == 2) {
                 tetris_move_left();
                 printf("right wall collision during rotation\n");
             }
+        }
+        if (collision > 2) {
+            // Collided with bottom during rotation
+            // move back up
+            printf("bottom collision!\n");
+            piece_y--;
         }
     }
 }
@@ -412,21 +424,21 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
             switch (event->key.scancode) {
                 case SDL_SCANCODE_RIGHT:
                     time_last_move = SDL_GetTicks();
-                    key_pressed_right = 1;
-                    // tetris_move_right();
+                    key_pressed_right = 2;
+                    tetris_move_right();
                     break;
                 case SDL_SCANCODE_LEFT:
                     time_last_move = SDL_GetTicks();
-                    key_pressed_left = 1;
-                    // tetris_move_left();
+                    key_pressed_left = 2;
+                    tetris_move_left();
                     break;
                 case SDL_SCANCODE_UP:
                     tetris_rotate_piece();
                     break;
                 case SDL_SCANCODE_DOWN:
                     time_last_move = SDL_GetTicks();
-                    key_pressed_down = 1;
-                    // tetris_lower_piece();
+                    key_pressed_down = 2;
+                    tetris_lower_piece();
                     break;
                 case SDL_SCANCODE_RETURN:
                     if (game_over) {
@@ -469,16 +481,22 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 120, WINDOW_HEIGHT / 2 + 60, "(press enter to try again)");
     } else {
             // Move piece
-            if (now - time_last_move >= KEY_REPEAT_TIME) {
-                if (key_pressed_right) {
-                    tetris_move_right();
-                }
-                else if (key_pressed_left) {
-                    tetris_move_left();
-                }
-                if (key_pressed_down) {
-                    tetris_lower_piece();
-                }
+            int repeat = now - time_last_move >= KEY_REPEAT_TIME;
+            int initial_repeat = now - time_last_move >= KEY_REPEAT_INITIAL_TIME;
+
+            if (key_pressed_right == 2 && initial_repeat || key_pressed_right == 1 && repeat) {
+                key_pressed_right = 1;
+                tetris_move_right();
+                time_last_move = now;
+            }
+            if (key_pressed_left == 2 && initial_repeat || key_pressed_left == 1 && repeat) {
+                key_pressed_left = 1;
+                tetris_move_left();
+                time_last_move = now;
+            }
+            if (key_pressed_down == 2 && initial_repeat || key_pressed_down == 1 && repeat) {
+                key_pressed_down = 1;
+                tetris_lower_piece();
                 time_last_move = now;
             }
 
