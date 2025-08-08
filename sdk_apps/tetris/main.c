@@ -14,8 +14,10 @@ uint64_t time_last;
 #define WINDOW_WIDTH 400
 #define WINDOW_HEIGHT 500
 
-#define BASE_STEP_TIME 1000
+#define BASE_STEP_TIME 800
 #define MIN_STEP_TIME 100
+
+#define KEY_REPEAT_TIME 80
 
 // Field size in blocks
 #define FIELD_WIDTH 10
@@ -28,7 +30,7 @@ uint64_t time_last;
 const uint8_t piece_colors[] = {
     0, 255, 0, // blue
     255, 0, 0, // red
-    0, 255, 0, // green
+    0, 0, 255, // green
     0, 255, 255, // cyan
     255, 0, 255, // purple
     255, 255, 255, // white
@@ -86,6 +88,7 @@ const int8_t piece_data[] = {
 uint8_t field[FIELD_HEIGHT][FIELD_WIDTH];
 int piece_type, piece_rot, piece_x, piece_y;
 int score, level, game_over, level_lines_cleared, level_step_time;
+int key_pressed_right, key_pressed_left, key_pressed_down, time_last_move;
 
 
 
@@ -101,12 +104,13 @@ void tetris_level_up() {
     level_lines_cleared = 0;
 
     if (level_step_time > MIN_STEP_TIME) {
-        level_step_time -= 100;
+        level_step_time -= 200;
     }
 }
 
 void tetris_init() {
     srand(time(NULL));
+
     score = 0;
     level = 1;
     game_over = 0;
@@ -377,7 +381,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     }
     
     // Create window first
-    window = SDL_CreateWindow("examples/demo/snake", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    window = SDL_CreateWindow("tetris", WINDOW_WIDTH, WINDOW_HEIGHT, 0);
     if (!window) {
         printf("Failed to create window: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -399,21 +403,30 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 }
 
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
+    key_pressed_left = 0;
+    key_pressed_right = 0;
+    key_pressed_down = 0;
     switch (event->type) {
         case SDL_EVENT_QUIT: return SDL_APP_SUCCESS;
         case SDL_EVENT_KEY_DOWN:
             switch (event->key.scancode) {
                 case SDL_SCANCODE_RIGHT:
-                    tetris_move_right();
+                    time_last_move = SDL_GetTicks();
+                    key_pressed_right = 1;
+                    // tetris_move_right();
                     break;
                 case SDL_SCANCODE_LEFT:
-                    tetris_move_left();
+                    time_last_move = SDL_GetTicks();
+                    key_pressed_left = 1;
+                    // tetris_move_left();
                     break;
                 case SDL_SCANCODE_UP:
                     tetris_rotate_piece();
                     break;
                 case SDL_SCANCODE_DOWN:
-                    tetris_lower_piece();
+                    time_last_move = SDL_GetTicks();
+                    key_pressed_down = 1;
+                    // tetris_lower_piece();
                     break;
                 case SDL_SCANCODE_RETURN:
                     if (game_over) {
@@ -421,6 +434,15 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                     }
                     break;
             }
+        // case SDL_EVENT_KEY_UP:
+        //     switch (event->key.scancode) {
+        //         case SDL_SCANCODE_RIGHT:
+        //             key_pressed_right = 0;
+        //             break;
+        //         case SDL_SCANCODE_LEFT:
+        //             key_pressed_left = 0;
+        //             break;
+        //     }
         default: break;
     }
     return SDL_APP_CONTINUE;
@@ -446,6 +468,20 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 50, WINDOW_HEIGHT / 2 + 40, level_str);
         SDL_RenderDebugText(renderer, WINDOW_WIDTH / 2 - 120, WINDOW_HEIGHT / 2 + 60, "(press enter to try again)");
     } else {
+            // Move piece
+            if (now - time_last_move >= KEY_REPEAT_TIME) {
+                if (key_pressed_right) {
+                    tetris_move_right();
+                }
+                else if (key_pressed_left) {
+                    tetris_move_left();
+                }
+                if (key_pressed_down) {
+                    tetris_lower_piece();
+                }
+                time_last_move = now;
+            }
+
             // update
             if (now - time_last >= level_step_time) {
                 tetris_lower_piece();
