@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
 #include <SDL3/SDL.h>
@@ -76,6 +77,8 @@ static unsigned char test_coll(const SDL_FPoint *p, const SDL_FRect *r) {
 }
 
 typedef struct {
+    unsigned char started;
+
     unsigned char arrow_pressed;
 
     short              pv;
@@ -120,6 +123,8 @@ static void game_init_bricks(GameContext *ctx) {
 }
 
 static void game_init(GameContext *ctx) {
+    ctx->started = 0;
+
     ctx->pv    = 3;
     ctx->score = 0;
     ctx->level = 1;
@@ -156,6 +161,9 @@ static void game_test_brick(GameContext *ctx, unsigned short col, unsigned short
 }
 
 static void game_step(GameContext *ctx) {
+    if (!ctx->started)
+        return;
+
     if (ctx->pv <= 0)
         return;
 
@@ -207,12 +215,27 @@ static void game_step(GameContext *ctx) {
     }
 }
 
-static void game_draw_gameover(SDL_Renderer *renderer) {
-    const char  *text       = "Game Over :3";
-    const float  text_width = 60;             // fuck that shit
+static void render_text_centered(SDL_Renderer *renderer, float x, float y, const char *text) {
+    float text_width  = 8 * strlen(text);
+    float text_height = 8;
+    SDL_RenderDebugText(renderer, x-text_width/2, y-text_height/2, text);
+}
 
+static void game_draw_help(SDL_Renderer *renderer) {
+    SDL_SetRenderDrawColor(renderer, 0xff,0xff,0x00, SDL_ALPHA_OPAQUE);
+    render_text_centered(renderer, SDL_WINDOW_WIDTH/2, SDL_WINDOW_HEIGHT/2-20, "Press special key X or O to move the paddle");
+    SDL_SetRenderDrawColor(renderer, 0x7f,0x7f,0x7f, SDL_ALPHA_OPAQUE);
+    render_text_centered(renderer, SDL_WINDOW_WIDTH/2, SDL_WINDOW_HEIGHT/2   , "R to restart");
+    SDL_SetRenderDrawColor(renderer, 0x7f,0x7f,0x7f, SDL_ALPHA_OPAQUE);
+    render_text_centered(renderer, SDL_WINDOW_WIDTH/2, SDL_WINDOW_HEIGHT/2+20, "ESC to quit");
+}
+
+static void game_draw_gameover(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 0xff,0x00,0x00, SDL_ALPHA_OPAQUE);
-    SDL_RenderDebugText(renderer, SDL_WINDOW_WIDTH/2 - text_width, SDL_WINDOW_HEIGHT/2, text);
+    render_text_centered(renderer, SDL_WINDOW_WIDTH/2, SDL_WINDOW_HEIGHT/2, "Game Over :3");
+
+    SDL_SetRenderDrawColor(renderer, 0x7f,0x7f,0x7f, SDL_ALPHA_OPAQUE);
+    render_text_centered(renderer, SDL_WINDOW_WIDTH/2, SDL_WINDOW_HEIGHT/2+20, "Press R to play again");
 }
 
 static void game_draw_info(SDL_Renderer *renderer, const GameContext *ctx) {
@@ -247,6 +270,11 @@ static void game_draw_ball(SDL_Renderer *renderer, const GameContext *ctx) {
 static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
     game_draw_info(renderer, ctx);
 
+    if (!ctx->started) {
+        game_draw_help(renderer);
+        return;
+    }
+
     if (ctx->pv <= 0) {
         game_draw_gameover(renderer);
         return;
@@ -259,21 +287,6 @@ static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
         .x = ctx->ball_xpos,
         .y = ctx->ball_ypos,
     };
-#if 0
-    for (int col=0; col < BRICKS_NCOL; col++) {
-        for (int row=0; row < BRICKS_NROW; row++) {
-            SDL_FRect r = brick2rect(col, row);
-            if (SDL_PointInRectFloat(&ball_center, &r)) {
-                SDL_SetRenderDrawColor(renderer, 0x00,0x00,0xff, SDL_ALPHA_OPAQUE);
-                SDL_RenderFillRect(renderer, &r);
-            }
-            else {
-                SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
-                SDL_RenderFillRect(renderer, &r);
-            }
-        }
-    }
-#else
     SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
     for (int col=0; col < BRICKS_NCOL; col++) {
         for (int row=0; row < BRICKS_NROW; row++) {
@@ -282,25 +295,28 @@ static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
                 SDL_RenderFillRect(renderer, &r);
         }
     }
-#endif
 }
 
 static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_code) {
+    int known_key = 1;
     switch (key_code) {
         /* Quit. */
-        //case SDL_SCANCODE_ESCAPE:
-        case SDL_SCANCODE_Q:
+        case SDL_SCANCODE_ESCAPE:
             return SDL_APP_SUCCESS;
 
         /* Restart the game as if the program was launched. */
-        case SDL_SCANCODE_ESCAPE:
         case SDL_SCANCODE_R:
             game_init(ctx);
             break;
 
         case 0x126: ctx->arrow_pressed |= ARROW_LEFT;  break;
         case 0x127: ctx->arrow_pressed |= ARROW_RIGHT; break;
+
+        default:
+            known_key = 0;
     }
+    if (known_key)
+        ctx->started = 1;
     return SDL_APP_CONTINUE;
 }
 
