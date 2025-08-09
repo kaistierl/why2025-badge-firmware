@@ -96,6 +96,8 @@ typedef struct {
 
     unsigned short nbricks;
     unsigned char  bricks_alive[BRICKS_NROW][BRICKS_NCOL];
+
+    unsigned int palette;
 } GameContext;
 
 typedef struct {
@@ -129,6 +131,8 @@ static void game_init(GameContext *ctx) {
     ctx->score = 0;
     ctx->level = 1;
     ctx->speed = GAME_SPEED_INIT;
+
+    ctx->palette = 0;
 
     game_init_ball(ctx);
     game_init_bricks(ctx);
@@ -267,6 +271,35 @@ static void game_draw_ball(SDL_Renderer *renderer, const GameContext *ctx) {
     SDL_RenderFillRect(renderer, &r);
 }
 
+typedef struct {
+    unsigned char r;
+    unsigned char g;
+    unsigned char b;
+} Color;
+typedef Color Palette[3];
+
+static const Palette palettes[2] = {
+    {{ 0xff, 0xff, 0xff },
+     { 0xff, 0xff, 0xff },
+     { 0xff, 0xff, 0xff }},
+
+    {{ 0x00, 0xff, 0xff },
+     { 0xff, 0xc0, 0xcb },
+     { 0xff, 0xff, 0xff }},
+};
+
+static void game_draw_bricks(SDL_Renderer *renderer, const GameContext *ctx) {
+    for (int row=0; row < BRICKS_NROW; row++) {
+        Color color = palettes[ctx->palette][(row/2) % 3];
+        SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, SDL_ALPHA_OPAQUE);
+        for (int col=0; col < BRICKS_NCOL; col++) {
+            SDL_FRect r = brick2rect(col, row);
+            if (ctx->bricks_alive[row][col])
+                SDL_RenderFillRect(renderer, &r);
+        }
+    }
+}
+
 static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
     game_draw_info(renderer, ctx);
 
@@ -282,19 +315,7 @@ static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
 
     game_draw_bar(renderer, ctx);
     game_draw_ball(renderer, ctx);
-
-    const SDL_FPoint ball_center = (SDL_FPoint) {
-        .x = ctx->ball_xpos,
-        .y = ctx->ball_ypos,
-    };
-    SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
-    for (int col=0; col < BRICKS_NCOL; col++) {
-        for (int row=0; row < BRICKS_NROW; row++) {
-            SDL_FRect r = brick2rect(col, row);
-            if (ctx->bricks_alive[row][col])
-                SDL_RenderFillRect(renderer, &r);
-        }
-    }
+    game_draw_bricks(renderer, ctx);
 }
 
 static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_code) {
@@ -307,6 +328,10 @@ static SDL_AppResult handle_key_press_event_(GameContext *ctx, SDL_Scancode key_
         /* Restart the game as if the program was launched. */
         case SDL_SCANCODE_R:
             game_init(ctx);
+            break;
+
+        case SDL_SCANCODE_T:
+            ctx->palette = 1;
             break;
 
         case 0x126: ctx->arrow_pressed |= ARROW_LEFT;  break;
