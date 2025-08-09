@@ -20,4 +20,7 @@
 
 void     die(char const *reason);
 uint64_t get_unique_id();
+
+void get_mac_address_str(char* mac_str, uint32_t size);
+
 uint32_t vaddr_to_paddr(uint32_t vaddr);

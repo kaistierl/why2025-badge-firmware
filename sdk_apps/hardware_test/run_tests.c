@@ -1,5 +1,6 @@
 #include "run_tests.h"
 
+#include "badgevms/process.h"
 #include "badgevms/compositor.h"
 #include "badgevms/misc_funcs.h"
 #include "badgevms/wifi.h"
@@ -21,23 +22,24 @@ int ping_badgehub(void) {
     CURL *curl = curl_easy_init();
 
     CURLcode res;
-    uint64_t unique_id = get_unique_id();
-    char     url[200];
+    char     pingUrl[200];
+    char mac_str[18];
+    get_mac_address_str(mac_str, sizeof(mac_str));
+
     snprintf(
-        url,
-        sizeof(url),
-        "https://badge.why2025.org/api/v3/ping?mac=badge_mac&id=%08lX%08lX",
-        (uint32_t)(unique_id >> 32),
-        (uint32_t)unique_id
+        pingUrl,
+        sizeof(pingUrl),
+        "https://badge.why2025.org/api/v3/ping?id=%s-v1&mac=%s",
+        mac_str, mac_str
     );
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
     int retries = 5;
 
-    printf("\nDoing Badgehub ping with url: %s\n", url);
+    printf("\nDoing Badgehub ping with url: %s\n", pingUrl);
     while (retries && ((res = curl_easy_perform(curl) != CURLE_OK))) {
-        printf("\nDoing Badgehub ping with url Retry[%d]: %s\n", 11 - retries, url);
-        usleep(500);
+        printf("\nDoing Badgehub ping with url Retry[%d]: %s\n", 11 - retries, pingUrl);
+        usleep(500*1000);
         --retries;
     }
 
@@ -57,7 +59,6 @@ int ping_badgehub(void) {
     return res;
 }
 
-
 void device_id_test(app_state_t *app) {
     // Run the Device ID test
     uint64_t unique_id = get_unique_id();
@@ -72,8 +73,9 @@ void device_id_test(app_state_t *app) {
     app->tests[8].passed = unique_id != 0;
 }
 
-
-void ping_badgehub_test(app_state_t *app) {
+void thread_ping(void *data) {
+    app_state_t *app = (app_state_t *)data;
+    device_id_test(app);
     // Run the Badgehub ping test
     int pingBadgeHubErr = ping_badgehub();
     if (pingBadgeHubErr == 0) {
@@ -86,8 +88,7 @@ void ping_badgehub_test(app_state_t *app) {
 }
 
 void run_tests(app_state_t *app, int fb_num) {
-    device_id_test(app);
     window_present(app->window, true, NULL, 0);
-    ping_badgehub_test(app);
+    thread_create(thread_ping, app, 4096);
     window_present(app->window, true, NULL, 0);
 }
