@@ -80,6 +80,7 @@ typedef struct {
 
     short              pv;
     unsigned long long score;
+    unsigned long long level;
 
     float speed;
 
@@ -90,7 +91,8 @@ typedef struct {
     float ball_xvel;
     float ball_yvel;
 
-    unsigned char bricks_alive[BRICKS_NROW][BRICKS_NCOL];
+    unsigned short nbricks;
+    unsigned char  bricks_alive[BRICKS_NROW][BRICKS_NCOL];
 } GameContext;
 
 typedef struct {
@@ -110,21 +112,28 @@ static void game_init_ball(GameContext *ctx) {
     ctx->ball_yvel = ctx->speed * 0.5 * M_SQRT2;
 }
 
-static void game_init(GameContext *ctx) {
-    ctx->pv    = 3;
-    ctx->score = 0;
-    ctx->speed = GAME_SPEED_INIT;
-
-    game_init_ball(ctx);
-
+static void game_init_bricks(GameContext *ctx) {
+    ctx->nbricks = BRICKS_NCOL * BRICKS_NROW;
     for (int col=0; col < BRICKS_NCOL; col++)
         for (int row=0; row < BRICKS_NROW; row++)
             ctx->bricks_alive[row][col] = 1;
 }
 
+static void game_init(GameContext *ctx) {
+    ctx->pv    = 3;
+    ctx->score = 0;
+    ctx->level = 1;
+    ctx->speed = GAME_SPEED_INIT;
+
+    game_init_ball(ctx);
+    game_init_bricks(ctx);
+}
+
 static void game_hit(GameContext *ctx) {
     ctx->score++;
     ctx->speed += GAME_SPEED_INC;
+
+    ctx->nbricks--;
 }
 
 static void game_test_brick(GameContext *ctx, unsigned short col, unsigned short row) {
@@ -189,6 +198,13 @@ static void game_step(GameContext *ctx) {
     for (int col=0; col < BRICKS_NCOL; col++)
         for (int row=0; row < BRICKS_NROW; row++)
             game_test_brick(ctx, col, row);
+
+    if (ctx->nbricks <= 0) {
+        if (ctx->ball_ypos <= BRICKS_YMIN || BRICKS_YMAX <= ctx->ball_ypos) {
+            game_init_bricks(ctx);
+            ctx->level++;
+        }
+    }
 }
 
 static void game_draw_gameover(SDL_Renderer *renderer) {
@@ -201,7 +217,7 @@ static void game_draw_gameover(SDL_Renderer *renderer) {
 
 static void game_draw_info(SDL_Renderer *renderer, const GameContext *ctx) {
     char info_text[256];
-    snprintf(info_text, sizeof(info_text), "PV: %hd SCORE: %llu", ctx->pv, ctx->score);
+    snprintf(info_text, sizeof(info_text), "BALLS: %hd LEVEL: %llu SCORE: %llu", ctx->pv, ctx->level, ctx->score);
     info_text[sizeof(info_text)-1] = '\0';
 
     SDL_SetRenderDrawColor(renderer, 0xff,0xff,0xff, SDL_ALPHA_OPAQUE);
