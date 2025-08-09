@@ -229,12 +229,13 @@ static void game_draw_ball(SDL_Renderer *renderer, const GameContext *ctx) {
 }
 
 static void game_draw(SDL_Renderer *renderer, const GameContext *ctx) {
+    game_draw_info(renderer, ctx);
+
     if (ctx->pv <= 0) {
         game_draw_gameover(renderer);
         return;
     }
 
-    game_draw_info(renderer, ctx);
     game_draw_bar(renderer, ctx);
     game_draw_ball(renderer, ctx);
 
