@@ -25,12 +25,12 @@
 #define BRICKS_YMAX 340
 #define BRICKS_MGIN   5
 
-#define COLL_TOP    (1 << 0)
-#define COLL_LEFT   (1 << 1)
-#define COLL_RIGHT  (1 << 2)
+#define COLL_LEFT   (1 << 0)
+#define COLL_RIGHT  (1 << 1)
+#define COLL_TOP    (1 << 2)
 #define COLL_BOTTOM (1 << 3)
-#define COLL_V      (COLL_TOP  | COLL_BOTTOM)
 #define COLL_H      (COLL_LEFT | COLL_RIGHT )
+#define COLL_V      (COLL_TOP  | COLL_BOTTOM)
 
 static SDL_FRect brick2rect(unsigned short col, unsigned short row) {
     SDL_FRect r;
@@ -55,20 +55,22 @@ static unsigned char test_coll(const SDL_FPoint *p, const SDL_FRect *r) {
     if (r->y + r->h < p->y)
         return 0;
 
-    float diag_nw_se_y = r->y        + r->h * (p->x - r->x) / r->w;
-    float diag_sw_ne_y = r->y + r->h - r->h * (p->x - r->y) / r->w;
+    const float relp_x = p->x - r->x;
+    const float relp_y = p->y - r->y;
+    const float diag_nw_se_y =         relp_x  / r->w * r->h;
+    const float diag_sw_ne_y = (r->w - relp_x) / r->w * r->h;
 
-    if (p->y <= diag_nw_se_y) {
-        if (p->y <= diag_sw_ne_y)
+    if (relp_y > diag_nw_se_y) {
+        if (relp_y > diag_sw_ne_y)
             return COLL_BOTTOM;
         else
             return COLL_LEFT;
     }
     else {
-        if (p->y <= diag_sw_ne_y)
+        if (relp_y > diag_sw_ne_y)
             return COLL_RIGHT;
         else
-            return COLL_TOP;
+            printf("coll: top\n");
     }
 }
 
@@ -124,12 +126,12 @@ static void game_test_brick(GameContext *ctx, unsigned short col, unsigned short
     SDL_FRect  brick = brick2rect(col, row);
     unsigned char coll = test_coll(&p, &brick);
     if (coll & COLL_V) {
-        ctx->ball_xvel *= -1;
+        ctx->ball_yvel *= -1;
         ctx->bricks_alive[row][col] = 0;
         ctx->score++;
     }
     else if (coll & COLL_H) {
-        ctx->ball_yvel *= -1;
+        ctx->ball_xvel *= -1;
         ctx->bricks_alive[row][col] = 0;
         ctx->score++;
     }
