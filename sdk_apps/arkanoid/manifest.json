@@ -1,0 +1,10 @@
+{
+    "unique_identifier": "arkanoid",
+    "name": "arkanoid",
+    "author": "dlatchx@tfnux.org",
+    "version": "1",
+    "interpreter": "",
+    "metadata_file": "",
+    "binary_path": "arkanoid.elf",
+    "source": 1
+}
