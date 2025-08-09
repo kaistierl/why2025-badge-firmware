@@ -17,7 +17,8 @@
 #define BAR_HEIGHT    15
 #define BALL_SIZE      5
 
-#define GAME_SPEED 5
+#define GAME_SPEED_INIT 5
+#define GAME_SPEED_INC  0.03
 
 #define BRICKS_NCOL   7
 #define BRICKS_NROW  10
@@ -80,6 +81,8 @@ typedef struct {
     short              pv;
     unsigned long long score;
 
+    float speed;
+
     float bar_xpos;
 
     float ball_xpos;
@@ -103,19 +106,25 @@ static void game_init_ball(GameContext *ctx) {
     ctx->ball_xpos = BALL_SIZE / 2;
     ctx->ball_ypos = SDL_WINDOW_HEIGHT * 3/4 - BALL_SIZE/2;
 
-    ctx->ball_xvel = GAME_SPEED * 0.5 * M_SQRT2;
-    ctx->ball_yvel = GAME_SPEED * 0.5 * M_SQRT2;
+    ctx->ball_xvel = ctx->speed * 0.5 * M_SQRT2;
+    ctx->ball_yvel = ctx->speed * 0.5 * M_SQRT2;
 }
 
 static void game_init(GameContext *ctx) {
     ctx->pv    = 3;
     ctx->score = 0;
+    ctx->speed = GAME_SPEED_INIT;
 
     game_init_ball(ctx);
 
     for (int col=0; col < BRICKS_NCOL; col++)
         for (int row=0; row < BRICKS_NROW; row++)
             ctx->bricks_alive[row][col] = 1;
+}
+
+static void game_hit(GameContext *ctx) {
+    ctx->score++;
+    ctx->speed += GAME_SPEED_INC;
 }
 
 static void game_test_brick(GameContext *ctx, unsigned short col, unsigned short row) {
@@ -128,12 +137,12 @@ static void game_test_brick(GameContext *ctx, unsigned short col, unsigned short
     if (coll & COLL_V) {
         ctx->ball_yvel *= -1;
         ctx->bricks_alive[row][col] = 0;
-        ctx->score++;
+        game_hit(ctx);
     }
     else if (coll & COLL_H) {
         ctx->ball_xvel *= -1;
         ctx->bricks_alive[row][col] = 0;
-        ctx->score++;
+        game_hit(ctx);
     }
 }
 
@@ -142,12 +151,12 @@ static void game_step(GameContext *ctx) {
         return;
 
     if (ctx->arrow_pressed & ARROW_LEFT) {
-        ctx->bar_xpos -= GAME_SPEED * 2;
+        ctx->bar_xpos -= ctx->speed * 2;
         if (ctx->bar_xpos - BAR_WIDTH/2 < 0)
             ctx->bar_xpos = BAR_WIDTH/2;
     }
     if (ctx->arrow_pressed & ARROW_RIGHT) {
-        ctx->bar_xpos += GAME_SPEED * 2;
+        ctx->bar_xpos += ctx->speed * 2;
         if (ctx->bar_xpos +  BAR_WIDTH/2 > SDL_WINDOW_WIDTH-1)
             ctx->bar_xpos = -BAR_WIDTH/2 + SDL_WINDOW_WIDTH-1;
     }
