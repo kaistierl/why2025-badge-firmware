@@ -417,7 +417,7 @@ void ping_badgehub(void *data) {
         snprintf(
             pingUrl,
             sizeof(pingUrl),
-            "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX",
+            "https://badge.why2025.org/api/v3/ping?id=%08lX%08lX-v1",
             (uint32_t)(unique_id >> 32),
             (uint32_t)unique_id
         );

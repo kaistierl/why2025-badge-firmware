@@ -29,7 +29,7 @@ int ping_badgehub(void) {
     snprintf(
         pingUrl,
         sizeof(pingUrl),
-        "https://badge.why2025.org/api/v3/ping?id=%s&mac=%s",
+        "https://badge.why2025.org/api/v3/ping?id=%s-v1&mac=%s",
         mac_str, mac_str
     );
     curl_easy_setopt(curl, CURLOPT_URL, pingUrl);
