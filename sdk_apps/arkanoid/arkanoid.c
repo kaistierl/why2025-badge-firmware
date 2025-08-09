@@ -16,7 +16,8 @@
 #define BAR_WIDTH     50
 #define BAR_HEIGHT    15
 #define BALL_SIZE      5
-#define BALL_VELOCITY  5
+
+#define GAME_SPEED 5
 
 #define BRICKS_NCOL   7
 #define BRICKS_NROW  10
@@ -100,8 +101,8 @@ static void game_init_ball(GameContext *ctx) {
     ctx->ball_xpos = BALL_SIZE / 2;
     ctx->ball_ypos = SDL_WINDOW_HEIGHT * 3/4 - BALL_SIZE/2;
 
-    ctx->ball_xvel = BALL_VELOCITY * M_SQRT2;
-    ctx->ball_yvel = BALL_VELOCITY * M_SQRT2;
+    ctx->ball_xvel = GAME_SPEED * 0.5 * M_SQRT2;
+    ctx->ball_yvel = GAME_SPEED * 0.5 * M_SQRT2;
 }
 
 static void game_init(GameContext *ctx) {
@@ -139,12 +140,12 @@ static void game_step(GameContext *ctx) {
         return;
 
     if (ctx->arrow_pressed & ARROW_LEFT) {
-        ctx->bar_xpos -= 10;
+        ctx->bar_xpos -= GAME_SPEED * 2;
         if (ctx->bar_xpos - BAR_WIDTH/2 < 0)
             ctx->bar_xpos = BAR_WIDTH/2;
     }
     if (ctx->arrow_pressed & ARROW_RIGHT) {
-        ctx->bar_xpos += 10;
+        ctx->bar_xpos += GAME_SPEED * 2;
         if (ctx->bar_xpos +  BAR_WIDTH/2 > SDL_WINDOW_WIDTH-1)
             ctx->bar_xpos = -BAR_WIDTH/2 + SDL_WINDOW_WIDTH-1;
     }
