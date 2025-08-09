@@ -102,10 +102,6 @@ static void game_init_ball(GameContext *ctx) {
 
     ctx->ball_xvel = BALL_VELOCITY * M_SQRT2;
     ctx->ball_yvel = BALL_VELOCITY * M_SQRT2;
-
-    for (int col=0; col < BRICKS_NCOL; col++)
-        for (int row=0; row < BRICKS_NROW; row++)
-            ctx->bricks_alive[row][col] = 1;
 }
 
 static void game_init(GameContext *ctx) {
@@ -113,21 +109,28 @@ static void game_init(GameContext *ctx) {
     ctx->score = 0;
 
     game_init_ball(ctx);
+
+    for (int col=0; col < BRICKS_NCOL; col++)
+        for (int row=0; row < BRICKS_NROW; row++)
+            ctx->bricks_alive[row][col] = 1;
 }
 
-static void game_test_brick(GameContext *ctx, const SDL_FRect *brick, unsigned char *alive) {
-    if (! *alive)
+static void game_test_brick(GameContext *ctx, unsigned short col, unsigned short row) {
+    if (! ctx->bricks_alive[row][col])
         return;
 
-    SDL_FPoint p = (SDL_FPoint){.x = ctx->ball_xpos, .y = ctx->ball_ypos};
-    unsigned char coll = test_coll(&p, brick);
+    SDL_FPoint p     = (SDL_FPoint){.x = ctx->ball_xpos, .y = ctx->ball_ypos};
+    SDL_FRect  brick = brick2rect(col, row);
+    unsigned char coll = test_coll(&p, &brick);
     if (coll & COLL_V) {
         ctx->ball_xvel *= -1;
-        *alive = 0;
+        ctx->bricks_alive[row][col] = 0;
+        ctx->score++;
     }
     else if (coll & COLL_H) {
         ctx->ball_yvel *= -1;
-        *alive = 0;
+        ctx->bricks_alive[row][col] = 0;
+        ctx->score++;
     }
 }
 
@@ -171,12 +174,9 @@ static void game_step(GameContext *ctx) {
         ctx->ball_yvel *= -1;
 
     // brick collision
-    for (int col=0; col < BRICKS_NCOL; col++) {
-        for (int row=0; row < BRICKS_NROW; row++) {
-            SDL_FRect brick = brick2rect(col, row);
-            game_test_brick(ctx, &brick, &ctx->bricks_alive[row][col]);
-        }
-    }
+    for (int col=0; col < BRICKS_NCOL; col++)
+        for (int row=0; row < BRICKS_NROW; row++)
+            game_test_brick(ctx, col, row);
 }
 
 static void game_draw_gameover(SDL_Renderer *renderer) {
