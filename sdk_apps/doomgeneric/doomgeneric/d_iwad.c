@@ -736,15 +736,7 @@ char *D_FindIWAD(int mask, GameMission_t *mission)
         // Search through the list and look for an IWAD
 
         printf("-iwad not specified, trying a few iwad names\n");
-
-        result = NULL;
-
-        BuildIWADDirList();
-    
-        for (i=0; result == NULL && i<num_iwad_dirs; ++i)
-        {
-            result = SearchDirectoryForIWAD(iwad_dirs[i], mask, mission);
-        }
+        result = "APPS:[doomgeneric]doom1.wad";
     }
 
     return result;

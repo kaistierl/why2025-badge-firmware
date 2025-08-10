@@ -2,7 +2,7 @@
     "unique_identifier": "hello",
     "name": "hello",
     "author": "Team:Badge",
-    "version": "1",
+    "version": "5",
     "interpreter": "",
     "metadata_file": "",
     "binary_path": "hello.elf",

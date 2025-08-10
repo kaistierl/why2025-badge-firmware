@@ -272,7 +272,7 @@ static void hermes_do_connect() {
 again:
     ESP_LOGW("HERMES", "Dialing...");
 
-    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config); 
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     if (err != ESP_OK && retries) {
         --retries;
         vTaskDelay(100);

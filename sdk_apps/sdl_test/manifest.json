@@ -1,8 +1,8 @@
 {
     "unique_identifier": "sdl_test",
-    "name": "sdl_test",
+    "name": "SNAKE!",
     "author": "Team:Badge",
-    "version": "1",
+    "version": "3",
     "interpreter": "",
     "metadata_file": "",
     "binary_path": "sdl_test.elf",

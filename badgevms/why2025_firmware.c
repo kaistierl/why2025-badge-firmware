@@ -59,7 +59,11 @@ void IRAM_ATTR __wrap_esp_panic_handler(panic_info_t *info) {
     if (xTaskGetApplicationTaskTag(NULL) == (void *)0x12345678) {
         task_info_t *task_info = get_task_info();
         if (task_info && task_info->pid) {
-            esp_rom_printf("Crashing in task: %u\n", task_info->pid);
+            if (task_info->file_path) {
+                esp_rom_printf("Crashing in task: %u (%s)\n", task_info->pid, task_info->file_path);
+            } else {
+                esp_rom_printf("Crashing in task: %u\n", task_info->pid);
+            }
         } else {
             esp_rom_printf("Crashing in BadgeVMS\n");
         }

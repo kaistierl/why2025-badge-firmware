@@ -307,6 +307,7 @@ static void task_info_delete(task_info_t *task_info) {
     vQueueDelete(task_info->children);
     free(task_info->file_path);
     free(task_info->argv_back);
+    free(task_info->application_uid);
     heap_caps_free(task_info);
     ESP_LOGI(TAG, "Cleaned up task");
 }
@@ -706,12 +707,17 @@ static void IRAM_ATTR zeus(void *ignored) {
                 default: ESP_LOGE("ZEUS", "Unknown task type %i", command.type); goto error;
             }
 
+            char *name;
             ESP_LOGI("ZEUS", "Breathing life into PID %d", task_info->pid);
-            snprintf(task_name, 9, "Task %u", task_info->pid);
+            if (!task_info->file_path) {
+                snprintf(task_name, 9, "Task %u", task_info->pid);
+                name = task_name;
+            } else {
+                name = task_info->file_path;
+            }
 
             TaskHandle_t new_task;
-            BaseType_t   res =
-                xTaskCreatePinnedToCore(task_entry, task_name, task_info->stack_size, param, 5, &new_task, 1);
+            BaseType_t   res = xTaskCreatePinnedToCore(task_entry, name, task_info->stack_size, param, 5, &new_task, 1);
             if (res == pdPASS) {
                 // Since Zeus is the highest priority task on the core the task should never be able to run
                 task_info->handle = new_task;
@@ -767,6 +773,57 @@ BaseType_t create_kernel_task(
 
     BaseType_t ret =
         xTaskCreatePinnedToCore(kernel_task_base, pcName, usStackDepth, params, uxPriority, pvCreatedTask, xCoreID);
+    return ret;
+}
+
+void task_priority_lower() {
+    task_info_t *task_info = get_task_info();
+    if (eTaskGetState(task_info->handle) != eDeleted) {
+        vTaskPrioritySet(task_info->handle, TASK_PRIORITY_LOW);
+    }
+}
+
+void task_priority_restore() {
+    task_info_t *task_info = get_task_info();
+    if (eTaskGetState(task_info->handle) != eDeleted) {
+        vTaskPrioritySet(task_info->handle, TASK_PRIORITY);
+    }
+}
+
+void task_set_application_uid(pid_t pid, char const *unique_id) {
+    if (!unique_id) {
+        return;
+    }
+
+    if (pid >= 1 && pid <= MAX_PID) {
+        task_info_t *task_info = get_taskinfo_for_pid(pid);
+        if (task_info) {
+            task_info->application_uid = strdup(unique_id);
+        }
+    }
+}
+
+bool task_application_is_running(char const *unique_id) {
+    if (!unique_id) {
+        return false;
+    }
+
+    if (xSemaphoreTake(process_table_lock, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to get process table mutex");
+        abort();
+    }
+
+    bool ret = false;
+    for (int i = 1; i < MAX_PID; ++i) {
+        if (process_table[i] && process_table[i]->application_uid &&
+            (strcmp(process_table[i]->application_uid, unique_id) == 0)) {
+            ret = true;
+            goto out;
+        }
+    }
+
+out:
+    xSemaphoreGive(process_table_lock);
     return ret;
 }
 

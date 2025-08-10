@@ -19,6 +19,7 @@
 #include "badgevms/pathfuncs.h"
 #include "badgevms/process.h"
 #include "esp_log.h"
+#include "task.h"
 #include "thirdparty/cJSON.h"
 #include "why_io.h"
 
@@ -570,25 +571,62 @@ void application_free(application_t *app) {
 }
 
 pid_t application_launch(char const *unique_identifier) {
+    pid_t ret         = -1;
+    char *binary_path = NULL;
+
     if (!unique_identifier) {
         return -1;
     }
 
     application_t *app = application_get(unique_identifier);
-
-    if (!app || !app->binary_path || !app->installed_path) {
-        ESP_LOGW(TAG, "Cannot launch %s, no binary path or installed_path?", unique_identifier);
+    if (!app) {
+        ESP_LOGW(TAG, "Cannot launch %s not installed", unique_identifier);
         return -1;
     }
 
-    char *binary_path = path_concat(app->installed_path, app->binary_path);
+    if (!app->binary_path || !app->installed_path) {
+        ESP_LOGW(TAG, "Cannot launch %s, no binary path or installed_path?", unique_identifier);
+        goto out;
+    }
+
+    binary_path = path_concat(app->installed_path, app->binary_path);
     if (!binary_path) {
         ESP_LOGW(TAG, "Could not create a sane path out of %s and %s\n", app->installed_path, app->binary_path);
-        return -1;
+        goto out;
     }
 
     ESP_LOGI(TAG, "Attempting to launch %s", binary_path);
-    pid_t ret = process_create(binary_path, 0, 0, NULL);
+    ret = process_create(binary_path, 0, 0, NULL);
+    if (ret != -1) {
+        task_set_application_uid(ret, unique_identifier);
+    }
+
+out:
+    application_free(app);
     why_free(binary_path);
+    return ret;
+}
+
+bool application_is_running(char const *unique_identifier) {
+    if (!unique_identifier) {
+        return false;
+    }
+
+    application_t *app = application_get(unique_identifier);
+    bool           ret = false;
+
+    if (!app) {
+        return false;
+    }
+
+    if (!app->binary_path || !app->installed_path) {
+        ESP_LOGW(TAG, "Application %s does not exist, no binary path or installed_path?", unique_identifier);
+        goto out;
+    }
+
+    ret = task_application_is_running(unique_identifier);
+
+out:
+    application_free(app);
     return ret;
 }

@@ -4,7 +4,9 @@
 #include <stdlib.h>
 
 #include <badgevms/application.h>
-#include <SDL3/SDL.h>
+#include <badgevms/compositor.h>
+#include <badgevms/event.h>
+#include <badgevms/keyboard.h>
 #include <string.h>
 
 #define SCREEN_WIDTH  720
@@ -21,11 +23,12 @@
 #define CDE_TITLE_BG      0x808080
 #define CDE_INACTIVE_TEXT 0x808080
 
+int quit = 0;
+
 typedef struct {
-    SDL_Window     *window;
-    SDL_Renderer   *renderer;
-    SDL_Texture    *framebuffer;
-    Uint16         *pixels;
+    window_handle_t window;
+    framebuffer_t  *framebuffer;
+    uint16_t       *pixels;
     application_t **applications;
     int             scroll_offset;
     int             selected_item;
@@ -34,17 +37,17 @@ typedef struct {
     int             show_about;
 } Launcher_Context;
 
-static inline Uint16 rgb888_to_rgb565(Uint32 rgb888) {
-    Uint8 r = (rgb888 >> 16) & 0xFF;
-    Uint8 g = (rgb888 >> 8) & 0xFF;
-    Uint8 b = rgb888 & 0xFF;
+static inline uint16_t rgb888_to_rgb565_color(uint32_t rgb888) {
+    uint8_t r = (rgb888 >> 16) & 0xFF;
+    uint8_t g = (rgb888 >> 8) & 0xFF;
+    uint8_t b = rgb888 & 0xFF;
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
 }
 
-void draw_rect(Launcher_Context *ctx, int x, int y, int w, int h, Uint32 color) {
-    Uint16 rgb565 = rgb888_to_rgb565(color);
-    int    x2     = x + w;
-    int    y2     = y + h;
+void draw_rect(Launcher_Context *ctx, int x, int y, int w, int h, uint32_t color) {
+    uint16_t rgb565 = rgb888_to_rgb565_color(color);
+    int      x2     = x + w;
+    int      y2     = y + h;
 
     if (x < 0)
         x = 0;
@@ -56,21 +59,21 @@ void draw_rect(Launcher_Context *ctx, int x, int y, int w, int h, Uint32 color) 
         y2 = SCREEN_HEIGHT;
 
     for (int py = y; py < y2; py++) {
-        Uint16 *row   = &ctx->pixels[py * SCREEN_WIDTH + x];
-        int     width = x2 - x;
+        uint16_t *row   = &ctx->pixels[py * SCREEN_WIDTH + x];
+        int       width = x2 - x;
         for (int i = 0; i < width; i++) {
             row[i] = rgb565;
         }
     }
 }
 
-void draw_char(Launcher_Context *ctx, int x, int y, char c, Uint32 color) {
+void draw_char(Launcher_Context *ctx, int x, int y, char c, uint32_t color) {
     if (c < FONT_FIRST_CHAR || c > FONT_LAST_CHAR)
         return;
 
     int             char_index = c - FONT_FIRST_CHAR;
     uint16_t const *char_data  = pixel_font[char_index];
-    Uint16          rgb565     = rgb888_to_rgb565(color);
+    uint16_t        rgb565     = rgb888_to_rgb565_color(color);
 
     for (int row = 0; row < FONT_HEIGHT; row++) {
         uint16_t row_data = char_data[row];
@@ -90,7 +93,7 @@ void draw_char(Launcher_Context *ctx, int x, int y, char c, Uint32 color) {
     }
 }
 
-void draw_text(Launcher_Context *ctx, int x, int y, char const *text, Uint32 color) {
+void draw_text(Launcher_Context *ctx, int x, int y, char const *text, uint32_t color) {
     int current_x = x;
     while (*text) {
         draw_char(ctx, current_x, y, *text, color);
@@ -99,7 +102,7 @@ void draw_text(Launcher_Context *ctx, int x, int y, char const *text, Uint32 col
     }
 }
 
-void draw_text_bold(Launcher_Context *ctx, int x, int y, char const *text, Uint32 color) {
+void draw_text_bold(Launcher_Context *ctx, int x, int y, char const *text, uint32_t color) {
     draw_text(ctx, x, y, text, color);
     draw_text(ctx, x + 1, y, text, color);
 }
@@ -108,15 +111,15 @@ int get_text_width(char const *text) {
     return strlen(text) * FONT_WIDTH;
 }
 
-void draw_text_centered(Launcher_Context *ctx, int x, int y, int width, char const *text, Uint32 color) {
+void draw_text_centered(Launcher_Context *ctx, int x, int y, int width, char const *text, uint32_t color) {
     int text_w = get_text_width(text);
     int text_x = x + (width - text_w) / 2;
     draw_text(ctx, text_x, y, text, color);
 }
 
 void draw_3d_border(Launcher_Context *ctx, int x, int y, int w, int h, int inset) {
-    Uint32 light_color = inset ? CDE_BORDER_DARK : CDE_BORDER_LIGHT;
-    Uint32 dark_color  = inset ? CDE_BORDER_LIGHT : CDE_BORDER_DARK;
+    uint32_t light_color = inset ? CDE_BORDER_DARK : CDE_BORDER_LIGHT;
+    uint32_t dark_color  = inset ? CDE_BORDER_LIGHT : CDE_BORDER_DARK;
 
     draw_rect(ctx, x, y, w, 2, light_color);
     draw_rect(ctx, x, y, 2, h, light_color);
@@ -152,13 +155,13 @@ void draw_about_dialog(Launcher_Context *ctx) {
     // Title bar
     int title_h = 30;
     draw_rect(ctx, dialog_x + 2, dialog_y + 2, dialog_w - 4, title_h, CDE_TITLE_BG);
-    draw_text_bold(ctx, dialog_x + 10, dialog_y + 8, "About Application Launcher", CDE_SELECTED_TEXT);
+    draw_text_bold(ctx, dialog_x + 10, dialog_y + 8, "About BadgeVMS", CDE_SELECTED_TEXT);
 
     // Content
     int content_y = dialog_y + title_h + 30;
-    draw_text_centered(ctx, dialog_x, content_y, dialog_w, "Application Launcher", CDE_TEXT_COLOR);
+    draw_text_centered(ctx, dialog_x, content_y, dialog_w, "BadgeVMS", CDE_TEXT_COLOR);
     draw_text_centered(ctx, dialog_x, content_y + 30, dialog_w, "Version 1.0", CDE_TEXT_COLOR);
-    draw_text_centered(ctx, dialog_x, content_y + 60, dialog_w, "A retro-styled app launcher", CDE_INACTIVE_TEXT);
+    draw_text_centered(ctx, dialog_x, content_y + 60, dialog_w, "A Virtual Memory System for badges", CDE_INACTIVE_TEXT);
 
     // OK button
     int btn_w = 80;
@@ -224,14 +227,14 @@ void draw_launcher_window(Launcher_Context *ctx) {
             draw_rect(ctx, item_x, item_y, item_w, item_height - 2, CDE_SELECTED_BG);
         }
 
-        Uint32 text_color = (i == ctx->selected_item) ? CDE_SELECTED_TEXT : CDE_TEXT_COLOR;
+        uint32_t text_color = (i == ctx->selected_item) ? CDE_SELECTED_TEXT : CDE_TEXT_COLOR;
 
         // Draw app icon placeholder (a simple box)
         int icon_size = 48;
         int icon_x    = item_x + 10;
         int icon_y    = item_y + (item_height - icon_size) / 2;
 
-        Uint32 icon_color = (i == ctx->selected_item) ? CDE_SELECTED_TEXT : CDE_BUTTON_COLOR;
+        uint32_t icon_color = (i == ctx->selected_item) ? CDE_SELECTED_TEXT : CDE_BUTTON_COLOR;
         draw_rect(ctx, icon_x, icon_y, icon_size, icon_size, icon_color);
         draw_3d_border(ctx, icon_x, icon_y, icon_size, icon_size, 1);
 
@@ -308,16 +311,16 @@ void draw_launcher_window(Launcher_Context *ctx) {
     );
 }
 
-void handle_keyboard(Launcher_Context *ctx, SDL_Scancode key_code) {
+void handle_keyboard(Launcher_Context *ctx, keyboard_scancode_t key_code) {
     if (ctx->show_about) {
-        if (key_code == SDL_SCANCODE_ESCAPE || key_code == SDL_SCANCODE_RETURN || key_code == SDL_SCANCODE_SPACE) {
+        if (key_code == KEY_SCANCODE_ESCAPE || key_code == KEY_SCANCODE_RETURN || key_code == KEY_SCANCODE_SPACE) {
             ctx->show_about = 0;
         }
         return;
     }
 
     switch (key_code) {
-        case SDL_SCANCODE_UP:
+        case KEY_SCANCODE_UP:
             if (ctx->selected_item > 0) {
                 ctx->selected_item--;
                 if (ctx->selected_item < ctx->scroll_offset) {
@@ -326,7 +329,7 @@ void handle_keyboard(Launcher_Context *ctx, SDL_Scancode key_code) {
             }
             break;
 
-        case SDL_SCANCODE_DOWN:
+        case KEY_SCANCODE_DOWN:
             if (ctx->selected_item < ctx->total_items - 1) {
                 ctx->selected_item++;
                 if (ctx->selected_item >= ctx->scroll_offset + ctx->items_per_page) {
@@ -335,64 +338,26 @@ void handle_keyboard(Launcher_Context *ctx, SDL_Scancode key_code) {
             }
             break;
 
-        case SDL_SCANCODE_PAGEUP:
-            ctx->selected_item -= ctx->items_per_page;
-            if (ctx->selected_item < 0)
-                ctx->selected_item = 0;
-            if (ctx->selected_item < ctx->scroll_offset) {
-                ctx->scroll_offset = ctx->selected_item;
+        case KEY_SCANCODE_RETURN:
+        case KEY_SCANCODE_SPACE:
+            if (!application_is_running(ctx->applications[ctx->selected_item]->name)) {
+                printf("Launching: %s\n", ctx->applications[ctx->selected_item]->name);
+                application_launch(ctx->applications[ctx->selected_item]->unique_identifier);
+            } else {
+                printf("Not Launching: %s, already running\n", ctx->applications[ctx->selected_item]->name);
             }
             break;
 
-        case SDL_SCANCODE_PAGEDOWN:
-            ctx->selected_item += ctx->items_per_page;
-            if (ctx->selected_item >= ctx->total_items) {
-                ctx->selected_item = ctx->total_items - 1;
-            }
-            if (ctx->selected_item >= ctx->scroll_offset + ctx->items_per_page) {
-                ctx->scroll_offset = ctx->selected_item - ctx->items_per_page + 1;
-            }
-            break;
+        case KEY_SCANCODE_A: ctx->show_about = 1; break;
 
-        case SDL_SCANCODE_HOME:
-            ctx->selected_item = 0;
-            ctx->scroll_offset = 0;
-            break;
-
-        case SDL_SCANCODE_END:
-            ctx->selected_item = ctx->total_items - 1;
-            if (ctx->total_items > ctx->items_per_page) {
-                ctx->scroll_offset = ctx->total_items - ctx->items_per_page;
-            }
-            break;
-
-        case SDL_SCANCODE_RETURN:
-        case SDL_SCANCODE_SPACE:
-            printf("Launching: %s\n", ctx->applications[ctx->selected_item]->name);
-            application_launch(ctx->applications[ctx->selected_item]->unique_identifier);
-            // if (ctx->applications[ctx->selected_item].launch_function) {
-            //     // Call the launch function for the selected app
-            //     ctx->applications[ctx->selected_item].launch_function();
-            // }
-            break;
-
-        case SDL_SCANCODE_A: ctx->show_about = 1; break;
-
-        case SDL_SCANCODE_ESCAPE: {
-            SDL_Event quit_event;
-            quit_event.type = SDL_EVENT_QUIT;
-            SDL_PushEvent(&quit_event);
+        case KEY_SCANCODE_ESCAPE: {
+            quit = 1;
         } break;
     }
 }
 
 bool run_launcher(application_t **applications, size_t num) {
     printf("Starting application launcher with %zu applications\n", num);
-
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-        return false;
-    }
 
     Launcher_Context ctx = {0};
     ctx.applications     = applications;
@@ -401,65 +366,34 @@ bool run_launcher(application_t **applications, size_t num) {
     ctx.scroll_offset    = 0;
     ctx.show_about       = 0;
 
-    ctx.window = SDL_CreateWindow("Application Launcher", SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_FULLSCREEN);
+    ctx.window = window_create(
+        "Application Launcher",
+        (window_size_t){SCREEN_WIDTH, SCREEN_HEIGHT},
+        WINDOW_FLAG_DOUBLE_BUFFERED | WINDOW_FLAG_FULLSCREEN | WINDOW_FLAG_LOW_PRIORITY
+    );
 
     if (ctx.window == NULL) {
-        printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
-        SDL_Quit();
+        printf("Window could not be created\n");
         return false;
     }
 
-    ctx.renderer = SDL_CreateRenderer(ctx.window, NULL);
-    if (ctx.renderer == NULL) {
-        printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
-        SDL_DestroyWindow(ctx.window);
-        SDL_Quit();
-        return false;
-    }
-
-    ctx.framebuffer = SDL_CreateTexture(
-        ctx.renderer,
-        SDL_PIXELFORMAT_RGB565,
-        SDL_TEXTUREACCESS_STREAMING,
-        SCREEN_WIDTH,
-        SCREEN_HEIGHT
+    ctx.framebuffer = window_framebuffer_create(
+        ctx.window,
+        (window_size_t){SCREEN_WIDTH, SCREEN_HEIGHT},
+        BADGEVMS_PIXELFORMAT_RGB565
     );
 
     if (ctx.framebuffer == NULL) {
-        printf("Framebuffer texture could not be created! SDL_Error: %s\n", SDL_GetError());
-        SDL_DestroyRenderer(ctx.renderer);
-        SDL_DestroyWindow(ctx.window);
-        SDL_Quit();
+        printf("Framebuffer texture could not be created\n");
         return false;
     }
 
-    ctx.pixels = malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(Uint16));
-    if (ctx.pixels == NULL) {
-        printf("Could not allocate pixel buffer!\n");
-        SDL_DestroyTexture(ctx.framebuffer);
-        SDL_DestroyRenderer(ctx.renderer);
-        SDL_DestroyWindow(ctx.window);
-        SDL_Quit();
-        return false;
-    }
-
-    int          quit = 0;
-    SDL_Event    e;
-    Uint32       frame_start, frame_time;
-    Uint32 const frame_delay = 1000 / 60; // 60 FPS
+    ctx.pixels = ctx.framebuffer->pixels;
+    event_t e;
+    quit = false;
 
     while (!quit) {
-        frame_start = SDL_GetTicks();
-
-        while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_EVENT_QUIT) {
-                quit = 1;
-            } else if (e.type == SDL_EVENT_KEY_DOWN) {
-                handle_keyboard(&ctx, e.key.scancode);
-            }
-        }
-
-        memset(ctx.pixels, 0, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(Uint16));
+        memset(ctx.pixels, 0, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
 
         draw_launcher_window(&ctx);
 
@@ -467,23 +401,15 @@ bool run_launcher(application_t **applications, size_t num) {
             draw_about_dialog(&ctx);
         }
 
-        SDL_UpdateTexture(ctx.framebuffer, NULL, ctx.pixels, SCREEN_WIDTH * sizeof(Uint16));
-        SDL_SetRenderDrawColor(ctx.renderer, 0, 0, 0, 255);
-        SDL_RenderClear(ctx.renderer);
-        SDL_RenderTexture(ctx.renderer, ctx.framebuffer, NULL, NULL);
-        SDL_RenderPresent(ctx.renderer);
+        window_present(ctx.window, true, NULL, 0);
 
-        frame_time = SDL_GetTicks() - frame_start;
-        if (frame_delay > frame_time) {
-            SDL_Delay(frame_delay - frame_time);
+        e = window_event_poll(ctx.window, true, 0);
+        if (e.type == EVENT_QUIT) {
+            quit = 1;
+        } else if (e.type == EVENT_KEY_DOWN) {
+            handle_keyboard(&ctx, e.keyboard.scancode);
         }
     }
-
-    free(ctx.pixels);
-    SDL_DestroyTexture(ctx.framebuffer);
-    SDL_DestroyRenderer(ctx.renderer);
-    SDL_DestroyWindow(ctx.window);
-    SDL_Quit();
 
     return true;
 }
@@ -492,7 +418,7 @@ int main(int argc, char *argv[]) {
     size_t                  num_apps = 0;
     application_t          *app;
     application_list_handle app_list = application_list(&app);
-    application_t         **apps = NULL;
+    application_t         **apps     = NULL;
 
     printf("Currently installed applications: \n");
     while (app) {
@@ -500,7 +426,8 @@ int main(int argc, char *argv[]) {
         printf("  UID: %s\n", app->unique_identifier);
         printf("  Version: %s\n", app->version);
         printf("  Binary : %s\n", app->binary_path);
-        if (app->binary_path && app->unique_identifier && (strcmp(app->unique_identifier, "badgevms_launcher") != 0)) {
+        if (app->binary_path && app->unique_identifier && (strcmp(app->unique_identifier, "badgevms_launcher") != 0) &&
+            (strcmp(app->unique_identifier, "why2025_firmware_ota_c6") != 0)) {
             ++num_apps;
             apps               = realloc(apps, sizeof(application_t *) * num_apps);
             apps[num_apps - 1] = app;

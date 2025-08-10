@@ -1,14 +1,16 @@
 [[apps]]
 name = "OTA"
 path = "APPS:[why2025_ota]why2025_ota.elf"
+application = "why2025_ota"
 restart_on_failure = false
 start_delay = 30
-start_every = 60
+start_every = 300
 stack_size = 8192
-args = ["--debug"]
+args = ["--debug", "--background"]
 
 [[apps]]
 name = "sponsors"
+application = "why2025_sponsors"
 path = "APPS:[why2025_sponsors]why2025_sponsors.elf"
 restart_on_failure = false
 stack_size = 16384

@@ -109,3 +109,6 @@ application_t *application_get(char const *unique_identifier);
 
 // Free an application_t, must be called for each application_t* returned by the api
 void application_free(application_t *application);
+
+// Is the requested application running?
+bool application_is_running(char const *unique_identifier);

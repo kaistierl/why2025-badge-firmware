@@ -6,20 +6,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <badgevms/process.h>
 #include <badgevms/wifi.h>
 #include <string.h>
 
-bool debug = false;
+bool debug  = false;
+bool window = true;
 
 int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--debug") == 0) {
             debug = true;
         }
+        if (strcmp(argv[i], "--background") == 0) {
+            window = false;
+        }
     }
 
     debug_printf("BadgeVMS OTA starting...\n");
     debug_printf("Connecting to wifi\n");
+
+    if (!window) {
+        debug_printf("Running in background, lowering priority\n");
+        task_priority_lower();
+    }
 
     wifi_connection_status_t status = wifi_connect();
     if (status != WIFI_CONNECTED) {
@@ -107,8 +117,9 @@ int main(int argc, char *argv[]) {
 
     if (num_updates) {
         printf("Updates available!\n");
-        if (get_num_tasks() <= 2) {
-            debug_printf("I'm the only process running, showing UI\n");
+        if (window || get_num_tasks() <= 2) {
+            debug_printf("I'm the only process running, showing UI and restoring priority\n");
+            task_priority_restore();
             run_update_window(updates, num_updates);
         } else {
             printf("Other tasks running, trying again later\n");

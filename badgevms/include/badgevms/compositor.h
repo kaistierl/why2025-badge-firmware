@@ -31,6 +31,7 @@ typedef enum {
     WINDOW_FLAG_MAXIMIZED_LEFT  = (1 << 4), // Create a window and have it cover the whole left of the screen
     WINDOW_FLAG_MAXIMIZED_RIGHT = (1 << 5), // Create a window and have it cover the whole right of the screen
     WINDOW_FLAG_DOUBLE_BUFFERED = (1 << 6), // Create a double buffered window
+    WINDOW_FLAG_LOW_PRIORITY    = (1 << 7), // Don't elevate my priority, even if I'm fullscreen
 } window_flag_t;
 
 typedef struct {

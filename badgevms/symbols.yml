@@ -895,6 +895,7 @@ simple_function:
   - application_destroy
   - application_free
   - application_get
+  - application_is_running
   - application_launch
   - application_list
   - application_list_close
@@ -926,6 +927,8 @@ simple_function:
   - path_free
   - process_create
   - rm_rf
+  - task_priority_lower
+  - task_priority_restore
   - thread_create
   - vaddr_to_paddr
   - wait

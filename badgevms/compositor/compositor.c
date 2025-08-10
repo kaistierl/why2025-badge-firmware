@@ -63,12 +63,21 @@ static int  background_damaged    = 7;
 static int  decoration_damaged    = 7;
 static bool visible_regions_valid = false;
 
-typedef enum { WINDOW_CREATE, WINDOW_DESTROY, WINDOW_FLAGS, FRAMEBUFFER_SWAP } compositor_command_t;
+typedef enum {
+    WINDOW_CREATE,
+    WINDOW_DESTROY,
+    WINDOW_FLAGS,
+    WINDOW_MOVE,
+    WINDOW_RESIZE,
+    FRAMEBUFFER_SWAP
+} compositor_command_t;
 
 typedef struct {
     compositor_command_t   command;
     window_t              *window;
     window_flag_t          flags;
+    window_coords_t        coords;
+    window_size_t          size;
     managed_framebuffer_t *fb_a;
     managed_framebuffer_t *fb_b;
     TaskHandle_t           caller;
@@ -521,6 +530,18 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
                     message.window->flags = message.flags;
                     mark_scene_damaged();
                     break;
+                case WINDOW_MOVE:
+                    window_coords_t coords = window_clamp_position(message.window, message.coords);
+                    message.window->rect.x = coords.x;
+                    message.window->rect.y = coords.y;
+                    mark_scene_damaged();
+                    break;
+                case WINDOW_RESIZE:
+                    window_size_t size     = window_clamp_size(message.window, message.size);
+                    message.window->rect.w = size.w;
+                    message.window->rect.h = size.h;
+                    mark_scene_damaged();
+                    break;
                 case FRAMEBUFFER_SWAP: framebuffer_swap(message.fb_a, message.fb_b); break;
                 default: ESP_LOGE(TAG, "Unknown command %u", message.command);
             }
@@ -650,7 +671,8 @@ static void IRAM_ATTR NOINLINE_ATTR compositor(void *ignored) {
                 }
 
                 if (eTaskGetState(task_info->handle) != eDeleted) {
-                    if ((window == window_stack) && (window_stack->flags & WINDOW_FLAG_FULLSCREEN)) {
+                    if ((window == window_stack) && (window_stack->flags & WINDOW_FLAG_FULLSCREEN) &&
+                        (!(window_stack->flags & WINDOW_FLAG_LOW_PRIORITY))) {
                         // A foreground full-screen app gets as much CPU time as it can handle
                         vTaskPrioritySet(task_info->handle, TASK_PRIORITY_FOREGROUND);
                     } else {
@@ -967,10 +989,21 @@ window_coords_t window_position_get(window_t *window) {
 }
 
 window_coords_t window_position_set(window_t *window, window_coords_t coords) {
-    coords         = window_clamp_position(window, coords);
-    window->rect.x = coords.x;
-    window->rect.y = coords.y;
-    return coords;
+    if (!window) {
+        return (window_coords_t){0, 0};
+    }
+
+    compositor_message_t message = {
+        .command = WINDOW_MOVE,
+        .coords  = coords,
+        .window  = window,
+        .caller  = xTaskGetCurrentTaskHandle(),
+    };
+
+    xQueueSend(compositor_queue, &message, portMAX_DELAY);
+    ulTaskNotifyTakeIndexed(0, pdTRUE, portMAX_DELAY);
+
+    return window_position_get(window);
 }
 
 window_size_t window_size_get(window_t *window) {
@@ -982,10 +1015,21 @@ window_size_t window_size_get(window_t *window) {
 }
 
 window_size_t window_size_set(window_t *window, window_size_t size) {
-    size           = window_clamp_size(window, size);
-    window->rect.w = size.w;
-    window->rect.h = size.h;
-    return size;
+    if (!window) {
+        return (window_size_t){0, 0};
+    }
+
+    compositor_message_t message = {
+        .command = WINDOW_RESIZE,
+        .size    = size,
+        .window  = window,
+        .caller  = xTaskGetCurrentTaskHandle(),
+    };
+
+    xQueueSend(compositor_queue, &message, portMAX_DELAY);
+    ulTaskNotifyTakeIndexed(0, pdTRUE, portMAX_DELAY);
+
+    return window_size_get(window);
 }
 
 window_flag_t window_flags_get(window_t *window) {

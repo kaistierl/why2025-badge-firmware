@@ -34,11 +34,15 @@
 #include <string.h>
 #include <time.h>
 
+extern uint8_t init_toml_start[] asm("_binary_init_toml_start");
+extern size_t  init_toml_size asm("init_toml_length");
+
 #define TAG "init"
 
 typedef struct {
     char    *name;
     char    *path;
+    char    *application;
     bool     restart_on_failure;
     bool     run_once;
     size_t   stack_size;
@@ -103,6 +107,13 @@ int parse_app(toml_datum_t app_table, startup_app_t *app) {
         return -1;
     }
     app->path = strdup(path.u.s);
+
+    toml_datum_t application = toml_get(app_table, "application");
+    if (application.type == TOML_STRING) {
+        app->application = strdup(application.u.s);
+    } else {
+        app->application = NULL;
+    }
 
     toml_datum_t restart    = toml_get(app_table, "restart_on_failure");
     app->restart_on_failure = (restart.type == TOML_BOOLEAN) ? restart.u.boolean : false;
@@ -225,6 +236,7 @@ void print_config(startup_config_t const *config) {
             printf(" %s", app->argv[j]);
         }
         printf("\n");
+        printf("  application: %s", app->application ? app->application : "<none>");
     }
     printf("\n");
 }
@@ -235,7 +247,11 @@ pid_t start_app(startup_app_t *app) {
         printf("Failed to start %s (%s)\n", app->name, app->path);
         return -1;
     }
+
     printf("Started %s (%s) pid %u\n", app->name, app->path, pid);
+    if (app->application) {
+        task_set_application_uid(pid, app->application);
+    }
 
     app->pid          = pid;
     app->last_started = time(NULL);
@@ -245,6 +261,12 @@ pid_t start_app(startup_app_t *app) {
 bool maybe_start_app(startup_app_t *app, nvs_handle_t nvs_handle, time_t boot_time, time_t current_time) {
     if (app->pid != 0 || !app->should_start) {
         return false;
+    }
+
+    if (app->application) {
+        if (task_application_is_running(app->application)) {
+            return false;
+        }
     }
 
     if (app->run_once) {
@@ -313,6 +335,22 @@ bool maybe_start_app(startup_app_t *app, nvs_handle_t nvs_handle, time_t boot_ti
     return true;
 }
 
+bool update_flash0_init() {
+    FILE *fp = why_fopen("FLASH0:init.toml", "w");
+    if (!fp) {
+        ESP_LOGW(TAG, "Cannot open %s", "FLASH0:init.toml");
+        return false;
+    }
+
+    ESP_LOGW(TAG, "Updating FLASH0:init.toml");
+
+    why_fwrite(init_toml_start, 1, init_toml_size, fp);
+
+    why_fclose(fp);
+
+    return true;
+}
+
 void run_init(void) {
     nvs_handle_t nvs_handle;
     esp_err_t    err = nvs_open("badgevms_init", NVS_READWRITE, &nvs_handle);
@@ -320,6 +358,8 @@ void run_init(void) {
         ESP_LOGE(TAG, "Could not open NVS storage, bailing");
         return;
     }
+
+    update_flash0_init();
 
     startup_config_t config    = {0};
     time_t           boot_time = time(NULL);

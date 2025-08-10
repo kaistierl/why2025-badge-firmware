@@ -32,6 +32,7 @@
 #define NUM_PIDS        128
 #define MAX_PID         127
 
+#define TASK_PRIORITY_LOW        4
 #define TASK_PRIORITY            5
 #define TASK_PRIORITY_FOREGROUND 6
 
@@ -85,6 +86,7 @@ typedef struct task_info {
     char         **argv;
     char         **argv_back;
     char          *strtok_saveptr;
+    char          *application_uid;
     uint16_t       stack_size;
     void (*task_entry)(struct task_info *task_info);
     void (*thread_entry)(void *user_data);
@@ -125,6 +127,8 @@ pid_t        run_task(void const *buffer, uint16_t stack_size, task_type_t type,
 pid_t        run_task_path(char const *path, uint16_t stack_size, task_type_t type, int argc, char *argv[]);
 void         task_record_resource_alloc(task_resource_type_t type, void *ptr);
 void         task_record_resource_free(task_resource_type_t type, void *ptr);
+void         task_set_application_uid(pid_t pid, char const *unique_id);
+bool         task_application_is_running(char const *unique_id);
 uint32_t     get_num_tasks();
 task_info_t *get_taskinfo_for_pid(pid_t pid);
 

@@ -23,7 +23,13 @@
 #define CDE_PROGRESS_FG   0x0078D4
 #define CDE_SUCCESS_COLOR 0x00AA00
 
-typedef enum { UI_STATE_LIST, UI_STATE_PROGRESS, UI_STATE_COMPLETE } UI_State;
+typedef enum {
+    UI_STATE_CHECKING,
+    UI_STATE_NO_UPDATES,
+    UI_STATE_LIST,
+    UI_STATE_PROGRESS,
+    UI_STATE_COMPLETE
+} UI_State;
 
 typedef struct {
     SDL_Window    *window;

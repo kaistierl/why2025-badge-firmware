@@ -60,6 +60,8 @@ idf_component_register(
      "spi_flash"
      "vfs"
      "why_stdio"
+     EMBED_TXTFILES
+     "../flash_storage/skel/init.toml"
 )
 
 target_link_libraries(${COMPONENT_LIB} PRIVATE

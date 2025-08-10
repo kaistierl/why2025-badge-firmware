@@ -233,8 +233,6 @@ build_app(why2025_ota
 build_app(badgevms_launcher
     SOURCES
      main.c
-    LIBRARIES
-     sdl3
 )
 
 #build_app(doomgeneric

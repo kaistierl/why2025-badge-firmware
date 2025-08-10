@@ -16,7 +16,7 @@
 
 #pragma once
 
-#define MIN_STACK_SIZE  16384
+#define MIN_STACK_SIZE 16384
 
 #define FRAMEBUFFER_MAX_W       720
 #define FRAMEBUFFER_MAX_H       720
