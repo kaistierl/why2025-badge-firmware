@@ -60,7 +60,7 @@ static allocator_t              page_allocator;
 static allocator_t              framebuffer_allocator;
 
 IRAM_ATTR static portMUX_TYPE cache_mmu_mutex = portMUX_INITIALIZER_UNLOCKED;
-IRAM_ATTR static atomic_flag scheduling =  ATOMIC_FLAG_INIT;
+IRAM_ATTR static atomic_flag  scheduling      = ATOMIC_FLAG_INIT;
 
 __attribute__((always_inline)) static inline void take_sched() {
     while (atomic_flag_test_and_set(&scheduling) == true) {
@@ -115,13 +115,11 @@ IRAM_ATTR void dump_mmu() {
 
 static bool volatile scheduler_was_started = false;
 __attribute__((always_inline)) static inline void critical_enter() {
-    take_sched();
     portENTER_CRITICAL_SAFE(&cache_mmu_mutex);
 }
 
 __attribute__((always_inline)) static inline void critical_exit() {
     portEXIT_CRITICAL_SAFE(&cache_mmu_mutex);
-    drop_sched();
 }
 
 // Copied from ESP-IDF 5.4.2 for speed
@@ -175,6 +173,7 @@ __attribute__((always_inline)) static inline void
     mmu_val = mmu_ll_format_paddr(mmu_id, paddr, mem_type);
 
     while (page_num) {
+        take_sched();
         entry_id       = mmu_ll_get_entry_id(mmu_id, vaddr);
         uint32_t entry = mmu_ll_read_entry(mmu_id, entry_id);
         if (entry) {
@@ -188,6 +187,7 @@ __attribute__((always_inline)) static inline void
             esp_system_abort("Unexpected mmu state");
         }
         mmu_ll_write_entry(mmu_id, entry_id, mmu_val, mem_type);
+        drop_sched();
 
         vaddr += page_size_in_bytes;
         mmu_val++;
@@ -213,6 +213,7 @@ __attribute__((always_inline)) static inline void
     uint32_t page_num = (len + page_size_in_bytes - 1) / page_size_in_bytes;
     uint32_t entry_id = 0;
     while (page_num) {
+        take_sched();
         entry_id       = mmu_ll_get_entry_id(mmu_id, vaddr);
         uint32_t entry = mmu_ll_read_entry(mmu_id, entry_id);
         if (!entry) {
@@ -220,6 +221,7 @@ __attribute__((always_inline)) static inline void
             esp_system_abort("Unexpected mmu state");
         }
         mmu_ll_set_entry_invalid(mmu_id, entry_id);
+        drop_sched();
 
         vaddr += page_size_in_bytes;
         page_num--;
@@ -263,7 +265,6 @@ IRAM_ATTR void remap_task(task_info_t *task_info) {
 
     uint32_t mmu_id = mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
-    take_sched();
     allocation_range_t *r = task_info->thread->pages;
     while (r) {
         why_mmu_hal_map_region(mmu_id, MMU_TARGET_PSRAM0, r->vaddr_start, r->paddr_start, r->size);
@@ -273,7 +274,6 @@ IRAM_ATTR void remap_task(task_info_t *task_info) {
     // Invalidate all caches at once
     invalidate_caches(task_info->thread->start, task_info->thread->size);
     current_mapped_task = task_info->pid;
-    drop_sched();
 }
 
 void IRAM_ATTR unmap_task(task_info_t *task_info) {
@@ -296,14 +296,12 @@ void IRAM_ATTR unmap_task(task_info_t *task_info) {
 
     uint32_t mmu_id = why_mmu_hal_get_id_from_target(MMU_TARGET_PSRAM0);
 
-    take_sched();
     writeback_caches(task_info->thread->start, task_info->thread->size);
 
     while (r) {
         why_mmu_hal_unmap_region(mmu_id, r->vaddr_start, r->size);
         r = r->next;
     }
-    drop_sched();
 out:
     current_mapped_task = 0;
 }
