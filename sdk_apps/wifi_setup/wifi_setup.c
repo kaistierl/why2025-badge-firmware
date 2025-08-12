@@ -161,6 +161,20 @@ static void sort_by_rssi(char ssids[MAX_LIST][33], wifi_auth_mode_t auths[MAX_LI
     }
 }
 
+// Ensure we disconnect if currently connected to a different SSID than the target
+static void wifi_prepare_switch_to(char const *target_ssid) {
+    if (!target_ssid || !target_ssid[0]) return;
+    wifi_connection_status_t st = wifi_get_connection_status();
+    if (st == WIFI_CONNECTED) {
+        wifi_station_handle cur = wifi_get_connection_station();
+        char const *cur_ssid = cur ? wifi_station_get_ssid(cur) : NULL;
+        if (!cur_ssid || strncmp(cur_ssid, target_ssid, 32) != 0) {
+            // Different network (or unknown) -> disconnect first so next connect targets the new SSID
+            (void)wifi_disconnect();
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
@@ -293,6 +307,8 @@ int main(int argc, char **argv) {
                     case KEY_SCANCODE_KP_ENTER: {
                         if (num <= 0) break;
                         if (auths[cursor] == WIFI_AUTH_OPEN) {
+                            // If already connected to another SSID, disconnect first
+                            wifi_prepare_switch_to(ssids[cursor]);
                             last_result = wifi_connect_to(ssids[cursor], "");
                             mode        = Mode_Result;
                         } else {
@@ -310,6 +326,8 @@ int main(int argc, char **argv) {
                         break;
                     case KEY_SCANCODE_RETURN:
                     case KEY_SCANCODE_KP_ENTER: {
+                        // If already connected to another SSID, disconnect first
+                        wifi_prepare_switch_to(ssids[cursor]);
                         last_result = wifi_connect_to(ssids[cursor], pwd);
                         mode        = Mode_Result;
                     } break;
