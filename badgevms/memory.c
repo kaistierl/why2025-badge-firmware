@@ -334,7 +334,8 @@ IRAM_ATTR bool pages_allocate(
     // not an option
     while (to_allocate) {
         uintptr_t new_page = 0;
-        allocate_size      = allocate_size > to_allocate ? to_allocate : allocate_size;
+        //allocate_size      = allocate_size > to_allocate ? to_allocate : allocate_size;
+        allocate_size      = 1;
         ESP_LOGI(TAG, "Attempting allocation of size %li pages\n", allocate_size);
 
         allocation_range_t *new_range = malloc(sizeof(allocation_range_t));
@@ -367,7 +368,7 @@ IRAM_ATTR bool pages_allocate(
             continue;
         }
 
-        ESP_LOGI(TAG, "Got new page at address %p", (void *)new_page);
+        ESP_LOGI(TAG, "Got new page at address %p, of size %zi", (void *)new_page, allocate_size);
         // We are the first allocation
         if (!*tail_range) {
             *tail_range = new_range;

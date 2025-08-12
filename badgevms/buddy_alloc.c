@@ -246,7 +246,6 @@ static buddy_block_t *try_merge_buddy(memory_pool_t *pool, buddy_block_t *block)
  */
 
 void free_block(allocator_t *allocator, memory_pool_t *pool, buddy_block_t *block) {
-    xSemaphoreTake(allocator->memory_pool_mutex, portMAX_DELAY);
     buddy_block_t *free_block = block;
 
     while ((block = try_merge_buddy(pool, block))) {
@@ -259,7 +258,6 @@ void free_block(allocator_t *allocator, memory_pool_t *pool, buddy_block_t *bloc
     } else {
         list_push_back(&pool->waste_list, free_block);
     }
-    xSemaphoreGive(allocator->memory_pool_mutex);
 }
 
 void IRAM_ATTR init_pool(allocator_t *allocator, void *mem_start, void *mem_end, uint32_t flags) {
@@ -500,12 +498,11 @@ void IRAM_ATTR *buddy_allocate(allocator_t *allocator, size_t size, enum block_t
             --pool->max_order_free;
     }
 
-    xSemaphoreGive(allocator->memory_pool_mutex);
-
     pool->free_pages -= (1 << block->order);
     block->type       = type;
     void *retval      = block_to_address(pool, block);
 
+    xSemaphoreGive(allocator->memory_pool_mutex);
     ESP_LOGD(TAG, "buddy_allocate(%zi) returning %p", size, retval);
     return retval;
 }
@@ -548,6 +545,7 @@ __attribute__((always_inline)) static inline buddy_block_t *
 void buddy_deallocate(allocator_t *allocator, void *ptr) {
     ESP_LOGD(TAG, "buddy_deallocate(%p)", ptr);
 
+    xSemaphoreTake(allocator->memory_pool_mutex, portMAX_DELAY);
     memory_pool_t *pool  = NULL;
     buddy_block_t *block = buddy_get_block(allocator, ptr, &pool);
 
@@ -558,6 +556,7 @@ void buddy_deallocate(allocator_t *allocator, void *ptr) {
     pool->free_pages += (1 << block->order);
     block->type       = BLOCK_TYPE_FREE;
     free_block(allocator, pool, block);
+    xSemaphoreGive(allocator->memory_pool_mutex);
 }
 
 #if 0
