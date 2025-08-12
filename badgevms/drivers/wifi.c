@@ -85,7 +85,7 @@ static EventGroupHandle_t           wifi_event_group;
 static esp_event_handler_instance_t instance_any_id;
 static esp_event_handler_instance_t instance_got_ip;
 
-#define MIN_SCAN_INTERVAL 60 * 1000
+#define MIN_SCAN_INTERVAL (2000 * 1000)
 
 static badgevms_wifi_auth_mode_t esp_authmode_to_badgevms(wifi_auth_mode_t mode) {
     switch (mode) {
@@ -600,4 +600,19 @@ device_t *wifi_create() {
     hermes_queue = xQueueCreate(5, sizeof(wifi_command_message_t *));
     create_kernel_task(hermes, "Hermes", 4096, NULL, 5, &hermes_handle, 0);
     return (device_t *)dev;
+}
+
+uint32_t wifi_scan_time_until_ok_ms() {
+    struct timespec cur_time;
+    clock_gettime(CLOCK_MONOTONIC, &cur_time);
+    long elapsed_us = (cur_time.tv_sec - status.last_scan_time.tv_sec) * 1000000L +
+                      (cur_time.tv_nsec - status.last_scan_time.tv_nsec) / 1000L;
+    if (!(status.last_scan_time.tv_sec || status.last_scan_time.tv_nsec)) return 0;
+    long remain_us = (long)MIN_SCAN_INTERVAL - elapsed_us;
+    if (remain_us <= 0) return 0;
+    return (uint32_t)((remain_us + 999) / 1000); // ceil to ms
+}
+
+bool wifi_scan_is_busy() {
+    return wifi_scan_time_until_ok_ms() != 0;
 }

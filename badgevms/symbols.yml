@@ -940,6 +940,8 @@ simple_function:
   - wifi_scan_free_station
   - wifi_scan_get_num_results
   - wifi_scan_get_result
+  - wifi_scan_time_until_ok_ms
+  - wifi_scan_is_busy
   - wifi_station_get_bssid
   - wifi_station_get_authmode
   - wifi_station_get_mode

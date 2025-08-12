@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+uint32_t wifi_scan_time_until_ok_ms(void);
+bool     wifi_scan_is_busy(void);
+
 // Reuse the pixel font from the launcher app for text rendering
 #include "../badgevms_launcher/font.h"
 
@@ -100,7 +103,6 @@ typedef enum { Mode_Select, Mode_Password, Mode_Result } ui_mode_t;
 
 static void load_scan(char ssids[MAX_LIST][33], wifi_auth_mode_t auths[MAX_LIST], int rssis[MAX_LIST], int *num) {
     // Trigger and read cached scan results
-    (void)wifi_scan_get_num_results();
     int total = wifi_scan_get_num_results();
     if (total < 0) total = 0;
 
@@ -244,14 +246,26 @@ int main(int argc, char **argv) {
         // Footer
         draw_rect(fb, 33, SCREEN_H - 42, SCREEN_W - 66, 39, 0xD4D0C8);
         draw_3d_border(fb, 33, SCREEN_H - 42, SCREEN_W - 66, 39, true);
-        draw_text(
-            fb,
-            45,
-            SCREEN_H - 35,
-            mode == Mode_Select ? "UP/DOWN: Navigate   ENTER: Connect   R: Rescan   ESC: Exit"
-                                : "Type password  ENTER: Connect  BACKSPACE: Delete  ESC: Cancel",
-            0x000000
-        );
+        if (mode == Mode_Select) {
+            char footer[160];
+            uint32_t wait_ms = wifi_scan_time_until_ok_ms();
+            if (wait_ms > 0) {
+                snprintf(footer, sizeof(footer),
+                         "UP/DOWN: Navigate   ENTER: Connect   R: Rescan   ESC: Exit   (scanner busy) ");
+            } else {
+                snprintf(footer, sizeof(footer),
+                         "UP/DOWN: Navigate   ENTER: Connect   R: Rescan   ESC: Exit");
+            }
+            draw_text(fb, 45, SCREEN_H - 35, footer, 0x000000);
+        } else {
+            draw_text(
+                fb,
+                45,
+                SCREEN_H - 35,
+                "Type password  ENTER: Connect  BACKSPACE: Delete  ESC: Cancel",
+                0x000000
+            );
+        }
 
         int list_x = 48;
         int list_y = 96;
@@ -262,7 +276,12 @@ int main(int argc, char **argv) {
 
         if (mode == Mode_Select) {
         if (num == 0) {
-                draw_text(fb, list_x + 12, list_y + 12, "No networks found. Press R to rescan.", 0x000000);
+                uint32_t wait_ms = wifi_scan_time_until_ok_ms();
+                if (wait_ms > 0) {
+                    draw_text(fb, list_x + 12, list_y + 12, "No networks yet. Scanner busy; try again shortly.", 0x000000);
+                } else {
+                    draw_text(fb, list_x + 12, list_y + 12, "No networks found. Press R to rescan.", 0x000000);
+                }
             } else {
                 int item_h = 28;
                 int visible = (list_h - 8) / item_h;
@@ -325,6 +344,10 @@ int main(int argc, char **argv) {
                     case KEY_SCANCODE_UP: if (cursor > 0) cursor--; break;
                     case KEY_SCANCODE_DOWN: if (cursor + 1 < num) cursor++; break;
                     case KEY_SCANCODE_R: {
+                        if (wifi_scan_is_busy()) {
+                            // Do not trigger a scan while busy; footer hints at busy
+                            break;
+                        }
                         // Show loading overlay while rescanning
                         draw_loading_overlay(fb, "Refreshing WiFi list…");
                         window_present(win, true, NULL, 0);
