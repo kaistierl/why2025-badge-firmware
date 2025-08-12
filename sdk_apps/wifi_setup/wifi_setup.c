@@ -141,6 +141,29 @@ static void load_scan(char ssids[MAX_LIST][33], wifi_auth_mode_t auths[MAX_LIST]
     *num = unique;
 }
 
+static void draw_loading_overlay(framebuffer_t *fb, const char *message) {
+    // Centered panel with message
+    int panel_w = 360;
+    int panel_h = 120;
+    int x = (SCREEN_W - panel_w) / 2;
+    int y = (SCREEN_H - panel_h) / 2;
+
+    // Dim the background with a big translucent-ish box (solid here)
+    draw_rect(fb, 0, 0, SCREEN_W, SCREEN_H, 0x9CA0A0);
+
+    // Panel
+    draw_rect(fb, x, y, panel_w, panel_h, 0xFFFFFF);
+    draw_3d_border(fb, x, y, panel_w, panel_h, true);
+
+    // Title bar
+    draw_rect(fb, x + 3, y + 3, panel_w - 6, 28, 0x808080);
+    draw_text_bold(fb, x + 12, y + 9, "Please wait", 0xFFFFFF);
+
+    // Message
+    if (!message) message = "Scanning for WiFi networks…";
+    draw_text(fb, x + 12, y + 48, message, 0x000000);
+}
+
 static void sort_by_rssi(char ssids[MAX_LIST][33], wifi_auth_mode_t auths[MAX_LIST], int rssis[MAX_LIST], int num) {
     // Simple insertion sort, since list is small
     for (int i = 1; i < num; ++i) {
@@ -199,6 +222,9 @@ int main(int argc, char **argv) {
     wifi_connection_status_t last_result   = WIFI_ERROR;
 
     // Initial scan with a couple of retries
+    // Show a quick loading overlay so the user sees progress during the first scan
+    draw_loading_overlay(fb, "Scanning for WiFi networks…");
+    window_present(win, true, NULL, 0);
     for (int attempt = 0; attempt < 3 && num == 0; ++attempt) {
         load_scan(ssids, auths, rssis, &num);
         if (num > 1) sort_by_rssi(ssids, auths, rssis, num);
@@ -299,6 +325,9 @@ int main(int argc, char **argv) {
                     case KEY_SCANCODE_UP: if (cursor > 0) cursor--; break;
                     case KEY_SCANCODE_DOWN: if (cursor + 1 < num) cursor++; break;
                     case KEY_SCANCODE_R: {
+                        // Show loading overlay while rescanning
+                        draw_loading_overlay(fb, "Refreshing WiFi list…");
+                        window_present(win, true, NULL, 0);
                         load_scan(ssids, auths, rssis, &num);
                         if (num > 1) sort_by_rssi(ssids, auths, rssis, num);
                         if (cursor >= num) cursor = (num > 0) ? num - 1 : 0;
