@@ -72,6 +72,8 @@ typedef enum {
 typedef struct {
     TaskHandle_t   caller;
     wifi_command_t command;
+    char           ssid[33];
+    char           password[65];
 } wifi_command_message_t;
 
 static int           s_retry_num = 0;
@@ -243,7 +245,7 @@ again:
     }
 }
 
-static void hermes_do_connect() {
+static void hermes_do_connect(char const *ssid, char const *password) {
     status.connection_status_want = WIFI_CONNECTED;
     if (status.connection_status == WIFI_CONNECTED) {
         ESP_LOGW("HERMES", "Already connected");
@@ -253,11 +255,19 @@ static void hermes_do_connect() {
     ESP_ERROR_CHECK(esp_wifi_disconnect());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = "WHY2025-open",
-        },
-    };
+    wifi_config_t wifi_config = { 0 };
+    if (ssid && ssid[0]) {
+        strlcpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
+        if (password && password[0]) {
+            strlcpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
+        } else {
+            wifi_config.sta.password[0] = '\0';
+        }
+    } else {
+        // Fallback to previous default if no SSID provided
+        strlcpy((char *)wifi_config.sta.ssid, "WHY2025-open", sizeof(wifi_config.sta.ssid));
+        wifi_config.sta.password[0] = '\0';
+    }
 
 
     // esp_eap_client_set_identity((uint8_t *)EXAMPLE_EAP_ID, strlen(EXAMPLE_EAP_ID));
@@ -322,9 +332,15 @@ static void hermes_do_scan() {
 
     ESP_LOGW("HERMES", "Total APs scanned = %u, actual AP number ap_info holds = %u", ap_count, number);
     xSemaphoreTake(status.mutex, portMAX_DELAY);
-    status.num_scan_results = ap_count;
+    // Limit to the number of records actually fetched into ap_info
+    if (ap_count > number) {
+        status.num_scan_results = number;
+    } else {
+        status.num_scan_results = ap_count;
+    }
 
-    for (int i = 0; i < ap_count; i++) {
+    int to_copy = status.num_scan_results;
+    for (int i = 0; i < to_copy; i++) {
         wifi_station_t *s = &status.scan_results[i];
 
         memcpy(&s->bssid, ap_info[i].bssid, sizeof(mac_address_t));
@@ -349,7 +365,8 @@ static void hermes(void *ignored) {
             switch (command->command) {
                 case WIFI_COMMAND_CONNECT:
                     ESP_LOGW("HERMES", "Connecting to the divine realm");
-                    hermes_do_connect();
+                    hermes_do_connect(command->ssid[0] ? command->ssid : NULL,
+                                     command->password[0] ? command->password : NULL);
                     break;
                 case WIFI_COMMAND_DISCONNECT:
                     ESP_LOGW("HERMES", "Confining to the mortal plane");
@@ -433,9 +450,8 @@ badgevms_wifi_connection_status_t wifi_disconnect() {
 
 int wifi_scan_get_num_results() {
     if (status.status != WIFI_DISABLED) {
-        if (send_command(WIFI_COMMAND_SCAN) == WIFI_ERROR) {
-            return 0;
-        }
+        // For scans, the connection status isn't relevant; ignore return code
+        (void)send_command(WIFI_COMMAND_SCAN);
     }
 
     xSemaphoreTake(status.mutex, portMAX_DELAY);
@@ -491,6 +507,27 @@ int wifi_station_get_rssi(wifi_station_handle station) {
 
 bool wifi_station_wps(wifi_station_handle station) {
     return station->wps;
+}
+
+badgevms_wifi_auth_mode_t wifi_station_get_authmode(wifi_station_handle station) {
+    return station->authmode;
+}
+
+badgevms_wifi_connection_status_t wifi_connect_to(char const *ssid, char const *password) {
+    if (!ssid || !ssid[0]) {
+        return WIFI_ERROR;
+    }
+
+    wifi_command_message_t *c = calloc(1, sizeof(wifi_command_message_t));
+    if (!c) return WIFI_ERROR;
+    c->caller  = xTaskGetCurrentTaskHandle();
+    c->command = WIFI_COMMAND_CONNECT;
+    strlcpy(c->ssid, ssid, sizeof(c->ssid));
+    if (password) strlcpy(c->password, password, sizeof(c->password));
+
+    xQueueSend(hermes_queue, &c, portMAX_DELAY);
+    badgevms_wifi_connection_status_t res = ulTaskNotifyTakeIndexed(0, pdTRUE, portMAX_DELAY);
+    return res;
 }
 
 static int wifi_open(void *dev, path_t *path, int flags, mode_t mode) {

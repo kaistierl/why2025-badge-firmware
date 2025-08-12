@@ -1,0 +1,10 @@
+{
+  "unique_identifier": "wifi_setup",
+  "name": "WiFi Setup",
+  "author": "Sander Dijkxhoorn",
+  "version": "1",
+  "interpreter": "",
+  "metadata_file": "",
+  "binary_path": "wifi_setup.elf",
+  "source": 1
+}

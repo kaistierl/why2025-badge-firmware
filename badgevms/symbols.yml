@@ -45,202 +45,202 @@ include:
   - netdb.h
 
 simple_function:
-# libc.a
+  # libc.a
   - _ctype_
   - a64l
-#  - abort
+  #  - abort
   - abs
-#  - aligned_alloc
-#  - arc4random
-#  - arc4random_buf
-#  - arc4random_uniform
-#  - argz_add
-#  - argz_add_sep
-#  - argz_append
-#  - argz_count
-#  - argz_create
-#  - argz_create_sep
-#  - argz_delete
-#  - argz_extract
-#  - argz_insert
-#  - argz_next
-#  - argz_replace
-#  - argz_stringify
-#  - asctime
+  #  - aligned_alloc
+  #  - arc4random
+  #  - arc4random_buf
+  #  - arc4random_uniform
+  #  - argz_add
+  #  - argz_add_sep
+  #  - argz_append
+  #  - argz_count
+  #  - argz_create
+  #  - argz_create_sep
+  #  - argz_delete
+  #  - argz_extract
+  #  - argz_insert
+  #  - argz_next
+  #  - argz_replace
+  #  - argz_stringify
+  #  - asctime
   - asctime_r
-#  - asiprintf
-#  - asniprintf
-#  - asnprintf
-#  - asprintf
-#  - atexit
+  #  - asiprintf
+  #  - asniprintf
+  #  - asnprintf
+  #  - asprintf
+  #  - atexit
   - atof
   - atoff
   - atoi
   - atol
   - atoll
-#  - at_quick_exit
+  #  - at_quick_exit
   - bcmp
   - bcopy
   - bsearch
   - btowc
   - bzero
-#  - calloc
-#  - category
-#  - clearerr
-#  - clearerr_unlocked
+  #  - calloc
+  #  - category
+  #  - clearerr
+  #  - clearerr_unlocked
   - clock
   - clock_gettime
-#  - close
-#  - creat
-#  - ctime
+  #  - close
+  #  - creat
+  #  - ctime
   - ctime_r
-#  - dbm_clearerr
-#  - dbm_close
-#  - dbm_delete
-#  - dbm_dirfno
-#  - dbm_error
-#  - dbm_fetch
-#  - dbm_firstkey
-#  - dbm_nextkey
-#  - dbm_open
-#  - dbm_store
-#  - decrement
+  #  - dbm_clearerr
+  #  - dbm_close
+  #  - dbm_delete
+  #  - dbm_dirfno
+  #  - dbm_error
+  #  - dbm_fetch
+  #  - dbm_firstkey
+  #  - dbm_nextkey
+  #  - dbm_open
+  #  - dbm_store
+  #  - decrement
   - difftime
   - diprintf
   - div
-#  - dprintf
-#  - drand48
-#  - duplocale
-#  - ecvt
-#  - ecvtbuf
-#  - ecvtf
-#  - envz_add
-#  - envz_entry
-#  - envz_get
-#  - envz_merge
-#  - envz_remove
-#  - envz_strip
-#  - erand48
-#  - execve
-#  - exit
+  #  - dprintf
+  #  - drand48
+  #  - duplocale
+  #  - ecvt
+  #  - ecvtbuf
+  #  - ecvtf
+  #  - envz_add
+  #  - envz_entry
+  #  - envz_get
+  #  - envz_merge
+  #  - envz_remove
+  #  - envz_strip
+  #  - erand48
+  #  - execve
+  #  - exit
   - explicit_bzero
-#  - fclose
-#  - fcloseall
-#  - fcntl
-#  - fcvt
-#  - fcvtbuf
-#  - fcvtf
-#  - fdopen
-#  - feof
-#  - feof_unlocked
-#  - ferror
-#  - ferror_unlocked
-#  - fflush
-#  - fflush_unlocked
+  #  - fclose
+  #  - fcloseall
+  #  - fcntl
+  #  - fcvt
+  #  - fcvtbuf
+  #  - fcvtf
+  #  - fdopen
+  #  - feof
+  #  - feof_unlocked
+  #  - ferror
+  #  - ferror_unlocked
+  #  - fflush
+  #  - fflush_unlocked
   - ffs
   - ffsl
   - ffsll
-#  - fgetc
-#  - fgetc_unlocked
-#  - fgetpos
-#  - fgets
-#  - fgets_unlocked
-#  - fgetwc
-#  - fgetwc_unlocked
-#  - fgetws
-#  - fgetws_unlocked
-#  - fileno
-#  - fileno_unlocked
-#  - fiprintf
-#  - fiscanf
+  #  - fgetc
+  #  - fgetc_unlocked
+  #  - fgetpos
+  #  - fgets
+  #  - fgets_unlocked
+  #  - fgetwc
+  #  - fgetwc_unlocked
+  #  - fgetws
+  #  - fgetws_unlocked
+  #  - fileno
+  #  - fileno_unlocked
+  #  - fiprintf
+  #  - fiscanf
   - fls
   - flsl
   - flsll
-#  - fmemopen
+  #  - fmemopen
   - fnmatch
-#  - fopen
-#  - fopencookie
-#  - fork
+  #  - fopen
+  #  - fopencookie
+  #  - fork
   - fpgetmask
   - fpgetround
   - fpgetsticky
-#  - fprintf
+  #  - fprintf
   - fpsetmask
   - fpsetround
   - fpsetsticky
-#  - fpurge
-#  - fputc
-#  - fputc_unlocked
-#  - fputs
-#  - fputs_unlocked
-#  - fputwc
-#  - fputwc_unlocked
-#  - fputws
-#  - fputws_unlocked
-#  - fread
-#  - fread_unlocked
-#  - free
-#  - freelocale
-#  - freopen
-#  - fscanf
-#  - fseek
-#  - fseeko
-#  - fsetpos
-#  - fstat
-#  - ftell
-#  - ftello
-#  - funopen
+  #  - fpurge
+  #  - fputc
+  #  - fputc_unlocked
+  #  - fputs
+  #  - fputs_unlocked
+  #  - fputwc
+  #  - fputwc_unlocked
+  #  - fputws
+  #  - fputws_unlocked
+  #  - fread
+  #  - fread_unlocked
+  #  - free
+  #  - freelocale
+  #  - freopen
+  #  - fscanf
+  #  - fseek
+  #  - fseeko
+  #  - fsetpos
+  #  - fstat
+  #  - ftell
+  #  - ftello
+  #  - funopen
   - fwide
-#  - fwprintf
-#  - fwrite
-#  - fwrite_unlocked
-#  - fwscanf
-#  - gcvt
-#  - gcvtf
-#  - getc
-#  - getchar
-#  - getchar_unlocked
-#  - getc_unlocked
+  #  - fwprintf
+  #  - fwrite
+  #  - fwrite_unlocked
+  #  - fwscanf
+  #  - gcvt
+  #  - gcvtf
+  #  - getc
+  #  - getchar
+  #  - getchar_unlocked
+  #  - getc_unlocked
   - getentropy
-#  - getenv
+  #  - getenv
   - getopt
   - getopt_long
   - getopt_long_only
-#  - getpid
-#  - gets
+  #  - getpid
+  #  - gets
   - getsubopt
   - gettimeofday
-#  - getw
-#  - getwc
-#  - getwchar
-#  - getwchar_unlocked
-#  - getwc_unlocked
-#  - gmtime
+  #  - getw
+  #  - getwc
+  #  - getwchar
+  #  - getwchar_unlocked
+  #  - getwc_unlocked
+  #  - gmtime
   - gmtime_r
-#  - hcreate
-#  - hcreate_r
-#  - hdestroy
-#  - hdestroy_r
-#  - hsearch
-#  - hsearch_r
+  #  - hcreate
+  #  - hcreate_r
+  #  - hdestroy
+  #  - hdestroy_r
+  #  - hsearch
+  #  - hsearch_r
   - iconv
-#  - iconv_close
-#  - iconv_open
+  #  - iconv_close
+  #  - iconv_open
   - imaxabs
   - imaxdiv
-#  - increment
+  #  - increment
   - index
-#  - iprintf
+  #  - iprintf
   - isalnum
   - isalnum_l
   - isalpha
   - isalpha_l
   - isascii
   - isascii_l
-#  - isatty
+  #  - isatty
   - isblank
   - isblank_l
-#  - iscanf
+  #  - iscanf
   - iscntrl
   - iscntrl_l
   - isdigit
@@ -286,27 +286,27 @@ simple_function:
   - isxdigit
   - isxdigit_l
   - itoa
-#  - jrand48
-#  - kill
+  #  - jrand48
+  #  - kill
   - l64a
   - labs
-#  - lcong48
+  #  - lcong48
   - ldiv
   - link
   - llabs
   - lldiv
   - localeconv
-#  - localtime
+  #  - localtime
   - localtime_r
   - longjmp
-#  - lrand48
-#  - lseek
-#  - mallinfo
-#  - malloc
-#  - malloc_stats
-#  - malloc_trim
-#  - malloc_usable_size
-#  - mallopt
+  #  - lrand48
+  #  - lseek
+  #  - mallinfo
+  #  - malloc
+  #  - malloc_stats
+  #  - malloc_trim
+  #  - malloc_usable_size
+  #  - mallopt
   - mblen
   - mbrlen
   - mbrtowc
@@ -315,7 +315,7 @@ simple_function:
   - mbsrtowcs
   - mbstowcs
   - mbtowc
-#  - memalign
+  #  - memalign
   - memccpy
   - memchr
   - memcmp
@@ -325,87 +325,87 @@ simple_function:
   - mempcpy
   - memrchr
   - memset
-#  - mkdtemp
-#  - mkostemp
-#  - mkostemps
-#  - mkstemp
-#  - mkstemps
-#  - mktemp
+  #  - mkdtemp
+  #  - mkostemp
+  #  - mkostemps
+  #  - mkstemp
+  #  - mkstemps
+  #  - mktemp
   - mktime
   - modf
   - modff
-#  - mrand48
-#  - mstats
+  #  - mrand48
+  #  - mstats
   - nan
   - nanf
-#  - newlocale
+  #  - newlocale
   - nl_langinfo
   - nl_langinfo_l
-#  - nrand48
-#  - on_exit
-#  - open
-#  - open_memstream
-#  - open_wmemstream
-#  - perror
-#  - printf
-#  - psignal
-#  - putc
-#  - putchar
-#  - putchar_unlocked
-#  - putc_unlocked
-#  - putenv
-#  - puts
-#  - putw
-#  - putwc
-#  - putwchar
-#  - putwchar_unlocked
-#  - putwc_unlocked
-#  - pvalloc
+  #  - nrand48
+  #  - on_exit
+  #  - open
+  #  - open_memstream
+  #  - open_wmemstream
+  #  - perror
+  #  - printf
+  #  - psignal
+  #  - putc
+  #  - putchar
+  #  - putchar_unlocked
+  #  - putc_unlocked
+  #  - putenv
+  #  - puts
+  #  - putw
+  #  - putwc
+  #  - putwchar
+  #  - putwchar_unlocked
+  #  - putwc_unlocked
+  #  - pvalloc
   - qsort
   - qsort_r
-#  - quick_exit
-#  - raise
-#  - rand
-#  - random
+  #  - quick_exit
+  #  - raise
+  #  - rand
+  #  - random
   - rand_r
   - rawmemchr
-#  - read
-#  - realloc
-#  - reallocarray
-#  - reallocf
-#  - regcomp
+  #  - read
+  #  - realloc
+  #  - reallocarray
+  #  - reallocf
+  #  - regcomp
   - regerror
   - regexec
-#  - regfree
-#  - remove
-#  - rename
-#  - rewind
+  #  - regfree
+  #  - remove
+  #  - rename
+  #  - rewind
   - rindex
   - rpmatch
-#  - sbrk
-#  - scanf
-#  - seed48
+  #  - sbrk
+  #  - scanf
+  #  - seed48
   - select
-#  - setbuf
-#  - setbuffer
-#  - setenv
+  #  - setbuf
+  #  - setbuffer
+  #  - setenv
   - setjmp
-#  - setlinebuf
-#  - setlocale
-#  - set_ones
-#  - setvbuf
+  #  - setlinebuf
+  #  - setlocale
+  #  - set_ones
+  #  - setvbuf
   - sig2str
-#  - siprintf
-#  - siscanf
+  #  - siprintf
+  #  - siscanf
   - sleep
-#  - sniprintf
-#  - snprintf
-#  - sprintf
-#  - srand
-#  - srand48
-#  - srandom
-#  - sscanf
-#  - stat
+  #  - sniprintf
+  #  - snprintf
+  #  - sprintf
+  #  - srand
+  #  - srand48
+  #  - srandom
+  #  - sscanf
+  #  - stat
   - stpcpy
   - stpncpy
   - str2sig
@@ -420,9 +420,9 @@ simple_function:
   - strcoll_l
   - strcpy
   - strcspn
-#  - strdup
-#  - strerror
-#  - strerror_l
+  #  - strdup
+  #  - strerror
+  #  - strerror_l
   - strerror_r
   - strftime
   - strftime_l
@@ -435,7 +435,7 @@ simple_function:
   - strncat
   - strncmp
   - strncpy
-#  - strndup
+  #  - strndup
   - strnlen
   - strnstr
   - strpbrk
@@ -443,7 +443,7 @@ simple_function:
   - strptime_l
   - strrchr
   - strsep
-#  - strsignal
+  #  - strsignal
   - strspn
   - strstr
   - strtod
@@ -452,7 +452,7 @@ simple_function:
   - strtof_l
   - strtoimax
   - strtoimax_l
-#  - strtok
+  #  - strtok
   - strtok_r
   - strtol
   - strtold
@@ -471,72 +471,72 @@ simple_function:
   - strxfrm
   - strxfrm_l
   - swab
-#  - swprintf
-#  - swscanf
-#  - system
+  #  - swprintf
+  #  - swscanf
+  #  - system
   - tdelete
   - tdestroy
-#  - tempnam
+  #  - tempnam
   - tfind
   - time
   - times
   - timingsafe_bcmp
   - timingsafe_memcmp
-#  - tmpfile
-#  - tmpnam
+  #  - tmpfile
+  #  - tmpnam
   - toascii
   - toascii_l
   - tolower
   - tolower_l
   - toupper
   - toupper_l
-#  - towctrans
-#  - towctrans_l
+  #  - towctrans
+  #  - towctrans_l
   - towlower
   - towlower_l
   - towupper
   - towupper_l
   - tsearch
   - twalk
-#  - tzset
-#  - ULtox
-#  - ungetc
-#  - ungetwc
-#  - unlink
-#  - unsetenv
+  #  - tzset
+  #  - ULtox
+  #  - ungetc
+  #  - ungetwc
+  #  - unlink
+  #  - unsetenv
   - uselocale
   - usleep
   - utoa
-#  - valloc
-#  - vasiprintf
-#  - vasniprintf
-#  - vasnprintf
-#  - vasprintf
-#  - vdiprintf
-#  - vdprintf
-#  - vfiprintf
-#  - vfiscanf
-#  - vfiwprintf
-#  - vfiwscanf
-#  - vfprintf
-#  - vfscanf
-#  - vfwprintf
-#  - vfwscanf
-#  - viprintf
-#  - viscanf
-#  - vprintf
-#  - vscanf
-#  - vsiprintf
-#  - vsiscanf
-#  - vsniprintf
-#  - vsnprintf
-#  - vsprintf
-#  - vsscanf
-#  - vswprintf
-#  - vswscanf
-#  - vwprintf
-#  - vwscanf
-#  - wait
+  #  - valloc
+  #  - vasiprintf
+  #  - vasniprintf
+  #  - vasnprintf
+  #  - vasprintf
+  #  - vdiprintf
+  #  - vdprintf
+  #  - vfiprintf
+  #  - vfiscanf
+  #  - vfiwprintf
+  #  - vfiwscanf
+  #  - vfprintf
+  #  - vfscanf
+  #  - vfwprintf
+  #  - vfwscanf
+  #  - viprintf
+  #  - viscanf
+  #  - vprintf
+  #  - vscanf
+  #  - vsiprintf
+  #  - vsiscanf
+  #  - vsniprintf
+  #  - vsnprintf
+  #  - vsprintf
+  #  - vsscanf
+  #  - vswprintf
+  #  - vswscanf
+  #  - vwprintf
+  #  - vwscanf
+  #  - wait
   - wcpcpy
   - wcpncpy
   - wcrtomb
@@ -549,7 +549,7 @@ simple_function:
   - wcscoll_l
   - wcscpy
   - wcscspn
-#  - wcsdup
+  #  - wcsdup
   - wcsftime
   - wcsftime_l
   - wcslcat
@@ -603,11 +603,11 @@ simple_function:
   - wmemmove
   - wmempcpy
   - wmemset
-#  - wprintf
-#  - write
-#  - wscanf
+  #  - wprintf
+  #  - write
+  #  - wscanf
 
-# libm.a
+  # libm.a
   - acos
   - acosf
   - acosh
@@ -888,7 +888,7 @@ simple_function:
   - yn
   - ynf
 
-# BadgeVMS
+  # BadgeVMS
   - application_create
   - application_create_file
   - application_create_file_string
@@ -936,10 +936,12 @@ simple_function:
   - wifi_get_connection_station
   - wifi_get_connection_status
   - wifi_get_status
+  - wifi_connect_to
   - wifi_scan_free_station
   - wifi_scan_get_num_results
   - wifi_scan_get_result
   - wifi_station_get_bssid
+  - wifi_station_get_authmode
   - wifi_station_get_mode
   - wifi_station_get_primary_channel
   - wifi_station_get_rssi
@@ -964,7 +966,7 @@ simple_function:
   - window_title_get
   - window_title_set
 
-# Curl
+  # Curl
   - curl_easy_cleanup
   - curl_easy_getinfo
   - curl_easy_init
@@ -976,7 +978,7 @@ simple_function:
   - curl_slist_append
   - curl_slist_free_all
 
-# Networking
+  # Networking
   - freeaddrinfo
   - inet_ntoa
   - inet_aton

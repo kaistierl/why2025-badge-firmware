@@ -8,3 +8,4 @@ sdk_dist/
 .vscode
 .clangd
 .cache
+.DS_Store
