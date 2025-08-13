@@ -138,16 +138,16 @@ build_app(hello
 #    SOURCES
 #     framebuffer_test_a.c
 #)
-#
-#build_app(hardware_test
-#    SOURCES
-#     thirdparty/microui.c
-#     test_badge.c
-#     test_drawing_helper.c
-#     test_keyboard.c
-#     run_tests.c
-#)
-#
+
+build_app(hardware_test
+    SOURCES
+     thirdparty/microui.c
+     test_badge.c
+     test_drawing_helper.c
+     test_keyboard.c
+     run_tests.c
+)
+
 build_app(sdl_test
     SOURCES
      sdl_test.c
