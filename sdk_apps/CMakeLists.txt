@@ -331,3 +331,9 @@ build_app(why2025_namebadge
 
 get_property(SDK_APP_ELFS GLOBAL PROPERTY SDK_APP_ELFS)
 add_custom_target(sdk_app_build_all ALL DEPENDS ${SDK_APP_ELFS})
+
+# WiFi setup app: scan, select SSID, enter password, connect
+build_app(wifi_setup
+    SOURCES
+     wifi_setup.c
+)

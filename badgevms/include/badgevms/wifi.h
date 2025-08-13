@@ -101,3 +101,8 @@ int              wifi_station_get_secondary_channel(wifi_station_handle station)
 int              wifi_station_get_rssi(wifi_station_handle station);
 wifi_auth_mode_t wifi_station_get_mode(wifi_station_handle station);
 bool             wifi_station_wps(wifi_station_handle station);
+
+wifi_connection_status_t wifi_connect_to(char const *ssid, char const *password); // Connect to a specific SSID
+wifi_auth_mode_t wifi_station_get_authmode(wifi_station_handle station); // Get the authentication mode (e.g., WIFI_AUTH_OPEN vs WPA2/WPA3).
+uint32_t wifi_scan_time_until_ok_ms(); // Get the time until the next scan is allowed
+bool     wifi_scan_is_busy(); // Check if a scan is currently in progress

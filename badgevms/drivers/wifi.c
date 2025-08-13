@@ -72,6 +72,8 @@ typedef enum {
 typedef struct {
     TaskHandle_t   caller;
     wifi_command_t command;
+    char           ssid[33];
+    char           password[65];
 } wifi_command_message_t;
 
 static int           s_retry_num = 0;
@@ -83,7 +85,7 @@ static EventGroupHandle_t           wifi_event_group;
 static esp_event_handler_instance_t instance_any_id;
 static esp_event_handler_instance_t instance_got_ip;
 
-#define MIN_SCAN_INTERVAL 60 * 1000
+#define MIN_SCAN_INTERVAL (2000 * 1000)
 
 static badgevms_wifi_auth_mode_t esp_authmode_to_badgevms(wifi_auth_mode_t mode) {
     switch (mode) {
@@ -243,7 +245,7 @@ again:
     }
 }
 
-static void hermes_do_connect() {
+static void hermes_do_connect(char const *ssid, char const *password) {
     status.connection_status_want = WIFI_CONNECTED;
     if (status.connection_status == WIFI_CONNECTED) {
         ESP_LOGW("HERMES", "Already connected");
@@ -253,11 +255,19 @@ static void hermes_do_connect() {
     ESP_ERROR_CHECK(esp_wifi_disconnect());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = "WHY2025-open",
-        },
-    };
+    wifi_config_t wifi_config = { 0 };
+    if (ssid && ssid[0]) {
+        strlcpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
+        if (password && password[0]) {
+            strlcpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
+        } else {
+            wifi_config.sta.password[0] = '\0';
+        }
+    } else {
+        // Fallback to previous default if no SSID provided
+        strlcpy((char *)wifi_config.sta.ssid, "WHY2025-open", sizeof(wifi_config.sta.ssid));
+        wifi_config.sta.password[0] = '\0';
+    }
 
 
     // esp_eap_client_set_identity((uint8_t *)EXAMPLE_EAP_ID, strlen(EXAMPLE_EAP_ID));
@@ -322,9 +332,15 @@ static void hermes_do_scan() {
 
     ESP_LOGW("HERMES", "Total APs scanned = %u, actual AP number ap_info holds = %u", ap_count, number);
     xSemaphoreTake(status.mutex, portMAX_DELAY);
-    status.num_scan_results = ap_count;
+    // Limit to the number of records actually fetched into ap_info
+    if (ap_count > number) {
+        status.num_scan_results = number;
+    } else {
+        status.num_scan_results = ap_count;
+    }
 
-    for (int i = 0; i < ap_count; i++) {
+    int to_copy = status.num_scan_results;
+    for (int i = 0; i < to_copy; i++) {
         wifi_station_t *s = &status.scan_results[i];
 
         memcpy(&s->bssid, ap_info[i].bssid, sizeof(mac_address_t));
@@ -349,7 +365,8 @@ static void hermes(void *ignored) {
             switch (command->command) {
                 case WIFI_COMMAND_CONNECT:
                     ESP_LOGW("HERMES", "Connecting to the divine realm");
-                    hermes_do_connect();
+                    hermes_do_connect(command->ssid[0] ? command->ssid : NULL,
+                                     command->password[0] ? command->password : NULL);
                     break;
                 case WIFI_COMMAND_DISCONNECT:
                     ESP_LOGW("HERMES", "Confining to the mortal plane");
@@ -433,9 +450,8 @@ badgevms_wifi_connection_status_t wifi_disconnect() {
 
 int wifi_scan_get_num_results() {
     if (status.status != WIFI_DISABLED) {
-        if (send_command(WIFI_COMMAND_SCAN) == WIFI_ERROR) {
-            return 0;
-        }
+        // For scans, the connection status isn't relevant; ignore return code
+        (void)send_command(WIFI_COMMAND_SCAN);
     }
 
     xSemaphoreTake(status.mutex, portMAX_DELAY);
@@ -491,6 +507,27 @@ int wifi_station_get_rssi(wifi_station_handle station) {
 
 bool wifi_station_wps(wifi_station_handle station) {
     return station->wps;
+}
+
+badgevms_wifi_auth_mode_t wifi_station_get_authmode(wifi_station_handle station) {
+    return station->authmode;
+}
+
+badgevms_wifi_connection_status_t wifi_connect_to(char const *ssid, char const *password) {
+    if (!ssid || !ssid[0]) {
+        return WIFI_ERROR;
+    }
+
+    wifi_command_message_t *c = calloc(1, sizeof(wifi_command_message_t));
+    if (!c) return WIFI_ERROR;
+    c->caller  = xTaskGetCurrentTaskHandle();
+    c->command = WIFI_COMMAND_CONNECT;
+    strlcpy(c->ssid, ssid, sizeof(c->ssid));
+    if (password) strlcpy(c->password, password, sizeof(c->password));
+
+    xQueueSend(hermes_queue, &c, portMAX_DELAY);
+    badgevms_wifi_connection_status_t res = ulTaskNotifyTakeIndexed(0, pdTRUE, portMAX_DELAY);
+    return res;
 }
 
 static int wifi_open(void *dev, path_t *path, int flags, mode_t mode) {
@@ -563,4 +600,19 @@ device_t *wifi_create() {
     hermes_queue = xQueueCreate(5, sizeof(wifi_command_message_t *));
     create_kernel_task(hermes, "Hermes", 4096, NULL, 5, &hermes_handle, 0);
     return (device_t *)dev;
+}
+
+uint32_t wifi_scan_time_until_ok_ms() {
+    struct timespec cur_time;
+    clock_gettime(CLOCK_MONOTONIC, &cur_time);
+    long elapsed_us = (cur_time.tv_sec - status.last_scan_time.tv_sec) * 1000000L +
+                      (cur_time.tv_nsec - status.last_scan_time.tv_nsec) / 1000L;
+    if (!(status.last_scan_time.tv_sec || status.last_scan_time.tv_nsec)) return 0;
+    long remain_us = (long)MIN_SCAN_INTERVAL - elapsed_us;
+    if (remain_us <= 0) return 0;
+    return (uint32_t)((remain_us + 999) / 1000); // ceil to ms
+}
+
+bool wifi_scan_is_busy() {
+    return wifi_scan_time_until_ok_ms() != 0;
 }
