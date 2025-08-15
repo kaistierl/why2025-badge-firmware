@@ -19,6 +19,7 @@
 #include "badgevms/compositor.h"
 #include "badgevms/event.h"
 #include "badgevms/framebuffer.h"
+#include "badgevms/keyboard.h"
 #include "run_tests.h"
 #include "test_drawing_helper.h"
 #include "test_keyboard.h"
@@ -30,6 +31,18 @@
 
 #include <string.h>
 #include <time.h>
+
+typedef enum
+{
+    RENDER_MODE_TESTS,
+    RENDER_MODE_FULL_WHITE,
+    RENDER_MODE_FULL_RED,
+    RENDER_MODE_FULL_GREEN,
+    RENDER_MODE_FULL_BLUE,
+
+    RENDER_MODE_COUNT,
+} render_mode_t;
+static render_mode_t render_mode = RENDER_MODE_TESTS;
 
 void init_tests(app_state_t *app) {
     app->num_tests = 10;
@@ -81,9 +94,25 @@ void render_ui(app_state_t *app) {
     mu_Context *ctx = app->ctx;
 
     uint16_t bg_color = rgb888_to_rgb565(32, 32, 32);
+
+    if (render_mode != RENDER_MODE_TESTS)
+    {
+        if (render_mode == RENDER_MODE_FULL_WHITE)
+            bg_color = rgb888_to_rgb565(0xFF, 0xFF, 0xFF);
+        if (render_mode == RENDER_MODE_FULL_RED)
+            bg_color = rgb888_to_rgb565(0xFF, 0x00, 0x00);
+        if (render_mode == RENDER_MODE_FULL_GREEN)
+            bg_color = rgb888_to_rgb565(0x00, 0xFF, 0x00);
+        if (render_mode == RENDER_MODE_FULL_BLUE)
+            bg_color = rgb888_to_rgb565(0x00, 0x00, 0xFF);
+    }
+
     for (int i = 0; i < app->fb->w * app->fb->h; i++) {
         app->fb->pixels[i] = bg_color;
     }
+
+    if (render_mode != RENDER_MODE_TESTS)
+        return;
 
     mu_begin(ctx);
 
@@ -186,12 +215,29 @@ int main() {
             event_t event = window_event_poll(app.window, false, sleep_time / 1000);
 
             switch (event.type) {
-                case EVENT_QUIT: running = false; break;
-
+                case EVENT_QUIT:
+                {
+                    running = false;
+                    break;
+                }
                 case EVENT_KEY_DOWN:
-                case EVENT_KEY_UP: handle_keyboard_event(&app, &event.keyboard); break;
-
-                default: break;
+                {
+                    if (event.keyboard.scancode == KEY_SCANCODE_SPACE)
+                    {
+                        render_mode++;
+                        if (render_mode >= RENDER_MODE_COUNT)
+                            render_mode = 0;
+                    }
+                    handle_keyboard_event(&app, &event.keyboard);
+                    break;
+                }
+                case EVENT_KEY_UP:
+                {
+                    handle_keyboard_event(&app, &event.keyboard);
+                    break;
+                }
+                default:
+                    break;
             }
 
             render_ui(&app);

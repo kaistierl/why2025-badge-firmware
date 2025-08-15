@@ -21,14 +21,13 @@ int ping_badgehub(void) {
     CURL *curl = curl_easy_init();
 
     CURLcode res;
-    uint64_t unique_id = get_unique_id();
+    const char* mac = get_mac_address();
     char     url[200];
     snprintf(
         url,
         sizeof(url),
-        "https://badge.why2025.org/api/v3/ping?mac=badge_mac&id=%08lX%08lX",
-        (uint32_t)(unique_id >> 32),
-        (uint32_t)unique_id
+        "https://badge.why2025.org/api/v3/ping?id=%s-v1&mac=%s",
+        mac, mac
     );
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "BadgeVMS-libcurl/1.0");
@@ -60,16 +59,10 @@ int ping_badgehub(void) {
 
 void device_id_test(app_state_t *app) {
     // Run the Device ID test
-    uint64_t unique_id = get_unique_id();
-    snprintf(
-        app->tests[8].status,
-        sizeof(app->tests[8].status),
-        "%08lX%08lX",
-        (uint32_t)(unique_id >> 32),
-        (uint32_t)unique_id
-    );
-    printf("Device ID: %08lX%08lX\n", (uint32_t)(unique_id >> 32), (uint32_t)unique_id);
-    app->tests[8].passed = unique_id != 0;
+    const char* mac = get_mac_address();
+    snprintf(app->tests[8].status, sizeof(app->tests[8].status), "%s", mac);
+    printf("Device ID: %s\n", mac);
+    app->tests[8].passed = mac != NULL;
 }
 
 
