@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <netinet/in.h>
 
 #define AF_UNIX             1
 #define PF_LOCAL            AF_UNIX
