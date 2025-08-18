@@ -1,0 +1,21 @@
+menu "Example Configuration"
+
+    config I2C_MASTER_SCL
+        int "SCL GPIO Num"
+        default 5
+        help
+            GPIO number for I2C Master clock line.
+
+    config I2C_MASTER_SDA
+        int "SDA GPIO Num"
+        default 4
+        help
+            GPIO number for I2C Master data line.
+
+    config BME690_SDO_PULLED_DOWN
+        bool "BME690 SDO Pin Pulled Down to GND"
+            default n
+        help
+            Enable if SDO pin is pulled down, disable if SDO pin is pulled up. This will decide the i2c address.
+
+endmenu
