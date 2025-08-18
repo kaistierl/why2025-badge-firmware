@@ -157,6 +157,14 @@ static int _why_rename_single(char const *oldpath_resolved, char const *newpath_
     device_t *device = device_get(parsed_oldpath.device);
     if (!device || device->type != DEVICE_TYPE_FILESYSTEM ||
         strcmp(parsed_oldpath.device, parsed_newpath.device) != 0) {
+        ESP_LOGW(
+            "_why_rename_single",
+            "Unable to open device for %s -> %s, dev: %s -> %s",
+            oldpath_resolved,
+            newpath_resolved,
+            parsed_oldpath.device,
+            parsed_newpath.device
+        );
         path_free(&parsed_oldpath);
         path_free(&parsed_newpath);
         return -1;
@@ -309,8 +317,10 @@ int why_rename(char const *oldpath, char const *newpath) {
         }
 
         logical_name_result_free(oldname);
+        logical_name_result_free(newname);
         ESP_LOGI("why_rename", "Resolving oldpath at index %i", i + 1);
         oldname = logical_name_resolve_const(oldpath, i + 1);
+        newname = logical_name_resolve_const(newpath, i + 1);
     }
 
     task_info->_errno = ENOENT;

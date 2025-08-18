@@ -997,6 +997,7 @@ simple_function_extern:
   - __fixunsdfsi
   - __floatdisf
   - __floatsidf
+  - __floatundidf
   - __floatunsidf
   - __gedf2
   - __gtdf2
@@ -1004,6 +1005,7 @@ simple_function_extern:
   - __ledf2
   - __ltdf2
   - __muldf3
+  - __nedf2
   - __popcountsi2
   - __riscv_restore_0
   - __riscv_restore_1

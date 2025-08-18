@@ -24,6 +24,8 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+#define CURL_GLOBAL_DEFAULT 0
+
 typedef void CURL;
 typedef int  CURLcode;
 typedef int  CURLoption;

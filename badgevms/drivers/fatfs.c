@@ -77,6 +77,7 @@ static int fatfs_open(void *dev, path_t *path, int flags, mode_t mode) {
 }
 
 static int fatfs_close(void *dev, int fd) {
+    fsync(fd);
     return close(fd);
 }
 

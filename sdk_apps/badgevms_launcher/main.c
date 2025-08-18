@@ -165,7 +165,7 @@ static void draw_about_dialog(Launcher_Context *ctx) {
         CDE_INACTIVE_TEXT
     );
 
-    draw_text_centered(ctx, dialog_x, content_y + 60, dialog_w, "Press ENTER or ESC to close", CDE_INACTIVE_TEXT);
+    draw_text_centered(ctx, dialog_x, content_y + 120, dialog_w, "Press ENTER or ESC to close", CDE_INACTIVE_TEXT);
 }
 
 static void draw_launcher_window(Launcher_Context *ctx) {
