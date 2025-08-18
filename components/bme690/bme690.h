@@ -1,7 +1,7 @@
 #ifndef BME69X_I2C_ESPIDF_H
 #define BME69X_I2C_ESPIDF_H
 
-#include "bme69x_i2c_helper.h"
+#include "bme690_helper.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -18,8 +18,8 @@
  * the BME69X device.
  */
 typedef struct {
-    i2c_bus_handle_t i2c_handle;    /*!< I2C handle/context used to connect to the BME69X device */
-    uint8_t i2c_addr;    /*!< I2C address of the BME69X device */
+    i2c_bus_handle_t i2c_handle; /*!< I2C handle/context used to connect to the BME69X device */
+    uint8_t         i2c_addr;    /*!< I2C address of the BME69X device */
 } bme69x_i2c_config_t;
 
 /**

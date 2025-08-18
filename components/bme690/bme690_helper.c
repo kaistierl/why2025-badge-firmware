@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "bme69x_i2c_helper.h"
+#include "bme690_helper.h"
 #include "esp_log.h"
 
 
@@ -34,22 +34,6 @@ BME69X_INTF_RET_TYPE bme69x_i2c_write(uint8_t reg_addr, const uint8_t *reg_data,
 {
     i2c_bus_device_handle_t intf_info = (i2c_bus_device_handle_t)intf_ptr;
     return i2c_bus_write_bytes(intf_info, reg_addr, len, reg_data);
-}
-
-/*!
- * SPI read function map to COINES platform
- */
-BME69X_INTF_RET_TYPE bme69x_spi_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr)
-{
-    return 0; // TODO
-}
-
-/*!
- * SPI write function map to COINES platform
- */
-BME69X_INTF_RET_TYPE bme69x_spi_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, void *intf_ptr)
-{
-    return 0; // TODO
 }
 
 /*!
@@ -122,14 +106,6 @@ int8_t bme69x_interface_init(struct bme69x_dev *bme, uint8_t intf, uint8_t dev_a
             }
             intf_conf = i2c_device_handle;
             bme->intf_ptr = (void *)intf_conf;
-        }
-        else if (intf == BME69X_SPI_INTF)
-        {
-            bme->intf = BME69X_SPI_INTF;
-            bme->read = bme69x_spi_read;
-            bme->write = bme69x_spi_write;
-            ESP_LOGE("BME69X", "SPI Interface not supported yet");
-            rslt = BME69X_E_COM_FAIL;
         }
         else
         {

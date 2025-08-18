@@ -1,6 +1,6 @@
 idf_component_register(
-    SRC_DIRS "." "./BME690_SensorAPI/"
-    INCLUDE_DIRS "." "./BME690_SensorAPI/"
+    SRC_DIRS "." "./sensor_api/"
+    INCLUDE_DIRS "." "./sensor_api/"
     REQUIRES "driver"
 )
 

@@ -11,7 +11,7 @@
 #include "esp_timer.h"
 #include "driver/gpio.h"
 
-#include "bme69x_i2c_esp_idf.h"
+#include "bme690.h"
 #include "driver/i2c.h"
 
 // Settings

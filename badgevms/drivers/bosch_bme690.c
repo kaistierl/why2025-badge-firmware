@@ -16,7 +16,7 @@
 
 #include "bosch_bme690.h"
 #include "badgevms_config.h"
-#include "bme69x_i2c_esp_idf.h"
+#include "bme690.h"
 #include <stdatomic.h>
 
 #define BME690_I2C_ADDR 0x76
@@ -43,10 +43,14 @@ typedef struct {
 
 void why_bme69x_error_codes_print_result(int8_t rslt) {
     switch (rslt) {
-        case BME69X_OK:
-            // do nothing
-            break;
-        default: ESP_LOGW(TAG, "Error [%d] : Unknown error code", rslt); break;
+        case BME69X_OK:                 break;
+        case BME69X_E_NULL_PTR:         ESP_LOGE(TAG, "Error [%d] : Null pointer\r\n", rslt); break;
+        case BME69X_E_COM_FAIL:         ESP_LOGE(TAG, "Error [%d] : Communication failure\r\n", rslt); break;
+        case BME69X_E_INVALID_LENGTH:   ESP_LOGE(TAG, "Error [%d] : Incorrect length parameter\r\n", rslt); break;
+        case BME69X_E_DEV_NOT_FOUND:    ESP_LOGE(TAG, "Error [%d] : Device not found\r\n", rslt); break;
+        case BME69X_E_SELF_TEST:        ESP_LOGE(TAG, "Error [%d] : Self test error\r\n", rslt); break;
+        case BME69X_W_NO_NEW_DATA:      ESP_LOGW(TAG, "Warning [%d] : No new data found\r\n", rslt); break;
+        default:                        ESP_LOGE(TAG, "Error [%d] : Unknown error code", rslt); break;
     }
 }
 
@@ -96,7 +100,7 @@ static struct bme69x_data get_environment(void *dev) {
     rslt = bme69x_set_conf(&conf, device->sensor);
     why_bme69x_error_codes_print_result(rslt);
     if (rslt != BME69X_OK) {
-        return data;
+        return device->environment;
     }
 
     heatr_conf.enable = BME69X_ENABLE;
@@ -105,13 +109,13 @@ static struct bme69x_data get_environment(void *dev) {
     rslt = bme69x_set_heatr_conf(BME69X_FORCED_MODE, &heatr_conf, device->sensor);
     why_bme69x_error_codes_print_result(rslt);
     if (rslt != BME69X_OK) {
-        return data;
+        return device->environment;
     }
 
     rslt = bme69x_set_op_mode(BME69X_FORCED_MODE, device->sensor);
     why_bme69x_error_codes_print_result(rslt);
     if (rslt != BME69X_OK) {
-        return data;
+        return device->environment;
     }
 
     del_period = bme69x_get_meas_dur(BME69X_FORCED_MODE, &conf, device->sensor) + (heatr_conf.heatr_dur * 1000);
@@ -120,14 +124,14 @@ static struct bme69x_data get_environment(void *dev) {
     rslt = bme69x_get_data(BME69X_FORCED_MODE, &data, &n_fields, device->sensor);
     why_bme69x_error_codes_print_result(rslt);
     if (rslt != BME69X_OK) {
-        return data;
+        return device->environment;
     }
 
     device->environment = data;
 
     atomic_flag_clear(&device->open);
 
-    return data;
+    return device->environment;
 }
 
 float get_pressure(void *dev) {
@@ -204,7 +208,7 @@ device_t *bosch_bme690_sensor_create() {
         return NULL;
     }
 
-    ESP_LOGW(TAG, "BME690 initialized");
+    ESP_LOGI(TAG, "BME690 initialized");
 
     return (device_t *)dev;
 }

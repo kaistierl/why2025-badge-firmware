@@ -1,4 +1,4 @@
-#include "bme69x_i2c_esp_idf.h"
+#include "bme690.h"
 
 const static char *TAG = "bme69x";
 
