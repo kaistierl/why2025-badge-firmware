@@ -23,8 +23,6 @@
 #define CDE_TITLE_BG      0x808080
 #define CDE_INACTIVE_TEXT 0x808080
 
-static int quit = 0;
-
 typedef struct {
     window_handle_t window;
     framebuffer_t  *framebuffer;
@@ -34,7 +32,8 @@ typedef struct {
     int             selected_item;
     int             total_items;
     int             items_per_page;
-    int             show_about;
+    bool            show_about;
+    bool            quit;
 } Launcher_Context;
 
 static inline uint16_t rgb888_to_rgb565_color(uint32_t rgb888) {
@@ -140,24 +139,20 @@ static void draw_button(Launcher_Context *ctx, int x, int y, int w, int h, char 
 }
 
 static void draw_about_dialog(Launcher_Context *ctx) {
-    int dialog_w = 400;
+    int dialog_w = 450;
     int dialog_h = 350;
     int dialog_x = (SCREEN_WIDTH - dialog_w) / 2;
     int dialog_y = (SCREEN_HEIGHT - dialog_h) / 2;
 
-    // Draw shadow
     draw_rect(ctx, dialog_x + 5, dialog_y + 5, dialog_w, dialog_h, 0x505050);
 
-    // Draw dialog background
     draw_rect(ctx, dialog_x, dialog_y, dialog_w, dialog_h, CDE_PANEL_COLOR);
     draw_3d_border(ctx, dialog_x, dialog_y, dialog_w, dialog_h, 0);
 
-    // Title bar
     int title_h = 30;
     draw_rect(ctx, dialog_x + 2, dialog_y + 2, dialog_w - 4, title_h, CDE_TITLE_BG);
     draw_text_bold(ctx, dialog_x + 10, dialog_y + 8, "About BadgeVMS", CDE_SELECTED_TEXT);
 
-    // Content
     int content_y = dialog_y + title_h + 30;
     draw_text_centered(ctx, dialog_x, content_y, dialog_w, "BadgeVMS", CDE_TEXT_COLOR);
     draw_text_centered(ctx, dialog_x, content_y + 30, dialog_w, "Version 1.0", CDE_TEXT_COLOR);
@@ -170,14 +165,7 @@ static void draw_about_dialog(Launcher_Context *ctx) {
         CDE_INACTIVE_TEXT
     );
 
-    // OK button
-    int btn_w = 80;
-    int btn_h = 30;
-    int btn_x = dialog_x + (dialog_w - btn_w) / 2;
-    int btn_y = dialog_y + dialog_h - btn_h - 15;
-    draw_button(ctx, btn_x, btn_y, btn_w, btn_h, "OK", 0);
-
-    draw_text_centered(ctx, dialog_x, btn_y - 25, dialog_w, "Press ENTER or ESC to close", CDE_INACTIVE_TEXT);
+    draw_text_centered(ctx, dialog_x, content_y + 60, dialog_w, "Press ENTER or ESC to close", CDE_INACTIVE_TEXT);
 }
 
 static void draw_launcher_window(Launcher_Context *ctx) {
@@ -186,19 +174,15 @@ static void draw_launcher_window(Launcher_Context *ctx) {
     int window_w = SCREEN_WIDTH - 60;
     int window_h = SCREEN_HEIGHT - 60;
 
-    // Draw desktop background
     draw_rect(ctx, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, CDE_BG_COLOR);
 
-    // Draw main window
     draw_rect(ctx, window_x, window_y, window_w, window_h, CDE_PANEL_COLOR);
     draw_3d_border(ctx, window_x, window_y, window_w, window_h, 0);
 
-    // Title bar
     int title_h = 45;
     draw_rect(ctx, window_x + 3, window_y + 3, window_w - 6, title_h, CDE_TITLE_BG);
     draw_text_bold(ctx, window_x + 15, window_y + 11, "WHY Application Launcher", CDE_SELECTED_TEXT);
 
-    // Application count
     char count_text[64];
     if (ctx->total_items == 1) {
         snprintf(count_text, sizeof(count_text), "1 Application Available");
@@ -207,36 +191,30 @@ static void draw_launcher_window(Launcher_Context *ctx) {
     }
     draw_text(ctx, window_x + 15, window_y + title_h + 20, count_text, CDE_TEXT_COLOR);
 
-    // Application list area
     int list_y      = window_y + title_h + 55;
     int list_h      = window_h - title_h - 110;
-    int item_height = 85;
+    int item_height = 80;
 
-    // List background
     draw_rect(ctx, window_x + 15, list_y, window_w - 30, list_h, 0xFFFFFF);
     draw_3d_border(ctx, window_x + 15, list_y, window_w - 30, list_h, 1);
 
-    // Calculate visible items
     ctx->items_per_page = (list_h - 6) / item_height;
     int visible_start   = ctx->scroll_offset;
     int visible_end     = visible_start + ctx->items_per_page;
     if (visible_end > ctx->total_items)
         visible_end = ctx->total_items;
 
-    // Draw application items
     for (int i = visible_start; i < visible_end; i++) {
         int item_y = list_y + 3 + (i - visible_start) * item_height;
         int item_x = window_x + 18;
         int item_w = window_w - 36;
 
-        // Selection highlight
         if (i == ctx->selected_item) {
             draw_rect(ctx, item_x, item_y, item_w, item_height - 2, CDE_SELECTED_BG);
         }
 
         uint32_t text_color = (i == ctx->selected_item) ? CDE_SELECTED_TEXT : CDE_TEXT_COLOR;
 
-        // Draw app icon placeholder (a simple box)
         int icon_size = 48;
         int icon_x    = item_x + 10;
         int icon_y    = item_y + (item_height - icon_size) / 2;
@@ -245,11 +223,9 @@ static void draw_launcher_window(Launcher_Context *ctx) {
         draw_rect(ctx, icon_x, icon_y, icon_size, icon_size, icon_color);
         draw_3d_border(ctx, icon_x, icon_y, icon_size, icon_size, 1);
 
-        // App name and details
         int text_x = icon_x + icon_size + 15;
         draw_text_bold(ctx, text_x, item_y + 10, ctx->applications[i]->name, text_color);
 
-        // Version
         if (ctx->applications[i]->version) {
             char version_text[64];
             snprintf(version_text, sizeof(version_text), "v%s", ctx->applications[i]->version);
@@ -257,7 +233,6 @@ static void draw_launcher_window(Launcher_Context *ctx) {
         }
 
 #if 0
-        // Description (truncated if needed)
         if (ctx->applications[i].description) {
             char desc[60] = {0};
             int max_desc_chars = ((item_w - text_x + item_x - 16) / FONT_WIDTH);
@@ -275,23 +250,19 @@ static void draw_launcher_window(Launcher_Context *ctx) {
         }
 #endif
 
-        // Separator line
         if (i < visible_end - 1) {
             draw_rect(ctx, item_x, item_y + item_height - 2, item_w, 1, CDE_BORDER_DARK);
         }
     }
 
-    // Scrollbar (if needed)
     if (ctx->total_items > ctx->items_per_page) {
         int scrollbar_x = window_x + window_w - 35;
         int scrollbar_y = list_y + 3;
         int scrollbar_h = list_h - 6;
 
-        // Scrollbar track
         draw_rect(ctx, scrollbar_x, scrollbar_y, 20, scrollbar_h, CDE_BUTTON_COLOR);
         draw_3d_border(ctx, scrollbar_x, scrollbar_y, 20, scrollbar_h, 1);
 
-        // Scrollbar thumb
         int thumb_h = (scrollbar_h * ctx->items_per_page) / ctx->total_items;
         if (thumb_h < 30)
             thumb_h = 30;
@@ -305,7 +276,6 @@ static void draw_launcher_window(Launcher_Context *ctx) {
         draw_3d_border(ctx, scrollbar_x + 3, thumb_y, 14, thumb_h, 0);
     }
 
-    // Status bar / instructions
     draw_rect(ctx, window_x + 3, window_y + window_h - 42, window_w - 6, 39, CDE_BUTTON_COLOR);
     draw_3d_border(ctx, window_x + 3, window_y + window_h - 42, window_w - 6, 39, 1);
 
@@ -321,7 +291,7 @@ static void draw_launcher_window(Launcher_Context *ctx) {
 static void handle_keyboard(Launcher_Context *ctx, keyboard_scancode_t key_code) {
     if (ctx->show_about) {
         if (key_code == KEY_SCANCODE_ESCAPE || key_code == KEY_SCANCODE_RETURN || key_code == KEY_SCANCODE_SPACE) {
-            ctx->show_about = 0;
+            ctx->show_about = false;
         }
         return;
     }
@@ -351,10 +321,10 @@ static void handle_keyboard(Launcher_Context *ctx, keyboard_scancode_t key_code)
             application_launch(ctx->applications[ctx->selected_item]->unique_identifier);
             break;
 
-        case KEY_SCANCODE_A: ctx->show_about = 1; break;
+        case KEY_SCANCODE_A: ctx->show_about = true; break;
 
         case KEY_SCANCODE_ESCAPE: {
-            quit = 1;
+            ctx->quit = true;
         } break;
     }
 }
@@ -367,7 +337,8 @@ static bool run_launcher(application_t **applications, size_t num) {
     ctx.total_items      = num;
     ctx.selected_item    = 0;
     ctx.scroll_offset    = 0;
-    ctx.show_about       = 0;
+    ctx.show_about       = false;
+    ctx.quit             = false;
 
     ctx.window = window_create(
         "Application Launcher",
@@ -393,9 +364,8 @@ static bool run_launcher(application_t **applications, size_t num) {
 
     ctx.pixels = ctx.framebuffer->pixels;
     event_t e;
-    quit = false;
 
-    while (!quit) {
+    while (!ctx.quit) {
         memset(ctx.pixels, 0, SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t));
 
         draw_launcher_window(&ctx);
@@ -408,7 +378,7 @@ static bool run_launcher(application_t **applications, size_t num) {
 
         e = window_event_poll(ctx.window, true, 0);
         if (e.type == EVENT_QUIT) {
-            quit = 1;
+            ctx.quit = true;
         } else if (e.type == EVENT_KEY_DOWN) {
             handle_keyboard(&ctx, e.keyboard.scancode);
         }

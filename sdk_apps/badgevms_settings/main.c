@@ -239,7 +239,7 @@ static void draw_main_settings(app_context *ctx) {
 
     int list_y      = window_y + title_h + 20;
     int list_h      = window_h - title_h - 80;
-    int item_height = 85;
+    int item_height = 80;
 
     draw_rect(ctx, window_x + 15, list_y, window_w - 30, list_h, 0xFFFFFF);
     draw_3d_border(ctx, window_x + 15, list_y, window_w - 30, list_h, 1);
