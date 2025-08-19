@@ -268,6 +268,7 @@ int main(int argc, char** argv) {
     display_color_test();
 
     bool running = true;
+    bool last_key_handled = false;  // Track if the last key event was fully handled
     SDL_Event ev;
     
     while (running) {
@@ -278,24 +279,19 @@ int main(int argc, char** argv) {
                 running = false;
                 break;
 
-            case SDL_EVENT_KEY_DOWN:
-                handle_key_event(&ev.key, &running);
+            case SDL_EVENT_KEY_DOWN: {
+                last_key_handled = handle_key_event(&ev.key, &running);
                 break;
+            }
 
             case SDL_EVENT_TEXT_INPUT:
                 if (ev.text.text && *ev.text.text) {
-                    // Only process text input if not a control character
-                    // (Ctrl combinations should be handled by KEY_DOWN events)
-                    bool is_ctrl_combo = false;
-                    for (const char* p = ev.text.text; *p; p++) {
-                        if (*p < 32) {  // Control character
-                            is_ctrl_combo = true;
-                            break;
-                        }
-                    }
-                    if (!is_ctrl_combo) {
+                    // Only process text input if the last key event wasn't fully handled
+                    if (!last_key_handled) {
                         term_key_input(0, 0, ev.text.text);
                     }
+                    // Reset the flag after processing (or skipping) text input
+                    last_key_handled = false;
                 }
                 break;
 
