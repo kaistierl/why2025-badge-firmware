@@ -1,0 +1,10 @@
+{
+    "unique_identifier": "cyb3rk4t_term",
+    "name": "Tiny Terminal Demo",
+    "author": "cyb3rk4t",
+    "version": "1",
+    "interpreter": "",
+    "metadata_file": "",
+    "binary_path": "cyb3rk4t_term.elf",
+    "source": 1
+}
