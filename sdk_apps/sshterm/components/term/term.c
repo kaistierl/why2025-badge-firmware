@@ -144,8 +144,26 @@ static int cb_damage(VTermRect rect, void *user) {
 }
 
 static int cb_moverect(VTermRect dest, VTermRect src, void *user) {
-    (void)user; (void)dest; (void)src;
-    // MVP: do nothing; damage will repaint
+    (void)user;
+    
+    // When libvterm scrolls, it typically moves a rectangle of text up or down
+    // For scrolling up (most common case), src will be below dest
+    if (src.start_row > dest.start_row && 
+        dest.start_col == 0 && src.start_col == 0 &&
+        dest.end_col == g.cols && src.end_col == g.cols) {
+        
+        // This is a full-width scroll operation
+        int scroll_lines = src.start_row - dest.start_row;
+        int top = dest.start_row;
+        int bottom = g.rows - 1;  // Use full terminal height
+        
+        // Validate bounds
+        if (top >= 0 && bottom < g.rows && scroll_lines > 0) {
+            renderer_scroll_up(top, bottom, scroll_lines);
+        }
+    }
+    // For other move operations, let damage callback handle it
+    
     return 1;
 }
 
