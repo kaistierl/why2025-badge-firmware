@@ -10,6 +10,7 @@ idf_component_register(
      "device.c"
      "drivers/badgevms_i2c_bus.c"
      "drivers/bosch_bmi270.c"
+     "drivers/bosch_bme690.c"
      "drivers/esp-serial-flasher/slave_c6_flasher.c"
      "drivers/esp-serial-flasher/why2025_firmware.c"
      "drivers/fatfs.c"
@@ -38,6 +39,7 @@ idf_component_register(
     PRIV_REQUIRES
      "app_update"
      "bmi270"
+     "bme690"
      "elf_loader"
      "esp-tls"
      "esp_driver_ppa"

@@ -1,0 +1,26 @@
+version: "0.0.8"
+dependencies:
+  espressif/i2c_bus: "1.*"
+  cmake_utilities:
+    version: "0.*"
+  idf:
+    version: '>=4.4'
+description: BME690_SensorAPI library from Bosch Sensortec, adapted for ESP-IDF.
+url: "https://github.com/francisduvivier/BME690_SensorAPI_ESPIDF"
+repository: "https://github.com/francisduvivier/BME690_SensorAPI_ESPIDF.git"
+documentation: "https://github.com/boschsensortec/BME690_SensorAPI"
+issues: "https://github.com/francisduvivier/BME690_SensorAPI_ESPIDF/issues"
+license: "MIT"
+files:
+  exclude:
+    - "**/.github/**/*"
+    - "**/.gitignored/**/*"
+    - "**/.DS_Store"
+    - "dist/**/*"
+    - ".git/**/*"
+    - ".idea/**/*"
+    - "**/build/**/*"
+    - "**/cmake-build-debug/**/*"
+    - "examples/*/sdkconfig.old"
+    - "examples/*/sdkconfig"
+    - "examples/*/managed_components/**/*"

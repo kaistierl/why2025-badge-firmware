@@ -1,0 +1,10 @@
+{
+    "unique_identifier": "bme690_test",
+    "name": "bme690_test",
+    "author": "RobotJoosen",
+    "version": "1",
+    "interpreter": "",
+    "metadata_file": "",
+    "binary_path": "bme690_test.elf",
+    "source": 1
+}
