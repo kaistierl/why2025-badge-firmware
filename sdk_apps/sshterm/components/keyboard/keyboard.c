@@ -94,11 +94,12 @@ static void handle_special_key(int keysym, const char* sequence, const modifier_
  * 
  * @param key The SDL keyboard event
  * @param running Pointer to the main loop running flag (for Ctrl+Q exit)
+ * @return true if the key event was fully handled, false if text input should still be processed
  */
-void handle_key_event(const SDL_KeyboardEvent* key, bool* running) {
+bool handle_key_event(const SDL_KeyboardEvent* key, bool* running) {
     // Input validation
     if (!key || !running) {
-        return;
+        return false;
     }
     
     SDL_Keycode sym = key->key;
@@ -108,80 +109,81 @@ void handle_key_event(const SDL_KeyboardEvent* key, bool* running) {
     // Handle Ctrl+Q to quit the application  
     if (modifiers.ctrl && sym == SDLK_Q) {
         *running = false;
-        return;
+        return true;
     }
 
     // Handle Alt + letter combinations first (Alt has precedence over Ctrl for letters)
     if (handle_alt_letter(sym, &modifiers)) {
-        return;
+        return true;
     }
 
     // Handle Ctrl + letter combinations
     if (handle_ctrl_letter(sym, &modifiers)) {
-        return;
+        return true;
     }
 
     // Handle special keys with modifiers passed through
     switch (sym) {
         case SDLK_ESCAPE:
             handle_special_key('\x1b', NULL, &modifiers);
-            break;
+            return true;
+            
         case SDLK_RETURN:
         case SDLK_KP_ENTER:
             handle_special_key('\r', NULL, &modifiers);
-            break;
+            return true;
             
         case SDLK_BACKSPACE:
             handle_special_key('\b', NULL, &modifiers);
-            break;
+            return true;
             
         case SDLK_DELETE:
             handle_special_key(127, NULL, &modifiers);
-            break;
+            return true;
 
         case SDLK_TAB:
             handle_special_key('\t', NULL, &modifiers);
-            break;
+            return true;
             
         // Arrow keys with modifier support (e.g., Alt+arrow for word navigation)
         case SDLK_UP:
             handle_special_key(0, ARROW_UP, &modifiers);
-            break;
+            return true;
             
         case SDLK_DOWN:
             handle_special_key(0, ARROW_DOWN, &modifiers);
-            break;
+            return true;
             
         case SDLK_LEFT:
             handle_special_key(0, ARROW_LEFT, &modifiers);
-            break;
+            return true;
             
         case SDLK_RIGHT:
             handle_special_key(0, ARROW_RIGHT, &modifiers);
-            break;
+            return true;
             
         case SDLK_HOME:
             handle_special_key(0, HOME_KEY, &modifiers);
-            break;
+            return true;
             
         case SDLK_END:
             handle_special_key(0, END_KEY, &modifiers);
-            break;
+            return true;
             
         case SDLK_INSERT:
             handle_special_key(0, INSERT_KEY, &modifiers);
-            break;
+            return true;
             
         case SDLK_PAGEUP:
             handle_special_key(0, PAGE_UP, &modifiers);
-            break;
+            return true;
             
         case SDLK_PAGEDOWN:
             handle_special_key(0, PAGE_DOWN, &modifiers);
-            break;
+            return true;
             
         default:
             // Let SDL_EVENT_TEXT_INPUT handle regular characters
-            break;
+            return false;
     }
 }

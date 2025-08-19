@@ -4,4 +4,5 @@
 #include "../term/term.h"
 
 // Handle keyboard input events
-void handle_key_event(const SDL_KeyboardEvent* key, bool* running);
+// Returns true if the key event was fully handled and no text input should be processed
+bool handle_key_event(const SDL_KeyboardEvent* key, bool* running);
