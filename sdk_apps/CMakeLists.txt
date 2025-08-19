@@ -344,5 +344,14 @@ build_app(wifi_test
      wifi_test.c
 )
 
+build_app(cyb3rk4t_term PREINSTALL
+    SOURCES
+     main.c
+    LIBRARIES
+     sdl3
+    COMPILE_DEFINITIONS
+     BADGEVMS_FULLSCREEN=1
+)
+
 get_property(SDK_APP_ELFS GLOBAL PROPERTY SDK_APP_ELFS)
 add_custom_target(sdk_app_build_all ALL DEPENDS ${SDK_APP_ELFS})
