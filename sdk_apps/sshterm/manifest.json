@@ -1,0 +1,10 @@
+{
+    "unique_identifier": "sshterm",
+    "name": "SSH Terminal (WIP)",
+    "author": "cyb3rk4t",
+    "version": "1",
+    "interpreter": "",
+    "metadata_file": "",
+    "binary_path": "sshterm.elf",
+    "source": 1
+}

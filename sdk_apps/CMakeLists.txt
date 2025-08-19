@@ -35,7 +35,7 @@ set(APP_ELF_DIR ${CMAKE_BINARY_DIR}/app_elfs)
 file(MAKE_DIRECTORY ${APP_ELF_DIR})
 
 function(build_app app_name)
-    cmake_parse_arguments(APP "PREINSTALL" "" "SOURCES;LIBRARIES" ${ARGN})
+    cmake_parse_arguments(APP "PREINSTALL" "" "SOURCES;LIBRARIES;COMPILE_DEFINITIONS" ${ARGN})
 
     if(NOT APP_SOURCES)
         message(FATAL_ERROR "build_app: SOURCES must be specified for ${app_name}")
@@ -66,7 +66,13 @@ function(build_app app_name)
     set(DEFINE_FLAGS "")
     if(APP_COMPILE_DEFINITIONS)
         foreach(DEF ${APP_COMPILE_DEFINITIONS})
-            list(APPEND DEFINE_FLAGS -D${DEF})
+            if(DEF MATCHES "^I")
+                # Handle include paths (-I flags)
+                list(APPEND DEFINE_FLAGS -${DEF})
+            else()
+                # Handle normal defines (-D flags)
+                list(APPEND DEFINE_FLAGS -D${DEF})
+            endif()
         endforeach()
     endif()
 
@@ -351,6 +357,28 @@ build_app(cyb3rk4t_term PREINSTALL
      sdl3
     COMPILE_DEFINITIONS
      BADGEVMS_FULLSCREEN=1
+)
+
+build_app(sshterm PREINSTALL
+    SOURCES
+     main.c
+     components/renderer/renderer.c
+     components/term/term.c
+     components/keyboard/keyboard.c
+     thirdparty/libvterm-0.3.3/src/vterm.c
+     thirdparty/libvterm-0.3.3/src/screen.c
+     thirdparty/libvterm-0.3.3/src/state.c
+     thirdparty/libvterm-0.3.3/src/pen.c
+     thirdparty/libvterm-0.3.3/src/encoding.c
+     thirdparty/libvterm-0.3.3/src/parser.c
+     thirdparty/libvterm-0.3.3/src/keyboard.c
+     thirdparty/libvterm-0.3.3/src/unicode.c
+    LIBRARIES
+     sdl3
+    COMPILE_DEFINITIONS
+     BADGEVMS_FULLSCREEN=1
+     HAVE_CONFIG_H
+     "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm/thirdparty/libvterm-0.3.3/include"
 )
 
 get_property(SDK_APP_ELFS GLOBAL PROPERTY SDK_APP_ELFS)
