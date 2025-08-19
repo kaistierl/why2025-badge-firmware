@@ -36,16 +36,51 @@ really grateful for a review and your feedback!
 
 ## Quick Start
 
-```bash
-# Build for macOS (development)
-./build_mac.sh
+### Prerequisites
 
-# Run the terminal
-./sshterm
+- CMake 3.16 or later
+- SDL3 development libraries
+- GCC or Clang compiler
+
+Install SDL3 using Homebrew (macOS):
+```bash
+brew install sdl3
 ```
 
-For badge hardware, use the ESP-IDF build system as part of the main firmware.
-The required build configuration has been added to sdk_apps/CMakeLists.txt
+### Building for Local Development
+
+#### Quick Build
+Use the provided build script:
+```bash
+# Build the project
+./build.sh
+
+# Build and run immediately
+./build.sh run
+```
+
+#### Manual CMake Build
+```bash
+mkdir build
+cd build
+cmake ..
+make
+
+# Run the terminal
+./bin/sshterm
+```
+
+### Build Options
+
+Enable fullscreen mode:
+```bash
+cmake -DBADGEVMS_FULLSCREEN=ON ..
+make
+```
+
+### Building for Badge Hardware
+
+Use the ESP-IDF build system as part of the main firmware. The CMake configuration in this directory is only for local development and testing.
 
 ## Documentation
 
