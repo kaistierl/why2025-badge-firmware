@@ -136,10 +136,10 @@ tca8418_dev_t *tca8418_create(gpio_num_t scl_pin, gpio_num_t sda_pin, uint8_t i2
 
     // configure rows and columns registers
     writeRegister(tca8418_dev, REG_KEY_PRESS_GPIO1, ROW_COL_BIT_MASK[MIN(tca8418_dev->rows, sizeof(ROW_COL_BIT_MASK)) - 1]);
-    writeRegister(tca8418_dev, REG_KEY_PRESS_GPIO2, ROW_COL_BIT_MASK[MAX(tca8418_dev->cols, sizeof(ROW_COL_BIT_MASK)) - 1]);
+    writeRegister(tca8418_dev, REG_KEY_PRESS_GPIO2, ROW_COL_BIT_MASK[MIN(tca8418_dev->cols, sizeof(ROW_COL_BIT_MASK)) - 1]);
     if (tca8418_dev->cols > 8)
     {
-        writeRegister(tca8418_dev, REG_KEY_PRESS_GPIO3, ROW_COL_BIT_MASK[tca8418_dev->cols - 9]);
+        writeRegister(tca8418_dev, REG_KEY_PRESS_GPIO3, ROW_COL_BIT_MASK[MIN(tca8418_dev->cols - 8, 2) - 1]);
     }
 
     writeRegister(tca8418_dev, REG_DEBOUNCE_DIS1, 0x00);
