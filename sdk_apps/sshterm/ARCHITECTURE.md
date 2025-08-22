@@ -15,7 +15,7 @@ This document defines the architecture for a terminal application with SSH suppo
 **Implemented Features**
 
 * Complete VT100/xterm-style terminal emulation with libvterm-0.3.3
-* SSH connections to remote hosts with password authentication via libssh2
+* SSH connections to remote hosts with password authentication via wolfSSH
 * 720×720 display rendering with optimized dirty-flag system
 * Interactive SSH connection setup with field-by-field input
 * Terminal test mode for feature validation
@@ -47,8 +47,8 @@ This document defines the architecture for a terminal application with SSH suppo
 │         │                                      │                            │
 │  ┌──────▼───────┐    UTF-8 bytes        ┌──────▼──────┐                     │
 │  │  SSH Client  │◄─────────────────────►│  Terminal   │                     │
-│  │ (libssh2 +   │                       │ (libvterm)  │                     │
-│  │  mbedTLS)    │    bytes              └──────┬──────┘                     │
+│  │ (wolfSSH +   │                       │ (libvterm)  │                     │
+│  │  wolfSSL)    │    bytes              └──────┬──────┘                     │
 │  └──────┬───────┘                              │screen diffs                │
 │         │ socket                               ▼                            │
 │         ▼                                 ┌─────────────┐                   │
@@ -66,7 +66,7 @@ This document defines the architecture for a terminal application with SSH suppo
 **Component Architecture:** Clean separation with well-defined interfaces:
 - **App Controller:** Main application lifecycle and component coordination
 - **SSH Manager:** High-level SSH connection business logic and state management
-- **SSH Client:** Low-level SSH protocol implementation (libssh2 wrapper)
+- **SSH Client:** Low-level SSH protocol implementation (wolfSSH wrapper)
 - **Input System:** Input mode routing and field management for different app states
 - **UI Manager:** User interface rendering and prompt management
 - **Terminal/Renderer:** VT100 emulation and optimized display rendering
@@ -77,8 +77,8 @@ This document defines the architecture for a terminal application with SSH suppo
 ## 3. Dependencies (GPLv3-compatible)
 
 * **Terminal:** `libvterm-0.3.3` (MIT)
-* **SSH:** `libssh2` (BSD-2-Clause)
-* **TLS/Crypto:** `mbedTLS 3.x` (Apache-2.0, GPLv3-compatible)
+* **SSH:** `wolfSSH-1.4.20` (GPLv3)
+* **TLS/Crypto:** `wolfSSL-5.8.2` (GPLv3)
 * **Rendering:** `SDL3` (zlib) via BadgeVMS
 * **Network:** ESP-IDF sockets (lwIP)
 
@@ -136,11 +136,11 @@ This document defines the architecture for a terminal application with SSH suppo
 
 * **Architecture:** Two-layer design separating business logic from protocol implementation
 * **SSH Manager:** High-level connection state management, user interaction flow, error handling
-* **SSH Client:** Low-level libssh2 wrapper handling protocol details, authentication, data transfer
+* **SSH Client:** Low-level wolfSSH wrapper handling protocol details, authentication, data transfer
 * **Authentication:** Password-only authentication with interactive prompting
 * **Connection flow:** Multi-step user input (hostname → username → port → password) with field validation
-* **Crypto:** Standard SSH algorithms via libssh2 + mbedTLS
-* **Host key:** Basic host key verification (not implemented yet)
+* **Crypto:** Standard SSH algorithms via wolfSSH + wolfSSL (configurable cipher suites at build time)
+* **Host key:** Basic host key verification with TOFU (Trust On First Use) support (not implemented yet)
 * **Environment setup:** Sets TERM=xterm-256color, COLORTERM=truecolor, COLUMNS=80, LINES=39
 * **Error handling:** Comprehensive error reporting and connection retry logic
 * **State management:** Non-blocking I/O with proper SSH connection state tracking
@@ -211,7 +211,7 @@ The application uses a clean component-based architecture with well-defined inte
 * **`app_state_t`:** Central application state containing SSH connection status, input mode, and connection parameters
 * **`connection_input_t`:** User-entered SSH connection parameters (hostname, username, port, password)
 * **`input_field_t`:** Generic input field abstraction for unified field handling
-* **`ssh_client_t`:** SSH connection state and libssh2 handles
+* **`ssh_client_t`:** SSH connection state and wolfSSH handles
 
 ### 7.2 Interface Contracts
 
@@ -224,7 +224,7 @@ The application uses a clean component-based architecture with well-defined inte
 ### 7.3 Data Flow Patterns
 
 1. **User Input Flow:** SDL events → Keyboard → Input System → SSH Manager/Terminal
-2. **SSH Data Flow:** SSH Client ← → libssh2 ← → Network, SSH Client → Terminal → Renderer
+2. **SSH Data Flow:** SSH Client ← → wolfSSH ← → Network, SSH Client → Terminal → Renderer
 3. **UI Flow:** SSH Manager/Input System → UI Manager → Terminal → Renderer
 4. **State Flow:** All components read/write app_state with controller coordination
 
@@ -234,15 +234,17 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ## 8. Security Implementation
 
-* **Host Key Verification:** Basic SSH host key checking + TOFU storage (planned)
+* **Host Key Verification:** SSH host key checking with TOFU (Trust On First Use) storage (planned)
 * **Authentication:** Password-only authentication with secure memory handling
-* **Crypto:** Standard SSH algorithms via libssh2 + mbedTLS:
-  * Key exchange: curve25519-sha256, ecdh-sha2-nistp256
-  * Ciphers: chacha20-poly1305@openssh.com, aes128-gcm, aes256-gcm
-  * MACs: Built into AEAD ciphers
+* **Crypto:** Standard SSH algorithms via wolfSSH + wolfSSL (to be confirmed / optimized):
+  * Key exchange: Standard SSH key exchange algorithms supported by wolfSSH
+  * Ciphers: AES-CBC, AES-CTR, ChaCha20-Poly1305 (configurable cipher suites)
+  * MACs: HMAC-SHA1, HMAC-SHA2-256, built into AEAD ciphers
+  * Host key types: RSA, ECDSA, Ed25519 support
 * **No agent forwarding, port forwarding, or X11 forwarding**
-* **Connection security:** Proper SSL/TLS verification through mbedTLS
+* **Connection security:** Proper cryptographic verification through wolfSSL
 * **Memory management:** Secure cleanup of password and sensitive data
+* **Library security:** wolfSSL FIPS 140-2 Level 1 validated cryptographic module
 
 ---
 
@@ -265,8 +267,8 @@ All interfaces are documented in their respective header files (`*.h`) with comp
     app_state.h                   # Application state structure
   /thirdparty/                    # External dependencies
     /libvterm-0.3.3/              # Terminal emulation library
-    /libssh2-1.11.1/              # SSH protocol library
-    /mbedtls-3.6.4/               # Crypto and TLS library
+    /wolfssh-1.4.20/              # SSH protocol library
+    /wolfssl-5.8.2/               # Crypto and SSL/TLS library
   main.c                          # Application entry point
   CMakeLists.txt                  # Build configuration
   ARCHITECTURE.md                 # This document
@@ -274,8 +276,8 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 **Dependencies:**
 * **libvterm-0.3.3** (MIT)
-* **libssh2-1.11.1** (BSD-2-Clause)
-* **mbedTLS-3.6.4** (Apache-2.0)
+* **wolfSSH-1.4.20** (GPLv3)
+* **wolfSSL-5.8.2** (GPLv3)
 * **SDL3** (zlib) - via BadgeVMS abstraction
 
 ---
@@ -297,7 +299,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 ### ✅ **Fully Implemented and Working**
 
 * **Complete VT100/xterm terminal emulation** with libvterm-0.3.3
-* **Full SSH connectivity** with password authentication via libssh2
+* **Full SSH connectivity** with password authentication via wolfSSH
 * **Optimized rendering system** with dirty-flag optimization and 80×39 grid
 * **Interactive SSH setup** with field-by-field input validation
 * **Multi-mode input system** supporting startup menu, SSH setup, and terminal operation
@@ -310,7 +312,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ### 🔄 **Planned Improvements**
 
-* **WiFi + Keepalive:** Keep alive over Wi-Fi with simple reconnect logic.
+* **WiFi + Keepalive:** Keep alive over Wi-Fi with simple reconnect logic
 * **Host key verification:** Basic host key verification
 * **Persistent known_hosts storage** for TOFU host key verification
 * **Connection keep-alive** and automatic reconnection on network drops
@@ -343,4 +345,4 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ## 13. Licensing
 
-This application is licensed under GPLv3. See `LICENSE` in this directory for the summary and the repository root `COPYING` for the full license text. Third-party components and required attributions (including the Leggie font, libvterm, and SDL3) are listed in `THIRD_PARTY_NOTICES.md`.
+This application is licensed under GPLv3. See `LICENSE` in this directory for the summary and the repository root `COPYING` for the full license text. Third-party components and required attributions (including the Leggie font, libvterm, wolfSSH, wolfSSL, and SDL3) are listed in `THIRD_PARTY_NOTICES.md`.

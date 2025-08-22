@@ -19,89 +19,57 @@ set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-Wl,--gc-sections -Wl,--strip-all -s")
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL3 REQUIRED sdl3)
 
-# Create mbedTLS library
-file(GLOB MBEDTLS_SOURCES 
-    "thirdparty/mbedtls-3.6.4/library/*.c"
-)
-# Exclude some files that cause conflicts or are not needed
-list(REMOVE_ITEM MBEDTLS_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/net_sockets.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/timing.c"
-    # Exclude SSL/TLS modules we disabled
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_cache.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_cookie.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_ticket.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_cli.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_srv.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls12_client.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls12_server.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls13_client.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls13_server.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls13_keys.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_tls13_generic.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_debug_helpers_generated.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ssl_msg.c"
-    # Exclude X.509 modules we disabled
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509_crt.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509_crl.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509_csr.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509_create.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509write.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509write_crt.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/x509write_csr.c"
-    # Exclude unused crypto algorithms
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/aria.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/blowfish.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/camellia.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/des.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/ripemd160.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/sha3.c"
-    # Exclude PKCS modules we don't need
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/pkcs5.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/pkcs7.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/library/pkcs12.c"
-)
-add_library(mbedtls STATIC ${MBEDTLS_SOURCES})
-target_include_directories(mbedtls PUBLIC
-    thirdparty/mbedtls-3.6.4/include
-)
-target_include_directories(mbedtls PRIVATE
-    components/ssh_client
-)
-target_compile_definitions(mbedtls PRIVATE
-    MBEDTLS_CONFIG_FILE="mbedtls_config_optimized.h"
+# wolfSSL library (cryptonly build for wolfSSH)
+file(GLOB WOLFSSL_SOURCES "thirdparty/wolfssl-5.8.2/wolfcrypt/src/*.c")
+add_library(wolfssl STATIC ${WOLFSSL_SOURCES})
+
+target_include_directories(wolfssl PUBLIC
+    thirdparty/wolfssl-5.8.2
 )
 
-# Create libssh2 library
-file(GLOB LIBSSH2_SOURCES 
-    "thirdparty/libssh2-1.11.1/src/*.c"
+target_compile_definitions(wolfssl PUBLIC
+    WOLFCRYPT_ONLY
+    NO_TLS
+    WOLFSSL_WOLFSSH
+    HAVE_ECC
+    HAVE_RSA
+    HAVE_DH
+    HAVE_SHA1
+    HAVE_SHA256
+    HAVE_SHA512
+    WOLFSSL_SHA512
+    WC_NO_HARDEN
+    HAVE_HMAC
+    HAVE_AES
+    HAVE_AES_CTR
+    HAVE_AESGCM
+    HAVE_AESCCM
+    HAVE_AES_CBC
+    WOLFSSL_AES_COUNTER
+    WOLFSSL_AES_DIRECT
+    HAVE_CHACHA
+    HAVE_POLY1305
+    HAVE_CURVE25519
+    HAVE_ED25519
+    SINGLE_THREADED
+    WC_NO_HARDEN  #  Disable timing resistance warnings - hardening might be done later
 )
-# Remove platform-specific files we don't need
-list(REMOVE_ITEM LIBSSH2_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/openssl.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/libgcrypt.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/wincng.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/os400qc3.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/agent_win.c"
-    # Remove SFTP and SCP modules we disabled
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/sftp.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/src/scp.c"
+
+# wolfSSH library
+file(GLOB WOLFSSH_SOURCES "thirdparty/wolfssh-1.4.20/src/*.c")
+
+add_library(wolfssh STATIC ${WOLFSSH_SOURCES})
+
+target_include_directories(wolfssh PUBLIC
+    thirdparty/wolfssh-1.4.20
 )
-add_library(libssh2 STATIC ${LIBSSH2_SOURCES})
-target_include_directories(libssh2 PUBLIC
-    thirdparty/libssh2-1.11.1/include
+
+target_link_libraries(wolfssh PUBLIC wolfssl)
+
+target_compile_definitions(wolfssh PUBLIC
+    DEBUG_WOLFSSH
+    WOLFSSH_TERM
 )
-target_include_directories(libssh2 PRIVATE
-    thirdparty/libssh2-1.11.1/src
-    components/ssh_client
-)
-target_compile_definitions(libssh2 PRIVATE
-    LIBSSH2_MBEDTLS
-    HAVE_CONFIG_H
-)
-target_link_libraries(libssh2 PRIVATE mbedtls)
 
 # Define the executable
 add_executable(sshterm
@@ -131,8 +99,8 @@ target_include_directories(sshterm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../badgevms/include
     ${CMAKE_CURRENT_SOURCE_DIR}/components
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libvterm-0.3.3/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libssh2-1.11.1/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/mbedtls-3.6.4/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wolfssh-1.4.20
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wolfssl-5.8.2
     ${SDL3_INCLUDE_DIRS}
 )
 
@@ -141,8 +109,8 @@ target_compile_definitions(sshterm PRIVATE
     HAVE_CONFIG_H
 )
 
-# Link SDL3 libraries and apply compile flags
-target_link_libraries(sshterm PRIVATE ${SDL3_LIBRARIES} libssh2 mbedtls)
+# Link libraries and apply compile flags
+target_link_libraries(sshterm PRIVATE ${SDL3_LIBRARIES} wolfssh wolfssl)
 target_compile_options(sshterm PRIVATE ${SDL3_CFLAGS_OTHER})
 
 # Add SDL3 link directories if needed
