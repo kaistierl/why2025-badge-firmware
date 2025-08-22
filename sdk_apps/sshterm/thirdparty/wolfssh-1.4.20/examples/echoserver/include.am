@@ -1,0 +1,11 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLE_SERVERS
+noinst_PROGRAMS += examples/echoserver/echoserver
+examples_echoserver_echoserver_SOURCES      = examples/echoserver/echoserver.c \
+                                              examples/echoserver/echoserver.h
+examples_echoserver_echoserver_LDADD        = src/libwolfssh.la
+examples_echoserver_echoserver_DEPENDENCIES = src/libwolfssh.la
+examples_echoserver_echoserver_CFLAGS       = $(AM_CFLAGS) ${AM_CPPFLAGS}
+endif
