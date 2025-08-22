@@ -3,7 +3,7 @@
  * @brief Low-level SSH client interface
  * 
  * This file provides the public interface for low-level SSH protocol operations
- * using libssh2. It handles the SSH connection, authentication, channel management,
+ * using wolfSSH. It handles the SSH connection, authentication, channel management,
  * and data transfer at the protocol level.
  */
 
@@ -22,16 +22,24 @@
 bool ssh_client_init(ssh_client_t* client);
 
 /**
- * Connect to SSH server with password authentication
+ * Start non-blocking SSH connection
  * @param client SSH client structure
  * @param hostname Remote hostname or IP address
  * @param port Remote port (usually 22)
  * @param username Username for authentication
  * @param password Password for authentication
- * @return true on success, false on failure
+ * @return true if connection initiated successfully, false on immediate error
  */
-bool ssh_client_connect(ssh_client_t* client, const char* hostname, int port, 
-                       const char* username, const char* password);
+bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int port, 
+                             const char* username, const char* password);
+
+/**
+ * Continue non-blocking SSH connection process
+ * Call this repeatedly until connection completes (state becomes CONNECTED or ERROR)
+ * @param client SSH client structure
+ * @return true if should continue calling (still in progress), false if done (success or error)
+ */
+bool ssh_client_connect_continue(ssh_client_t* client);
 
 /**
  * Send data to SSH session

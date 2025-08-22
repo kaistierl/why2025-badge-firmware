@@ -20,7 +20,7 @@ really grateful for a review and your feedback!
 ## What it does
 
 - **Terminal emulation**: VT100/xterm-compatible terminal with 80×39 character grid
-- **SSH connectivity**: Connect to remote hosts via SSH with password authentication (TODO)
+- **SSH connectivity**: Connect to remote hosts via SSH with password authentication
 - **Hardware optimized**: Runs on 720×720 display with custom badge keyboard input
 - **Real-time rendering**: Efficient terminal display with color support and cursor blinking
 
@@ -31,8 +31,21 @@ really grateful for a review and your feedback!
 - Full UTF-8 text support with 24-bit RGB colors
 - Comprehensive keyboard mapping (arrows, modifiers, control keys)
 - libvterm-based terminal emulation for excellent compatibility
+- wolfSSH-powered SSH connectivity with password authentication
 - SDL3-powered rendering optimized for the badge display
 - Leggie 9×18 bitmap font for crisp text rendering
+- Non-blocking I/O for responsive user interface
+
+## SSH Implementation
+
+This terminal uses **wolfSSH** and **wolfSSL** libraries for SSH connectivity:
+
+- **wolfSSH 1.4.20**: Modern SSH library optimized for embedded systems
+- **wolfSSL 5.8.2**: FIPS 140-2 Level 1 validated cryptographic backend
+- **Memory efficient**: Lower memory footprint compared to traditional SSH libraries
+- **Security focused**: Industry-standard cryptographic algorithms and protocols
+
+This has proven to be a much better fit for the badge after tediously trying to get libssh2 and mbedtls working.
 
 ## Quick Start
 
@@ -92,8 +105,9 @@ Use the ESP-IDF build system as part of the main firmware. The CMake configurati
 
 - SDL3 (rendering and input) - provided by BadgeVMS
 - libvterm 0.3.3 (terminal emulation) - vendored
+- wolfSSH 1.4.20 (SSH connectivity) - vendored
+- wolfSSL 5.8.2 (cryptography) - vendored
 - Leggie font by Wiktor Kerr (display) - vendored
-- libssh2 + mbedTLS (SSH connectivity, planned) - vendored
 
 ## License
 

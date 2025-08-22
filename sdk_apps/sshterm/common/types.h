@@ -85,18 +85,19 @@ typedef enum {
  * @brief SSH client connection state
  */
 typedef enum {
-    SSH_STATE_DISCONNECTED,     /**< Not connected to any SSH server */
-    SSH_STATE_CONNECTING,       /**< Attempting to establish connection */
-    SSH_STATE_AUTHENTICATING,   /**< Performing authentication handshake */
-    SSH_STATE_CONNECTED,        /**< Successfully connected and authenticated */
-    SSH_STATE_ERROR             /**< Connection failed or encountered error */
+    SSH_STATE_DISCONNECTED,       /**< Not connected to any SSH server */
+    SSH_STATE_SOCKET_CONNECTING,  /**< Creating TCP socket connection */
+    SSH_STATE_SSH_HANDSHAKING,    /**< SSH protocol handshake in progress */
+    SSH_STATE_AUTHENTICATING,     /**< Performing authentication handshake */
+    SSH_STATE_CONNECTED,          /**< Successfully connected and authenticated */
+    SSH_STATE_ERROR               /**< Connection failed or encountered error */
 } ssh_state_t;
 
 /**
  * @brief SSH client structure
  * 
  * Contains all data needed to manage an SSH connection including
- * connection parameters, state, and internal libssh2 handles.
+ * connection parameters, state, and internal wolfSSH handles.
  */
 typedef struct ssh_client {
     char hostname[256];         /**< SSH server hostname (stored copy) */
@@ -106,8 +107,8 @@ typedef struct ssh_client {
     char error_msg[256];        /**< Last error message if any */
     
     // Private implementation details
-    void* session;              /**< libssh2_session* (opaque pointer) */
-    void* channel;              /**< libssh2_channel* (opaque pointer) */
+    void* ctx;                  /**< WOLFSSH_CTX* (opaque pointer) */
+    void* ssh;                  /**< WOLFSSH* (opaque pointer) */
     int socket_fd;              /**< Network socket file descriptor */
 } ssh_client_t;
 

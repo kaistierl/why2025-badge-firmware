@@ -6,8 +6,8 @@ Summary
 - libvterm 0.3.3 — MIT License
 - SDL3 — zlib License
 - Leggie 9x18 font — Creative Commons Attribution 4.0 International (CC BY 4.0)
-- libssh2 — BSD 2-Clause License
-- mbedTLS 3.x — Apache License 2.0
+- wolfSSH 1.4.20 — GPLv3 License
+- wolfSSL 5.8.2 — GPLv3 License
 - ESP-IDF sockets/lwIP — Apache License 2.0 (provided by the firmware SDK)
 
 Details
@@ -28,21 +28,29 @@ This software is provided 'as-is', without any express or implied warranty. Perm
 3) Leggie 9x18 font (CC BY 4.0)
 - Author: Wiktor Kerr — "Leggie" bitmap font
 - License: Creative Commons Attribution 4.0 International (CC BY 4.0)
-- Source: https://github.com/kreativekorp/open-relay/tree/master/Fonts/Leggie
+- Source: https://memleek.org/leggie
 - Usage: This app embeds a subset for ASCII 32-126 in components/renderer/font_leggie_9x18.h
 - Required attribution: "Leggie is Copyright © 2012-2018 Wiktor Kerr. Licensed under CC BY 4.0."
 - CC BY 4.0 summary: https://creativecommons.org/licenses/by/4.0/
 - Full legal code: https://creativecommons.org/licenses/by/4.0/legalcode
 
-4) libssh2 (BSD-2-Clause) — if/when enabled
-- Upstream: https://www.libssh2.org/
-- License: BSD 2-Clause (text: https://www.libssh2.org/license.html)
-- Notes: GPLv3 is compatible with BSD-2-Clause; when statically linked or bundled, include the BSD-2-Clause notice in distributions.
+4) wolfSSH 1.4.20 (GPLv3)
+- Upstream: https://www.wolfssl.com/products/wolfssh/
+- GitHub: https://github.com/wolfSSL/wolfssh
+- Bundled location: thirdparty/wolfssh-1.4.20/
+- License file: thirdparty/wolfssh-1.4.20/COPYING
+- Copyright (C) 2014-2023 wolfSSL Inc.
+- License: GNU General Public License version 3 (GPLv3)
+- Notes: wolfSSH is licensed under GPLv3, providing perfect license alignment with this application's GPLv3 license.
 
-5) mbedTLS 3.x (Apache-2.0) — if/when enabled
-- Upstream: https://github.com/Mbed-TLS/mbedtls
-- License: Apache License 2.0
-- Notes: Apache-2.0 is GPLv3-compatible; ensure NOTICE requirements are preserved if upstream provides any.
+5) wolfSSL 5.8.2 (GPLv3)
+- Upstream: https://www.wolfssl.com/
+- GitHub: https://github.com/wolfSSL/wolfssl
+- Bundled location: thirdparty/wolfssl-5.8.2/
+- License file: thirdparty/wolfssl-5.8.2/COPYING
+- Copyright (C) 2006-2023 wolfSSL Inc.
+- License: GNU General Public License version 3 (GPLv3)
+- Notes: wolfSSL is licensed under GPLv3, providing perfect license alignment with this application's GPLv3 license. wolfSSL is FIPS 140-2 Level 1 validated.
 
 6) ESP-IDF sockets/lwIP (Apache-2.0)
 - Upstream: https://github.com/espressif/esp-idf
@@ -50,7 +58,7 @@ This software is provided 'as-is', without any express or implied warranty. Perm
 - Notes: Provided by the base firmware; compatibility with GPLv3 is established. Retain Apache-2.0 notices in source and documentation.
 
 Attribution in UI
-- Where practical, an About or Help screen may include: "Terminal emulation by libvterm; Rendering via SDL3; Font: Leggie 9x18 by Wiktor Kerr (CC BY 4.0)."
+- TODO: Where practical, an About or Help screen may include: "Terminal emulation by libvterm; SSH connectivity by wolfSSH; Cryptography by wolfSSL; Rendering via SDL3; Font: Leggie 9x18 by Wiktor Kerr (CC BY 4.0)."
 
 Contact
 For questions about licensing of this application, contact the author listed in manifest.json.
