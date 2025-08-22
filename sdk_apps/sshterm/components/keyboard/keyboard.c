@@ -8,6 +8,7 @@ static const char* const ARROW_LEFT  = "\x1b[D";
 static const char* const HOME_KEY    = "\x1b[H";
 static const char* const END_KEY     = "\x1b[F";
 static const char* const INSERT_KEY  = "\x1b[2~";
+static const char* const DELETE_KEY  = "\x1b[3~";
 static const char* const PAGE_UP     = "\x1b[5~";
 static const char* const PAGE_DOWN   = "\x1b[6~";
 
@@ -138,7 +139,7 @@ bool handle_key_event(const SDL_KeyboardEvent* key, bool* running) {
             return true;
             
         case SDLK_DELETE:
-            handle_special_key(127, NULL, &modifiers);
+            handle_special_key(0, DELETE_KEY, &modifiers);
             return true;
 
         case SDLK_TAB:

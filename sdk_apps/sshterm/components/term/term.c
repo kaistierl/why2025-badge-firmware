@@ -222,18 +222,17 @@ static VTermScreenCallbacks screen_cbs = {
 // --- Output drain (terminal → host bytes)
 
 /**
- * Drain terminal output buffer and send to SSH connection.
- * Called after keyboard input to send escape sequences and responses.
- * Reads all available data from libvterm's output buffer.
+ * VTerm output callback - called when VTerm generates output sequences
+ * (e.g., special key responses, control sequences)
  */
-static void drain_output(void) {
-    if (!g.write_cb) return;
-    char outbuf[1024];
-    size_t n;
-    while ((n = vterm_output_read(g.vt, outbuf, sizeof(outbuf))) > 0) {
-        g.write_cb((const uint8_t*)outbuf, n, g.write_user);
+static void vterm_output_callback(const char *bytes, size_t len, void *user) {
+    (void)user; // We use the global state
+    if (g.write_cb && bytes && len > 0) {
+        g.write_cb((const uint8_t*)bytes, len, g.write_user);
     }
 }
+
+
 
 // --- Public API
 
@@ -248,6 +247,9 @@ bool term_init(int cols, int rows, term_write_cb write_cb, void* user) {
     if (!g.vt) return false;
 
     vterm_set_utf8(g.vt, 1);
+
+    // Set up output callback for immediate character transmission
+    vterm_output_set_callback(g.vt, vterm_output_callback, NULL);
 
     g.screen = vterm_obtain_screen(g.vt);
     vterm_screen_set_callbacks(g.screen, &screen_cbs, NULL);
@@ -267,6 +269,11 @@ void term_input_bytes(const uint8_t* data, size_t len) {
     if (!g.vt || !data || !len) return;
     vterm_input_write(g.vt, (const char*)data, len);
     // Screen callbacks fire during write → renderer updated
+}
+
+void term_input_string(const char* str) {
+    if (!str) return;
+    term_input_bytes((const uint8_t*)str, strlen(str));
 }
 
 void term_key_input(int keysym, uint16_t mods, const char* text_utf8) {
@@ -310,33 +317,31 @@ void term_key_input(int keysym, uint16_t mods, const char* text_utf8) {
                     vterm_keyboard_key(g.vt, VTERM_KEY_HOME, vmods);
                 } else if (strcmp(text_utf8, "\x1b[F") == 0) {
                     vterm_keyboard_key(g.vt, VTERM_KEY_END, vmods);
+                } else if (strcmp(text_utf8, "\x1b[3~") == 0) {
+                    // Delete key - send directly to write callback for SSH/test mode
+                    if (g.write_cb) {
+                        g.write_cb((const uint8_t*)text_utf8, strlen(text_utf8), g.write_user);
+                    }
                 } else {
-                    // Other escape sequences (including Alt combinations), send as is
-                    vterm_input_write(g.vt, text_utf8, strlen(text_utf8));
+                    // For regular text input, send immediately for responsive input
+                    if (g.write_cb && text_utf8[0] != '\x1b') {
+                        g.write_cb((const uint8_t*)text_utf8, strlen(text_utf8), g.write_user);
+                    } else {
+                        // For escape sequences, use VTerm processing
+                        vterm_input_write(g.vt, text_utf8, strlen(text_utf8));
+                    }
                 }
             }
             break;
 
         default:
-            // If we have text (from SDL_EVENT_TEXT_INPUT), send it as UTF-8:
-            if (text_utf8 && *text_utf8) {
-                // Send UTF-8 bytes directly to libvterm for proper decoding
-                vterm_input_write(g.vt, text_utf8, strlen(text_utf8));
-            } else if (keysym >= 32 && keysym <= 126) {
-                // Printable ASCII from keydown path
+            // Printable ASCII from keydown path (fallback)
+            if (keysym >= 32 && keysym <= 126) {
                 vterm_keyboard_unichar(g.vt, (uint32_t)keysym, vmods);
-            } else {
-                // Unknown special: ignore in MVP
             }
+            // Note: Normal text input goes through case 0 with text_utf8
             break;
     }
-
-    // Send any sequences libvterm generated (to SSH)
-    drain_output();
-}
-
-void term_flush_output(void) {
-    drain_output();
 }
 
 void term_resize(int cols, int rows) {
