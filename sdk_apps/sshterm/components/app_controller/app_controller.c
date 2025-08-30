@@ -1,5 +1,6 @@
 #include "app_controller.h"
 #include "../ssh_manager/ssh_manager.h"
+#include "../ssh_manager/ssh_ui_controller.h"
 #include "../term/term.h"
 #include "../input_system/input_system.h"
 #include "../renderer/renderer.h"
@@ -165,6 +166,15 @@ bool app_controller_initialize_system(app_controller_t* controller) {
         return false;
     }
 
+    // Initialize SSH manager with threading support
+    if (!ssh_manager_init()) {
+        fprintf(stderr, "SSH manager initialization failed\n");
+        SDL_DestroyRenderer(controller->renderer);
+        SDL_DestroyWindow(controller->window);
+        SDL_Quit();
+        return false;
+    }
+
     // Enable SDL text input events
     SDL_StartTextInput(controller->window);
     
@@ -178,7 +188,7 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
     }
     
     // Initialize terminal emulator
-    if (!term_init(RENDER_COLS, RENDER_ROWS, term_write_callback, app_state)) {
+    if (!term_init(TERMINAL_COLS, TERMINAL_ROWS, term_write_callback, app_state)) {
         fprintf(stderr, "term_init failed\n");
         return false;
     }
@@ -208,8 +218,18 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
             break;
         }
 
+        // Track previous connection state to detect transitions
+        bool was_connecting = app_state->ssh_connecting;
+        bool was_connected = app_state->ssh_connected;
+
         // Poll SSH connection for incoming data
         ssh_manager_poll_and_read(app_state);
+        
+        // Handle SSH connection success transition
+        if (!was_connected && app_state->ssh_connected) {
+            // Connection just succeeded - delegate UI transition to ssh_ui_controller
+            ssh_ui_handle_connection_success(app_state);
+        }
         
         // Update screen if needed (handles cursor blinking internally)
         renderer_present_if_dirty(SDL_GetTicks());
@@ -225,6 +245,9 @@ void app_controller_cleanup_system(app_controller_t* controller) {
     if (!controller || !controller->system_initialized) {
         return;
     }
+    
+    // Shutdown SSH manager and threading support
+    ssh_manager_shutdown();
     
     term_shutdown();
     renderer_shutdown();
@@ -373,7 +396,7 @@ void app_controller_return_to_startup(app_state_t* app) {
     }
     
     // Clear connection state before showing startup menu
-    ssh_manager_clear_connection_input(app);
+    ssh_ui_clear_connection_input(app);
     
     // Show startup menu through ui_manager
     app_controller_show_startup_menu(app);
@@ -389,7 +412,7 @@ void app_controller_handle_startup_choice(app_state_t* app, int choice) {
     
     if (choice == 1) {
         // Start SSH connection setup
-        ssh_manager_start_ui_sequence(app);
+        ssh_ui_start_connection_sequence(app);
     } else if (choice == 2) {
         // Start test mode
         test_mode_init();
@@ -416,7 +439,7 @@ void app_controller_handle_field_submit(app_state_t* app, input_mode_t field_mod
         case INPUT_MODE_PASSWORD:
             {
                 // Handle SSH field submission
-                app_result_t result = ssh_manager_handle_field_submit(app, field_mode);
+                app_result_t result = ssh_ui_handle_field_submit(app, field_mode);
                 if (result == APP_RESULT_RETRY || result == APP_RESULT_CONTINUE) {
                     // Show the prompt for current or next field
                     ui_manager_display_current_prompt(app);
@@ -441,7 +464,7 @@ void app_controller_handle_disconnect_prompt(app_state_t* app, const char* input
     }
     
     // Handle disconnect prompt
-    app_result_t result = ssh_manager_handle_disconnect_prompt(app, input);
+    app_result_t result = ssh_ui_handle_disconnect_prompt(app, input);
     if (result == APP_RESULT_CANCEL) {
         // Return to startup menu (successful connection that later disconnected)
         app_controller_return_to_startup(app);

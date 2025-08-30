@@ -40,32 +40,46 @@ This document defines the architecture for a terminal application with SSH suppo
 │                    (Main loop, event handling, coordination)                │
 │                                                                             │
 │  ┌──────────────┐    ┌─────────────┐    ┌──────────────┐    ┌────────────┐  │
-│  │ SSH Manager  │    │ Input System│    │ UI Manager   │    │ Test Mode  │  │
-│  │ (Connection  │◄──►│ (Input mode │◄──►│ (UI displays │    │ (Terminal  │  │
-│  │  management) │    │  routing)   │    │  & prompts)  │    │  testing)  │  │
-│  └──────┬───────┘    └─────────────┘    └──────┬───────┘    └────────────┘  │
-│         │                                      │                            │
-│  ┌──────▼───────┐    UTF-8 bytes        ┌──────▼──────┐                     │
-│  │  SSH Client  │◄─────────────────────►│  Terminal   │                     │
-│  │ (wolfSSH +   │                       │ (libvterm)  │                     │
-│  │  wolfSSL)    │    bytes              └──────┬──────┘                     │
-│  └──────┬───────┘                              │screen diffs                │
-│         │ socket                               ▼                            │
-│         ▼                                 ┌─────────────┐                   │
-│   lwIP/POSIX sockets                      │  Renderer   │                   │
-│                                           │ (SDL3 grid) │─► Framebuffer     │
-│ Keyboard ─► Input ─► Key sequences  ──────┤             │                   │
-│            System                         └─────────────┘                   │
+│  │ SSH Manager  │    │Input System │    │ UI Manager   │    │ Test Mode  │  │
+│  │ (Connection, │◄──►│(Input mode  │◄──►│ (UI displays │    │ (Terminal  │  │
+│  │  threading,  │    │ routing)    │    │  & prompts)  │    │  testing)  │  │
+│  │  UI flows)   │    │             │    │              │    │            │  │
+│  └──────┬───────┘    └─────┬───────┘    └──────┬───────┘    └────────────┘  │
+│         │                  │                   │                            │
+│         │                  │                   │                            │
+│  ┌──────▼───────┐          │            ┌──────▼──────┐                     │
+│  │  SSH Client  │          │            │  Terminal   │                     │
+│  │ (wolfSSH +   │          │            │ (libvterm)  │                     │
+│  │  wolfSSL)    │          │            │             │                     │
+│  │              │          │            └──────┬──────┘                     │
+│  └──────┬───────┘          │                   │ screen updates             │
+│         │ blocking I/O     │                   ▼                            │
+│         ▼                  │            ┌─────────────┐                     │
+│   TCP sockets              │            │  Renderer   │                     │
+│   (lwIP/POSIX)             │            │ (SDL3 grid) │─► Display           │
+│                            │            │             │   Framebuffer       │
+│                            │            └─────────────┘                     │
+│                            │                                                │
+│    ┌─────────────┐         │                                                │
+│    │  Keyboard   │─────────┘                                                │
+│    │ (SDL events)│                                                          │
+│    └─────────────┘                                                          │
 │                                                                             │
 │ App State: SSH connection status, input mode, connection parameters         │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+• Keyboard → Input System → SSH Manager/Terminal
+• SSH Manager ← → SSH Client ← → Network (blocking I/O + threading)
+• SSH Client → Terminal → Renderer → Display
+• UI Manager → Terminal → Renderer (for menus/prompts)
 ```
 
-**Concurrency model:** Single-threaded event loop (SDL events + non-blocking SSH I/O).
+**Concurrency model:** **Hybrid threading with blocking I/O:** Main UI thread + SSH thread + dedicated I/O worker threads using traditional blocking sockets. Initially a Single-threaded event loop (SDL events + non-blocking SSH I/O) was planned, but this never worked well with BadgeVMS.
 
 **Component Architecture:** Clean separation with well-defined interfaces:
 - **App Controller:** Main application lifecycle and component coordination
-- **SSH Manager:** High-level SSH connection business logic and state management
+- **SSH Manager:** High-level SSH connection management with threading and UI flow logic
 - **SSH Client:** Low-level SSH protocol implementation (wolfSSH wrapper)
 - **Input System:** Input mode routing and field management for different app states
 - **UI Manager:** User interface rendering and prompt management
@@ -88,6 +102,8 @@ This document defines the architecture for a terminal application with SSH suppo
 
 * **Default font:** Leggie **9×18** bitmap.
 * **Default grid:** **80×39** (720/9 = 80 cols; 702/18 = 39 rows; padding top/bottom).
+* **Configuration:** Terminal dimensions centralized in `components/common/terminal_config.h`
+* **Constants:** `TERMINAL_COLS=80`, `TERMINAL_ROWS=39` used throughout codebase
 * `TERM=xterm-256color`, `COLORTERM=truecolor`.
 
 ---
@@ -97,11 +113,12 @@ This document defines the architecture for a terminal application with SSH suppo
 ### 5.1 Application Controller (`app_controller/`)
 
 * **Responsibility:** Main application lifecycle, event loop coordination, and component integration
-* **Architecture:** Single-threaded SDL event loop with non-blocking I/O for SSH operations
+* **Architecture:** Single-threaded SDL event loop that coordinates with threaded SSH operations
 * **Key features:**
   * SDL window and renderer initialization
   * Event routing between input system, SSH manager, and UI manager  
   * Application state management and graceful shutdown handling
+  * Polling of threaded SSH operations for data and state updates
 * **Interface:** Clean separation between initialization, main loop execution, and cleanup phases
 
 ### 5.2 Renderer (`renderer/`) - SDL3 Grid Display
@@ -134,16 +151,31 @@ This document defines the architecture for a terminal application with SSH suppo
 
 ### 5.4 SSH Engine (`ssh_manager/` + `ssh_client/`) - Connection Management
 
-* **Architecture:** Two-layer design separating business logic from protocol implementation
-* **SSH Manager:** High-level connection state management, user interaction flow, error handling
-* **SSH Client:** Low-level wolfSSH wrapper handling protocol details, authentication, data transfer
-* **Authentication:** Password-only authentication with interactive prompting
+* **Architecture:** Multi-layer design with **blocking I/O + threading** approach for BadgeVMS compatibility
+* **SSH Manager:** High-level connection state management, UI flow logic, and threaded operation coordination
+* **SSH Client:** Low-level wolfSSH wrapper with custom blocking I/O callbacks for socket operations
+* **Configuration:** Centralized SSH configuration constants in `ssh_config.h`
+
+**Socket & I/O Architecture:**
+* **Socket mode:** Traditional blocking TCP sockets (no select/poll for BadgeVMS compatibility)
+* **Threading strategy:** Main SSH thread + separate input/output worker threads for concurrent I/O
+* **Custom I/O:** wolfSSH configured with `WOLFSSH_USER_IO` using blocking read/write system calls
+* **I/O callbacks:** `custom_io.c` provides `wolfssh_io_recv()`/`wolfssh_io_send()` with direct read/write
+* **Error handling:** Socket errors and connection drops handled through blocking I/O return codes
+
+**wolfSSL/wolfSSH Integration:**
+* **Build config:** Custom `user_settings.h` optimized for SSH-only, single-threaded BadgeVMS environment
+* **Features disabled:** TLS server, session cache, multithreading, filesystem dependencies
+* **Crypto setup:** AES, RSA, ECC, DH, SHA256, HMAC with FFDHE groups for key exchange
+* **Memory model:** `WOLFSSL_SMALL_STACK` and embedded optimizations for resource-constrained environment
+* **Random generation:** Custom RNG implementation in `badge_crypto_port.c` for entropy (TODO: Improve this, check what ESP32 hardware can do)
+
+**Authentication & Connection:**
+* **Auth method:** Password-only authentication with interactive prompting
 * **Connection flow:** Multi-step user input (hostname → username → port → password) with field validation
-* **Crypto:** Standard SSH algorithms via wolfSSH + wolfSSL (configurable cipher suites at build time)
-* **Host key:** Basic host key verification with TOFU (Trust On First Use) support (not implemented yet)
-* **Environment setup:** Sets TERM=xterm-256color, COLORTERM=truecolor, COLUMNS=80, LINES=39
-* **Error handling:** Comprehensive error reporting and connection retry logic
-* **State management:** Non-blocking I/O with proper SSH connection state tracking
+* **Host key verification:** Basic SSH host key checking (TOFU support planned)
+* **Terminal setup:** Sets terminal size to 80×39 characters via SSH protocol
+* **State management:** Event-driven coordination between blocking I/O threads and main UI thread
 
 ### 5.5 Input System (`input_system/`) - Multi-Mode Input Handling
 
@@ -161,14 +193,14 @@ This document defines the architecture for a terminal application with SSH suppo
 
 ### 5.6 UI Manager (`ui_manager/`) - User Interface Layer
 
-* **Responsibility:** All user interface presentation logic separated from business logic
+* **Responsibility:** Pure presentation layer for user interface rendering separated from business logic
 * **Features:**
   * Startup menu display with mode selection
   * SSH connection setup with field-by-field prompts
   * Connection status messages (connecting, success, error)
   * Input validation feedback
   * Screen clearing and header formatting
-* **Architecture:** Pure presentation layer - receives formatted data and displays it via terminal
+* **Architecture:** Presentation-only component that displays formatted data via terminal interface
 * **Integration:** Works through terminal interface for consistent text-based UI
 
 ### 5.7 Keyboard Input (`keyboard/`) - SDL3 Event Processing
@@ -216,17 +248,24 @@ The application uses a clean component-based architecture with well-defined inte
 ### 7.2 Interface Contracts
 
 * **Application Controller ↔ All Components:** Coordinates initialization, main loop, and shutdown
-* **SSH Manager ↔ SSH Client:** High-level connection management using low-level protocol operations
-* **Input System ↔ UI Manager:** Input mode routing and field management with presentation separation
+* **SSH Manager ↔ SSH Client:** Layered SSH connection management with threading abstraction
+* **SSH Manager ↔ UI Manager:** SSH connection flow coordination with presentation services
+* **Input System ↔ SSH Manager:** Input mode routing and SSH field management
+* **Input System ↔ UI Manager:** General input routing with presentation separation
 * **Terminal ↔ Renderer:** VT100 emulation data flows to optimized grid display
 * **All Components ↔ App State:** Shared state access with clear ownership boundaries
 
 ### 7.3 Data Flow Patterns
 
 1. **User Input Flow:** SDL events → Keyboard → Input System → SSH Manager/Terminal
-2. **SSH Data Flow:** SSH Client ← → wolfSSH ← → Network, SSH Client → Terminal → Renderer
-3. **UI Flow:** SSH Manager/Input System → UI Manager → Terminal → Renderer
-4. **State Flow:** All components read/write app_state with controller coordination
+2. **SSH Connection Flow:** SSH Manager → SSH Client (blocking connection setup via internal threads)
+3. **SSH Data I/O Flow:** 
+   * **Outbound:** Input System → SSH Manager → SSH Client (blocking send via internal threads)
+   * **Inbound:** SSH Client (blocking recv via internal threads) → SSH Manager → Terminal
+4. **SSH Terminal Flow:** SSH Client → Terminal → Renderer (for SSH session data display)
+5. **UI Flow:** SSH Manager → UI Manager → Terminal → Renderer (for prompts and menus)
+6. **Thread Communication:** Event/command queues between main thread and SSH worker threads
+7. **State Flow:** All components coordinate via app_state with thread-safe event communication
 
 All interfaces are documented in their respective header files (`*.h`) with comprehensive parameter documentation.
 
@@ -236,15 +275,18 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 * **Host Key Verification:** SSH host key checking with TOFU (Trust On First Use) storage (planned)
 * **Authentication:** Password-only authentication with secure memory handling
-* **Crypto:** Standard SSH algorithms via wolfSSH + wolfSSL (to be confirmed / optimized):
-  * Key exchange: Standard SSH key exchange algorithms supported by wolfSSH
-  * Ciphers: AES-CBC, AES-CTR, ChaCha20-Poly1305 (configurable cipher suites)
-  * MACs: HMAC-SHA1, HMAC-SHA2-256, built into AEAD ciphers
-  * Host key types: RSA, ECDSA, Ed25519 support
+* **Crypto Configuration:** wolfSSL/wolfSSH optimized for embedded SSH-only environment:
+  * **Key exchange:** FFDHE groups (2048, 3072, 4096-bit) for Diffie-Hellman key exchange
+  * **Ciphers:** AES-CBC, AES-CTR, ChaCha20-Poly1305 (configurable via wolfSSH cipher suites)
+  * **Hash algorithms:** SHA-256, HMAC with built-in AEAD cipher support
+  * **Public key types:** RSA, ECDSA, Ed25519 support for host verification
+  * **Elliptic curves:** ECC support for efficient key operations
+* **Build Security:** SSH-only build with TLS/server features disabled (`NO_TLS`, `NO_WOLFSSL_SERVER`)
+* **Memory Security:** Small stack configuration (`WOLFSSL_SMALL_STACK`) with secure credential cleanup
+* **Random Generation:** Custom entropy source via `badge_generate_seed()` in `badge_crypto_port.c`
+* **Threading Security:** Single-threaded wolfSSL configuration (`SINGLE_THREADED`, `NO_WOLFSSL_MULTITHREADING`)
+* **Library Validation:** wolfSSL FIPS 140-2 Level 1 validated cryptographic module
 * **No agent forwarding, port forwarding, or X11 forwarding**
-* **Connection security:** Proper cryptographic verification through wolfSSL
-* **Memory management:** Secure cleanup of password and sensitive data
-* **Library security:** wolfSSL FIPS 140-2 Level 1 validated cryptographic module
 
 ---
 
@@ -255,13 +297,23 @@ All interfaces are documented in their respective header files (`*.h`) with comp
   /components/                    # Application components
     /app_controller/              # Main application lifecycle
     /input_system/                # Input mode routing
-    /ssh_manager/                 # SSH business logic  
+    /ssh_manager/                 # SSH business logic and components
+      ssh_manager.c/.h            # High-level SSH connection management  
+      ssh_ui_controller.c/.h      # SSH UI flow logic and state management
+      ssh_thread.c/.h             # Threaded SSH operations
+      ssh_config.h                # Centralized SSH configuration constants
     /ssh_client/                  # SSH protocol wrapper
+      ssh_client.c/.h             # wolfSSH wrapper with blocking I/O
+      custom_io.c/.h              # Custom blocking I/O callbacks for wolfSSH
+      user_settings.h             # wolfSSL/wolfSSH build configuration
+      badge_crypto_port.c         # Custom RNG implementation for BadgeVMS
     /ui_manager/                  # User interface layer
     /renderer/                    # SDL3 display rendering
     /term/                        # Terminal emulation
     /keyboard/                    # Input event processing
     /test_mode/                   # Terminal testing
+    /common/                      # Shared configuration
+      terminal_config.h           # Terminal dimension constants (80×39)
   /common/                        # Shared data structures
     types.h                       # Common type definitions
     app_state.h                   # Application state structure
@@ -284,13 +336,14 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ## 10. Error Handling & Recovery
 
-* **Connection Errors:** Comprehensive error reporting with specific failure reasons
-* **Network Issues:** Graceful handling of connection drops with user-friendly error messages
-* **Authentication Failures:** Clear feedback on authentication problems with retry options
-* **Recovery Strategy:** After any connection failure, return to prompt allowing Retry with same parameters
+* **Connection Errors:** Comprehensive error reporting through threaded event system with specific failure reasons
+* **Network Issues:** Graceful handling of blocking socket errors and connection drops via thread communication
+* **Threading Errors:** Robust thread lifecycle management with proper startup/shutdown coordination
+* **Authentication Failures:** Clear feedback on authentication problems through SSH event system with retry options
+* **Recovery Strategy:** After any connection failure, return to prompt allowing retry with same parameters
 * **Input Validation:** Field-level validation with immediate feedback for invalid entries
-* **Resource Management:** Proper cleanup of SSH sessions, sockets, and memory on all error paths
-* **UI Consistency:** All errors presented through terminal interface with color coding
+* **Resource Management:** Proper cleanup of SSH sessions, threads, sockets, and wolfSSL/wolfSSH resources on all error paths
+* **UI Consistency:** All errors presented through terminal interface with thread-safe event delivery
 
 ---
 
@@ -299,16 +352,16 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 ### ✅ **Fully Implemented and Working**
 
 * **Complete VT100/xterm terminal emulation** with libvterm-0.3.3
-* **Full SSH connectivity** with password authentication via wolfSSH
+* **Full SSH connectivity** with password authentication via wolfSSH using blocking I/O + threading
 * **Optimized rendering system** with dirty-flag optimization and 80×39 grid
 * **Interactive SSH setup** with field-by-field input validation
 * **Multi-mode input system** supporting startup menu, SSH setup, and terminal operation
 * **Terminal test mode** for feature validation without SSH connection
-* **Component-based architecture** with clean separation of concerns
-* **Comprehensive error handling** and connection retry logic
+* **Component-based architecture** with clean separation and threaded SSH operations
+* **Comprehensive error handling** with thread-safe event communication and connection retry logic
 * **24-bit RGB color support** with bold text rendering (as brighter text)
 * **Complete keyboard mapping** including arrows, modifiers, and special keys
-* **Non-blocking SSH I/O** with proper state management
+* **Blocking I/O SSH architecture** with dedicated worker threads for non-blocking UI
 
 ### 🔄 **Planned Improvements**
 
@@ -336,10 +389,12 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 * **Rendering Performance:** Dirty-flag optimization ensures only changed areas are redrawn
 * **Memory Usage:** Fixed 80×39 character grid (~12KB for screen buffer)
-* **Network Performance:** Non-blocking I/O prevents UI freezing during SSH operations
-* **Input Latency:** Direct SDL event processing with minimal buffering
-* **SSH Throughput:** Capable of handling full terminal bandwidth with real-time display updates
-* **CPU Usage:** Single-threaded design with efficient event-driven architecture
+* **Network Architecture:** **Blocking I/O with threading** prevents UI freezing while maintaining simple socket operations
+* **Threading Overhead:** Lightweight worker threads for I/O operations with efficient queue-based communication
+* **Input Latency:** Direct SDL event processing with minimal buffering and thread-safe command queuing
+* **SSH Throughput:** Full terminal bandwidth support through dedicated I/O threads with blocking socket operations
+* **CPU Usage:** Multi-threaded design with main UI thread + SSH coordination thread + dedicated I/O workers
+* **wolfSSL/wolfSSH Performance:** Small-stack embedded configuration optimized for resource-constrained environment
 
 ---
 

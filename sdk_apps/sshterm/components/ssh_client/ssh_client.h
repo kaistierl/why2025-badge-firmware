@@ -22,7 +22,7 @@
 bool ssh_client_init(ssh_client_t* client);
 
 /**
- * Start non-blocking SSH connection
+ * Start SSH connection
  * @param client SSH client structure
  * @param hostname Remote hostname or IP address
  * @param port Remote port (usually 22)
@@ -34,15 +34,15 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
                              const char* username, const char* password);
 
 /**
- * Continue non-blocking SSH connection process
- * Call this repeatedly until connection completes (state becomes CONNECTED or ERROR)
+ * Continue SSH connection process (blocking)
+ * This will block until the SSH connection completes (success or error)
  * @param client SSH client structure
- * @return true if should continue calling (still in progress), false if done (success or error)
+ * @return false when done (check state for success/error)
  */
 bool ssh_client_connect_continue(ssh_client_t* client);
 
 /**
- * Send data to SSH session
+ * Send data to SSH session (blocking)
  * @param client SSH client structure
  * @param data Data buffer to send
  * @param len Length of data to send
@@ -51,13 +51,13 @@ bool ssh_client_connect_continue(ssh_client_t* client);
 bool ssh_client_send(ssh_client_t* client, const char* data, size_t len);
 
 /**
- * Receive data from SSH session (non-blocking)
+ * Receive data from SSH session (blocking)
  * @param client SSH client structure
  * @param buffer Buffer to store received data
  * @param buffer_size Size of the buffer
  * @return Number of bytes received, 0 if no data available, -1 on error, -2 on clean disconnect
  */
-int ssh_client_receive(ssh_client_t* client, char* buffer, size_t buffer_size);
+int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size);
 
 /**
  * Resize the PTY window (for terminal window size changes)
@@ -104,6 +104,20 @@ ssh_state_t ssh_client_get_state(ssh_client_t* client);
  * @return Error message string (may be empty)
  */
 const char* ssh_client_get_error(ssh_client_t* client);
+
+/**
+ * Get the socket file descriptor for the SSH connection
+ * @param client SSH client structure
+ * @return Socket file descriptor, or -1 if not connected
+ */
+int ssh_client_get_fd(ssh_client_t* client);
+
+/**
+ * Peek at available data without consuming it (for wolfSSH threading pattern)
+ * @param client SSH client structure
+ * @return true if data is available, false otherwise
+ */
+bool ssh_client_peek(ssh_client_t* client);
 
 /**
  * Cleanup SSH client resources

@@ -24,7 +24,7 @@ typedef struct {
     int win_w, win_h;
 
     // Screen buffer with color info
-    render_cell_t screen[RENDER_ROWS * RENDER_COLS];
+    render_cell_t screen[TERMINAL_ROWS * TERMINAL_COLS];
     bool dirty;
 
     // cursor
@@ -41,10 +41,10 @@ static RState g;
 
 // ---- helpers ----
 static inline int idx(int x, int y) {
-    if (x < 0 || x >= RENDER_COLS || y < 0 || y >= RENDER_ROWS) {
+    if (x < 0 || x >= TERMINAL_COLS || y < 0 || y >= TERMINAL_ROWS) {
         return -1;  // Invalid coordinates
     }
-    return y * RENDER_COLS + x;
+    return y * TERMINAL_COLS + x;
 }
 
 static inline int glyph_index(uint32_t cp) {
@@ -101,7 +101,7 @@ bool renderer_init(SDL_Window* window, SDL_Renderer* renderer) {
 
     // Initialize screen with blank cells
     render_cell_t blank = { .cp = ' ', .fg = g.default_fg, .bg = g.default_bg };
-    for (int i = 0; i < RENDER_ROWS * RENDER_COLS; i++) {
+    for (int i = 0; i < TERMINAL_ROWS * TERMINAL_COLS; i++) {
         g.screen[i] = blank;
     }
     g.dirty = true;
@@ -120,7 +120,7 @@ void renderer_shutdown(void) {
 }
 
 void renderer_set_cell(int x, int y, uint32_t cp, render_color_t fg, render_color_t bg) {
-    if ((unsigned)x >= RENDER_COLS || (unsigned)y >= RENDER_ROWS) return;
+    if ((unsigned)x >= TERMINAL_COLS || (unsigned)y >= TERMINAL_ROWS) return;
     
     int i = idx(x, y);
     if (i < 0) return;
@@ -133,10 +133,10 @@ void renderer_set_cell(int x, int y, uint32_t cp, render_color_t fg, render_colo
 
 void renderer_scroll_up(int top, int bottom, int lines) {
     if (top < 0) top = 0;
-    if (bottom >= RENDER_ROWS) bottom = RENDER_ROWS - 1;
+    if (bottom >= TERMINAL_ROWS) bottom = TERMINAL_ROWS - 1;
     if (lines <= 0 || top > bottom) return;
 
-    int width = RENDER_COLS;
+    int width = TERMINAL_COLS;
     int rows  = bottom - top + 1;
     if (lines > rows) lines = rows;
 
@@ -158,11 +158,11 @@ void renderer_scroll_up(int top, int bottom, int lines) {
 
 void renderer_set_cursor(int x, int y, bool visible) {
     bool changed = false;
-    if ((unsigned)x < RENDER_COLS && g.cx != x) {
+    if ((unsigned)x < TERMINAL_COLS && g.cx != x) {
         g.cx = x;
         changed = true;
     }
-    if ((unsigned)y < RENDER_ROWS && g.cy != y) {
+    if ((unsigned)y < TERMINAL_ROWS && g.cy != y) {
         g.cy = y;
         changed = true;
     }
@@ -196,14 +196,14 @@ void renderer_present_if_dirty(uint32_t now_ms) {
     if (PADDING_Y > 0) {
         fill_rect(0, 0, g.win_w, PADDING_Y);
     }
-    const int grid_bottom = PADDING_Y + RENDER_ROWS * RENDER_CELL_H;
+    const int grid_bottom = PADDING_Y + TERMINAL_ROWS * RENDER_CELL_H;
     if (grid_bottom < g.win_h) {
         fill_rect(0, grid_bottom, g.win_w, g.win_h - grid_bottom);
     }
 
     // 3) Draw all glyphs
-    for (int y = 0; y < RENDER_ROWS; y++) {
-        for (int x = 0; x < RENDER_COLS; x++) {
+    for (int y = 0; y < TERMINAL_ROWS; y++) {
+        for (int x = 0; x < TERMINAL_COLS; x++) {
             int i = idx(x, y);
             if (i < 0) continue;
             

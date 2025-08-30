@@ -379,10 +379,29 @@ build_app(cyb3rk4t_term PREINSTALL
 
 build_app(sshterm PREINSTALL
     SOURCES
+     # Main application entry point
      main.c
+     
+     # Badge-specific crypto implementations
+     components/ssh_client/badge_crypto_port.c
+     
+     # Custom I/O implementation for wolfSSL/wolfSSH
+     components/ssh_client/custom_io.c
+     
+     # Application components
+     components/app_controller/app_controller.c
+     components/input_system/input_system.c
+     components/ssh_manager/ssh_manager.c
+     components/ssh_manager/ssh_thread.c
+     components/ssh_manager/ssh_ui_controller.c
+     components/ssh_client/ssh_client.c
+     components/ui_manager/ui_manager.c
      components/renderer/renderer.c
      components/term/term.c
      components/keyboard/keyboard.c
+     components/test_mode/test_mode.c
+     
+     # libvterm sources
      thirdparty/libvterm-0.3.3/src/vterm.c
      thirdparty/libvterm-0.3.3/src/screen.c
      thirdparty/libvterm-0.3.3/src/state.c
@@ -391,12 +410,57 @@ build_app(sshterm PREINSTALL
      thirdparty/libvterm-0.3.3/src/parser.c
      thirdparty/libvterm-0.3.3/src/keyboard.c
      thirdparty/libvterm-0.3.3/src/unicode.c
+     
+     # wolfSSH sources (using custom I/O)
+     thirdparty/wolfssh-1.4.20/src/ssh.c
+     thirdparty/wolfssh-1.4.20/src/io.c
+     thirdparty/wolfssh-1.4.20/src/log.c
+     thirdparty/wolfssh-1.4.20/src/internal.c
+     thirdparty/wolfssh-1.4.20/src/port.c
+     
+     # wolfSSL sources (using glob)
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/aes.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/asn.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/coding.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/curve25519.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/dh.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/ecc.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/ed25519.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/error.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/fe_low_mem.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/fe_operations.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/ge_low_mem.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/hash.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/hmac.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/integer.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/kdf.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/logging.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/md5.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/memory.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/misc.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/random.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/rsa.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/sha.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/sha256.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/sha512.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/signature.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/tfm.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/wc_port.c
+     thirdparty/wolfssl-5.8.2/wolfcrypt/src/wolfmath.c
+
     LIBRARIES
      sdl3
     COMPILE_DEFINITIONS
      BADGEVMS_FULLSCREEN=1
-     HAVE_CONFIG_H
      "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm/thirdparty/libvterm-0.3.3/include"
+     # wolfSSL/wolfSSH include paths and user settings
+     "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm/components/ssh_client"
+     "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm/thirdparty/wolfssh-1.4.20"
+     "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm/thirdparty/wolfssl-5.8.2"
+     # Badge socket compatibility stubs
+     "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm"
+     # Use user_settings.h instead of complex config
+     WOLFSSL_USER_SETTINGS
 )
 
 get_property(SDK_APP_ELFS GLOBAL PROPERTY SDK_APP_ELFS)

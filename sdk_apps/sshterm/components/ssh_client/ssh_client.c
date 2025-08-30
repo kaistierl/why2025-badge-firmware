@@ -1,9 +1,23 @@
 #include "ssh_client.h"
+#include "custom_io.h"
+#include "user_settings.h"  /* wolfSSL/wolfSSH user configuration */
+
+/* wolfSSH includes */
 #include <wolfssh/ssh.h>
 #include <wolfssh/error.h>
 #include <wolfssh/settings.h>
+
+/* wolfSSL includes */
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/wolfcrypt/types.h>
+#include <wolfssl/wolfcrypt/wc_port.h>
+#include <wolfssl/wolfcrypt/random.h>
+#include <wolfssl/ssl.h>
+
+/* Application includes */
+#include "../common/terminal_config.h"  /* For SSH_TERMINAL_WIDTH/HEIGHT */
+
+/* System includes */
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -11,10 +25,16 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <sys/socket.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/select.h>
+#include <stdlib.h>
+
+/* Compile-time verification - we need custom I/O for BadgeVMS */
+#ifndef WOLFSSH_USER_IO
+#error "WOLFSSH_USER_IO should be defined for BadgeVMS compatibility"
+#endif
+
+#ifndef WOLFSSH_TERM
+#error "WOLFSSH_TERM should be defined in user_settings.h"
+#endif
 
 // Global state for authentication
 static const char* stored_password = NULL;
@@ -78,8 +98,6 @@ static int ssh_create_socket(const char* hostname, int port) {
     struct addrinfo hints, *result;
     int sock_fd = -1;
     
-    printf("ssh_create_socket: Connecting to %s:%d\n", hostname, port);
-    
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;    // IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM;
@@ -100,60 +118,14 @@ static int ssh_create_socket(const char* hostname, int port) {
             continue;
         }
         
-        // Set socket to non-blocking mode before connect for timeout control
-        int sock_flags = fcntl(sock_fd, F_GETFL, 0);
-        if (sock_flags != -1) {
-            fcntl(sock_fd, F_SETFL, sock_flags | O_NONBLOCK);
-        }
-        
         int connect_result = connect(sock_fd, rp->ai_addr, rp->ai_addrlen);
         if (connect_result == 0) {
-            // Immediate connection success (unlikely but possible for localhost)
-            // Set back to blocking mode for wolfSSH
-            if (sock_flags != -1) {
-                fcntl(sock_fd, F_SETFL, sock_flags & ~O_NONBLOCK);
-            }
+            // Connection successful - keep socket in blocking mode
             break;
-        } else if (errno == EINPROGRESS) {
-            // Non-blocking connect in progress
-            fd_set write_fds, error_fds;
-            FD_ZERO(&write_fds);
-            FD_ZERO(&error_fds);
-            FD_SET(sock_fd, &write_fds);
-            FD_SET(sock_fd, &error_fds);
-            
-            struct timeval timeout = {10, 0}; // 10 second timeout
-            int select_result = select(sock_fd + 1, NULL, &write_fds, &error_fds, &timeout);
-            
-            if (select_result > 0) {
-                if (FD_ISSET(sock_fd, &error_fds)) {
-                    // Error on socket
-                    close(sock_fd);
-                    sock_fd = -1;
-                    continue;
-                }
-                if (FD_ISSET(sock_fd, &write_fds)) {
-                    // Check if connection succeeded
-                    int error = 0;
-                    socklen_t len = sizeof(error);
-                    if (getsockopt(sock_fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
-                        // Connection successful, set back to blocking mode for wolfSSH
-                        if (sock_flags != -1) {
-                            fcntl(sock_fd, F_SETFL, sock_flags & ~O_NONBLOCK);
-                        }
-                        break;
-                    }
-                }
-            }
-            // Timeout or error - close and try next address
-            close(sock_fd);
-            sock_fd = -1;
-            continue;
         } else {
-            // Connection failed immediately
+            // Connection failed, try next address
             close(sock_fd);
             sock_fd = -1;
-            continue;
         }
     }
     
@@ -167,10 +139,44 @@ bool ssh_client_init(ssh_client_t* client) {
         return false;
     }
     
-    // Initialize wolfSSH library (wolfCrypt is initialized automatically)
+    printf("SSH: Initializing client subsystem\n");
+    
+    // Initialize wolfSSL/wolfCrypt first (required for wolfSSH)
+    int wc_ret = wolfCrypt_Init();
+    if (wc_ret != 0) {
+        printf("SSH: wolfCrypt_Init failed with error: %d\n", wc_ret);
+        ssh_set_error(client, "Failed to initialize wolfCrypt");
+        return false;
+    }
+    
+    // Test RNG functionality before proceeding
+    WC_RNG rng;
+    int rng_ret = wc_InitRng(&rng);
+    if (rng_ret != 0) {
+        printf("SSH: Failed to initialize RNG with error: %d\n", rng_ret);
+        ssh_set_error(client, "Failed to initialize RNG");
+        wolfCrypt_Cleanup();
+        return false;
+    }
+    
+    unsigned char test_random[16];
+    rng_ret = wc_RNG_GenerateBlock(&rng, test_random, sizeof(test_random));
+    if (rng_ret != 0) {
+        printf("SSH: RNG test failed with error: %d\n", rng_ret);
+        wc_FreeRng(&rng);
+        ssh_set_error(client, "RNG functionality test failed");
+        wolfCrypt_Cleanup();
+        return false;
+    }
+    
+    wc_FreeRng(&rng);
+    
+    // Initialize wolfSSH library
     int rc = wolfSSH_Init();
     if (rc != WS_SUCCESS) {
+        printf("SSH: wolfSSH_Init failed with error: %d\n", rc);
         ssh_set_error(client, "Failed to initialize wolfSSH library");
+        wolfCrypt_Cleanup();
         return false;
     }
     
@@ -179,7 +185,6 @@ bool ssh_client_init(ssh_client_t* client) {
     client->state = SSH_STATE_DISCONNECTED;
     client->socket_fd = -1;
     
-    printf("SSH client initialized successfully\n");
     return true;
 }
 
@@ -199,13 +204,14 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
         return false;
     }
     
-    printf("SSH: Context created successfully\n");
-    
-    // Set up authentication callback
+    // Configure context before creating sessions
     wolfSSH_SetUserAuth((WOLFSSH_CTX*)client->ctx, ssh_auth_callback);
-    
-    // Set up public key check callback
     wolfSSH_CTX_SetPublicKeyCheck((WOLFSSH_CTX*)client->ctx, ssh_public_key_check);
+    
+    // Set up custom I/O callbacks on context
+#ifdef WOLFSSH_USER_IO
+    setup_wolfssh_custom_io((WOLFSSH_CTX*)client->ctx);
+#endif
     
     // Create SSH session
     client->ssh = wolfSSH_new((WOLFSSH_CTX*)client->ctx);
@@ -228,7 +234,10 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
     // Set socket file descriptor
     int ret = wolfSSH_set_fd((WOLFSSH*)client->ssh, client->socket_fd);
     if (ret != WS_SUCCESS) {
-        ssh_set_error(client, "Failed to set socket for SSH session");
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), 
+                "Failed to set socket for SSH session (error: %d)", ret);
+        ssh_set_error(client, error_msg);
         wolfSSH_free((WOLFSSH*)client->ssh);
         wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
         close(client->socket_fd);
@@ -238,6 +247,12 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
         client->state = SSH_STATE_ERROR;
         return false;
     }
+
+    // Set I/O context for custom I/O callbacks
+#ifdef WOLFSSH_USER_IO
+    wolfSSH_SetIOReadCtx((WOLFSSH*)client->ssh, &client->socket_fd);
+    wolfSSH_SetIOWriteCtx((WOLFSSH*)client->ssh, &client->socket_fd);
+#endif
     
     // Set username
     ret = wolfSSH_SetUsername((WOLFSSH*)client->ssh, username);
@@ -254,6 +269,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
     }
     
     // Set channel type to terminal for interactive shell
+    // Setup terminal channel type for interactive sessions
     ret = wolfSSH_SetChannelType((WOLFSSH*)client->ssh, WOLFSSH_SESSION_TERMINAL, NULL, 0);
     if (ret != WS_SUCCESS) {
         char error_details[256];
@@ -270,7 +286,6 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
         return false;
     }
     
-    printf("SSH: Session setup complete, ready for handshake\n");
     client->state = SSH_STATE_SSH_HANDSHAKING;
     return true;
 }
@@ -282,7 +297,8 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
         return false;
     }
     
-    printf("SSH: Starting connection to %s@%s:%d\n", username, hostname, port);
+    printf("SSH: Connecting to %s:%d as %s\n", hostname, port, username);
+    
     client->state = SSH_STATE_SOCKET_CONNECTING;
     
     // Store connection parameters
@@ -295,15 +311,13 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
     stored_password = password;
     stored_username = username;
     
-    // Create socket connection (with timeout but ultimately blocking for SSH)
+    // Create socket connection (blocking)
     client->socket_fd = ssh_create_socket(hostname, port);
     if (client->socket_fd == -1) {
         ssh_set_error(client, "Failed to create socket connection to host");
         client->state = SSH_STATE_ERROR;
         return false;
     }
-    
-    printf("SSH: Socket connected, setting up SSH session\n");
     
     // Now set up the SSH session with the connected socket
     if (!ssh_setup_session(client, hostname, username)) {
@@ -324,35 +338,21 @@ bool ssh_client_connect_continue(ssh_client_t* client) {
     switch (client->state) {
         case SSH_STATE_SSH_HANDSHAKING:
         case SSH_STATE_AUTHENTICATING: {
-            // Attempt SSH handshake and authentication
+            // Attempt SSH handshake and authentication (BLOCKING)
             int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
             
-            printf("SSH: wolfSSH_connect returned: %d\n", ret);
-            
-            // Check for non-blocking operation in progress
-            if (ret == WS_WANT_READ || ret == WS_WANT_WRITE) {
-                // Non-blocking operation in progress, try again later
-                printf("SSH: Non-blocking operation in progress (WANT_READ/WANT_WRITE)\n");
-                client->state = SSH_STATE_AUTHENTICATING; // Update state if progressing
-                return true; // Keep calling
-            } else if (ret == WS_SUCCESS) {
+            // In blocking mode, wolfSSH_connect should complete immediately
+            if (ret == WS_SUCCESS) {
                 // Connection successful
-                printf("SSH: Connection established and authenticated successfully\n");
                 client->state = SSH_STATE_CONNECTED;
+                printf("SSH: Connection established successfully\n");
                 
-                // Set terminal size to match our fixed 80x39 terminal emulator
-                int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh, 80, 39, 0, 0);
+                // Set terminal size to match our configured terminal emulator
+                int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh, 
+                                                       TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
                 if (pty_ret != WS_SUCCESS) {
                     printf("SSH: Warning - failed to set terminal size (error: %d)\n", pty_ret);
                     // Don't fail the connection for this, just warn
-                } else {
-                    printf("SSH: Terminal size set to 80x39\n");
-                }
-                
-                // Set socket to non-blocking mode after successful SSH connection
-                int flags = fcntl(client->socket_fd, F_GETFL, 0);
-                if (flags != -1) {
-                    fcntl(client->socket_fd, F_SETFL, flags | O_NONBLOCK);
                 }
                 
                 return false; // Done - success
@@ -394,10 +394,7 @@ bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {
     
     int bytes_written = wolfSSH_stream_send((WOLFSSH*)client->ssh, (byte*)data, (word32)len);
     
-    // Check for non-blocking operation in progress
-    if (bytes_written == WS_WANT_WRITE || bytes_written == WS_WANT_READ) {
-        return true; // Non-blocking, try again later
-    } else if (bytes_written < 0) {
+    if (bytes_written < 0) {
         ssh_set_error(client, "Failed to send data");
         return false;
     }
@@ -405,23 +402,32 @@ bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {
     return (bytes_written == (int)len);
 }
 
-int ssh_client_receive(ssh_client_t* client, char* buffer, size_t buffer_size) {
-    if (!client || !buffer || buffer_size == 0 || client->state != SSH_STATE_CONNECTED) {
+int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
+    if (!client || !buffer || buffer_size <= 0) {
         return -1;
     }
     
+    if (client->state != SSH_STATE_CONNECTED || !client->ssh) {
+        return -1;
+    }
+    
+    // In pure blocking mode, just call wolfSSH_stream_read directly
+    // It will block until data is available or an error occurs
     int bytes_read = wolfSSH_stream_read((WOLFSSH*)client->ssh, (byte*)buffer, (word32)buffer_size);
     
-    // Check for non-blocking conditions and EOF
-    if (bytes_read == WS_WANT_READ || bytes_read == WS_WANT_WRITE || bytes_read == WS_ERROR) {
-        return 0; // No data available, non-blocking
-    } else if (bytes_read == WS_EOF) {
+    if (bytes_read == WS_EOF) {
         snprintf(client->error_msg, sizeof(client->error_msg), 
                 "Connection to %s closed.", client->hostname);
         client->state = SSH_STATE_DISCONNECTED;
         return -2; // Special return code for clean disconnect
     } else if (bytes_read < 0) {
+        // Check if it's a non-fatal error
         const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
+        if (error_name && (strstr(error_name, "WANT_READ") || strstr(error_name, "AGAIN"))) {
+            // No data available - this shouldn't happen in blocking mode
+            return 0;
+        }
+        
         char error_details[512];
         snprintf(error_details, sizeof(error_details), 
                 "Failed to receive data (ret=%d, %s)", bytes_read,
@@ -441,11 +447,9 @@ bool ssh_client_resize_pty(ssh_client_t* client, int width, int height) {
     // Send terminal resize request to the remote server
     int ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh, width, height, 0, 0);
     if (ret != WS_SUCCESS) {
-        printf("SSH: Failed to resize terminal to %dx%d (error: %d)\n", width, height, ret);
         return false;
     }
     
-    printf("SSH: Terminal resized to %dx%d\n", width, height);
     return true;
 }
 
@@ -454,13 +458,11 @@ bool ssh_client_send_signal(ssh_client_t* client, const char* signal_name) {
         return false;
     }
     
-    printf("SSH: Sending signal '%s'\n", signal_name);
-    
-    // wolfSSH doesn't have direct signal sending capability like libssh2
-    // We could implement this by sending the signal as a control sequence
-    // For now, return true as signals aren't critical for basic terminal operation
+    // Signal sending is not implemented in this wolfSSH-based client
+    // This would require implementing SSH_MSG_CHANNEL_REQUEST with signal type
+    // Most terminal applications handle signals locally (Ctrl+C, etc.)
     (void)signal_name;
-    return true;
+    return false;
 }
 
 bool ssh_client_get_exit_status(ssh_client_t* client, int* exit_status) {
@@ -468,11 +470,11 @@ bool ssh_client_get_exit_status(ssh_client_t* client, int* exit_status) {
         return false;
     }
     
-    // wolfSSH doesn't provide direct exit status access like libssh2
-    // The exit status would typically be handled through the channel close mechanism
-    // For now, return a default status
-    *exit_status = 0;
-    return true;
+    // Exit status retrieval is not implemented in this wolfSSH-based client
+    // This feature would require additional wolfSSH API support for channel exit status
+    // Most interactive terminal sessions don't rely on programmatic exit status
+    *exit_status = 0; // Default to success
+    return false;
 }
 
 bool ssh_client_is_connected(ssh_client_t* client) {
@@ -520,10 +522,25 @@ void ssh_client_cleanup(ssh_client_t* client) {
     // Clear stored credentials
     stored_password = NULL;
     stored_username = NULL;
+}
+
+// New functions to support wolfSSH threading pattern
+
+int ssh_client_get_fd(ssh_client_t* client) {
+    if (!client) {
+        return -1;
+    }
+    return client->socket_fd;
+}
+
+bool ssh_client_peek(ssh_client_t* client) {
+    if (!client || !client->ssh) {
+        return false;
+    }
     
-    // Cleanup wolfSSH library (should be called when application exits)
-    // Note: Only call this if no other SSH connections are active
-    // wolfSSH_Cleanup();
+    // Use wolfSSH_stream_peek to check if data is available
+    char temp_buf[1];
+    int peek_result = wolfSSH_stream_peek((WOLFSSH*)client->ssh, (byte*)temp_buf, 1);
     
-    printf("SSH: Cleanup completed\n");
+    return peek_result > 0;
 }

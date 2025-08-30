@@ -25,39 +25,15 @@ add_library(wolfssl STATIC ${WOLFSSL_SOURCES})
 
 target_include_directories(wolfssl PUBLIC
     thirdparty/wolfssl-5.8.2
+    components/ssh_client # for user_settings.h
 )
 
 target_compile_definitions(wolfssl PUBLIC
-    WOLFCRYPT_ONLY
-    NO_TLS
-    WOLFSSL_WOLFSSH
-    HAVE_ECC
-    HAVE_RSA
-    HAVE_DH
-    HAVE_SHA1
-    HAVE_SHA256
-    HAVE_SHA512
-    WOLFSSL_SHA512
-    WC_NO_HARDEN
-    HAVE_HMAC
-    HAVE_AES
-    HAVE_AES_CTR
-    HAVE_AESGCM
-    HAVE_AESCCM
-    HAVE_AES_CBC
-    WOLFSSL_AES_COUNTER
-    WOLFSSL_AES_DIRECT
-    HAVE_CHACHA
-    HAVE_POLY1305
-    HAVE_CURVE25519
-    HAVE_ED25519
-    SINGLE_THREADED
-    WC_NO_HARDEN  #  Disable timing resistance warnings - hardening might be done later
+    WOLFSSL_USER_SETTINGS
 )
 
 # wolfSSH library
 file(GLOB WOLFSSH_SOURCES "thirdparty/wolfssh-1.4.20/src/*.c")
-
 add_library(wolfssh STATIC ${WOLFSSH_SOURCES})
 
 target_include_directories(wolfssh PUBLIC
@@ -66,16 +42,17 @@ target_include_directories(wolfssh PUBLIC
 
 target_link_libraries(wolfssh PUBLIC wolfssl)
 
-target_compile_definitions(wolfssh PUBLIC
-    DEBUG_WOLFSSH
-    WOLFSSH_TERM
-)
-
 # Define the executable
 add_executable(sshterm
     main.c
+    # Badge-specific crypto implementations
+    components/ssh_client/badge_crypto_port.c
+     # Custom I/O implementation for wolfSSL/wolfSSH
+    components/ssh_client/custom_io.c
     components/input_system/input_system.c
     components/ssh_manager/ssh_manager.c
+    components/ssh_manager/ssh_thread.c
+    components/ssh_manager/ssh_ui_controller.c
     components/app_controller/app_controller.c
     components/ui_manager/ui_manager.c
     components/renderer/renderer.c
@@ -102,11 +79,6 @@ target_include_directories(sshterm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wolfssh-1.4.20
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wolfssl-5.8.2
     ${SDL3_INCLUDE_DIRS}
-)
-
-# Add compile definitions
-target_compile_definitions(sshterm PRIVATE
-    HAVE_CONFIG_H
 )
 
 # Link libraries and apply compile flags

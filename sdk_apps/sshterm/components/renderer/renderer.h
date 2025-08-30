@@ -12,6 +12,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "../common/terminal_config.h"
 #include <SDL3/SDL.h>
 
 /**
@@ -23,9 +24,7 @@
  */
 enum {
     RENDER_CELL_W = 9,    /**< Width of each character cell in pixels */
-    RENDER_CELL_H = 18,   /**< Height of each character cell in pixels */
-    RENDER_COLS   = 80,   /**< Number of terminal columns */
-    RENDER_ROWS   = 39    /**< Number of terminal rows */
+    RENDER_CELL_H = 18    /**< Height of each character cell in pixels */
 };
 
 /**
@@ -63,8 +62,8 @@ void renderer_shutdown(void);
  * Updates the character and colors for a specific grid position.
  * ASCII characters 32-126 are rendered; others display as space.
  * 
- * @param x Column position (0 to RENDER_COLS-1)
- * @param y Row position (0 to RENDER_ROWS-1)
+ * @param x Column position (0 to TERMINAL_COLS-1)
+ * @param y Row position (0 to TERMINAL_ROWS-1)
  * @param codepoint Unicode codepoint to display
  * @param fg Foreground (text) color
  * @param bg Background color
