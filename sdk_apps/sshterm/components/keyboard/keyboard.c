@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include <stdio.h>
 
 // VT100/xterm escape sequences for special keys
 static const char* const ARROW_UP    = "\x1b[A";
@@ -11,6 +12,16 @@ static const char* const INSERT_KEY  = "\x1b[2~";
 static const char* const DELETE_KEY  = "\x1b[3~";
 static const char* const PAGE_UP     = "\x1b[5~";
 static const char* const PAGE_DOWN   = "\x1b[6~";
+
+/**
+ * Keyboard state for coordinating KEY_DOWN and TEXT_INPUT events
+ * Using a struct instead of global variables for better encapsulation
+ */
+typedef struct {
+    bool suppress_next_text_input;
+} keyboard_state_t;
+
+static keyboard_state_t g_keyboard_state = {false};
 
 /**
  * Generic modifier key handling structure
@@ -91,17 +102,22 @@ static void handle_special_key(int keysym, const char* sequence, const modifier_
 }
 
 /**
- * Handle SDL keyboard events and convert them to terminal input
- * 
- * @param key The SDL keyboard event
- * @param running Pointer to the main loop running flag (for Ctrl+Q exit)
- * @return true if the key event was fully handled, false if text input should still be processed
+ * Reset keyboard state (for testing or state cleanup)
  */
-bool handle_key_event(const SDL_KeyboardEvent* key, bool* running) {
-    // Input validation
-    if (!key || !running) {
-        return false;
+static void keyboard_reset_state(void) {
+    g_keyboard_state.suppress_next_text_input = false;
+}
+
+/**
+ * Enhanced keyboard event processing with better modifier handling
+ */
+keyboard_result_t keyboard_process_key_event(const SDL_KeyboardEvent* key) {
+    if (!key) {
+        return KEYBOARD_NOT_HANDLED;
     }
+    
+    // Reset suppression flag on each new key event
+    g_keyboard_state.suppress_next_text_input = false;
     
     SDL_Keycode sym = key->key;
     uint16_t mods = key->mod;
@@ -109,82 +125,107 @@ bool handle_key_event(const SDL_KeyboardEvent* key, bool* running) {
 
     // Handle Ctrl+Q to quit the application  
     if (modifiers.ctrl && sym == SDLK_Q) {
-        *running = false;
-        return true;
+        return KEYBOARD_QUIT_REQUESTED;
     }
 
     // Handle Alt + letter combinations first (Alt has precedence over Ctrl for letters)
     if (handle_alt_letter(sym, &modifiers)) {
-        return true;
+        g_keyboard_state.suppress_next_text_input = true;
+        return KEYBOARD_HANDLED;
     }
 
     // Handle Ctrl + letter combinations
     if (handle_ctrl_letter(sym, &modifiers)) {
-        return true;
+        g_keyboard_state.suppress_next_text_input = true;
+        return KEYBOARD_HANDLED;
     }
 
     // Handle special keys with modifiers passed through
     switch (sym) {
         case SDLK_ESCAPE:
             handle_special_key('\x1b', NULL, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_RETURN:
         case SDLK_KP_ENTER:
             handle_special_key('\r', NULL, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_BACKSPACE:
             handle_special_key('\b', NULL, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_DELETE:
             handle_special_key(0, DELETE_KEY, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
 
         case SDLK_TAB:
             handle_special_key('\t', NULL, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         // Arrow keys with modifier support (e.g., Alt+arrow for word navigation)
         case SDLK_UP:
             handle_special_key(0, ARROW_UP, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_DOWN:
             handle_special_key(0, ARROW_DOWN, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_LEFT:
             handle_special_key(0, ARROW_LEFT, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_RIGHT:
             handle_special_key(0, ARROW_RIGHT, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_HOME:
             handle_special_key(0, HOME_KEY, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_END:
             handle_special_key(0, END_KEY, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_INSERT:
             handle_special_key(0, INSERT_KEY, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_PAGEUP:
             handle_special_key(0, PAGE_UP, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         case SDLK_PAGEDOWN:
             handle_special_key(0, PAGE_DOWN, &modifiers);
-            return true;
+            return KEYBOARD_HANDLED;
             
         default:
-            // Let SDL_EVENT_TEXT_INPUT handle regular characters
-            return false;
+            // Let TEXT_INPUT handle regular characters, but check for modifiers
+            if (modifiers.ctrl || modifiers.alt) {
+                // If modifiers are present, suppress the follow-up text input
+                g_keyboard_state.suppress_next_text_input = true;
+                return KEYBOARD_HANDLED;
+            }
+            return KEYBOARD_NOT_HANDLED;
     }
+}
+
+/**
+ * Enhanced text input processing with suppression awareness
+ */
+bool keyboard_process_text_input(const SDL_TextInputEvent* text) {
+    if (!text || !text->text || !*text->text) {
+        return false;
+    }
+    
+    // Check if we should suppress this text input
+    if (g_keyboard_state.suppress_next_text_input) {
+        g_keyboard_state.suppress_next_text_input = false;
+        return false; // Suppressed
+    }
+    
+    // Process the text input normally
+    term_key_input(0, 0, text->text);
+    return true; // Processed
 }

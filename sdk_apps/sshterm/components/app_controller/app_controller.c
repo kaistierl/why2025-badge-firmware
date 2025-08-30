@@ -323,8 +323,11 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                 break;
             }
 
-            // Normal terminal operation: use existing keyboard path
-            handle_key_event(&event->key, should_quit);
+            // Normal terminal operation: use enhanced keyboard processing
+            keyboard_result_t result = keyboard_process_key_event(&event->key);
+            if (result == KEYBOARD_QUIT_REQUESTED) {
+                *should_quit = true;
+            }
             break;
         }
 
@@ -339,9 +342,8 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                     break;
                 }
                 
-                // Always process text input for normal terminal operation
-                // Text input events contain the actual characters typed (letters, numbers, symbols)
-                term_key_input(0, 0, event->text.text);
+                // Use enhanced keyboard processing for normal terminal operation
+                keyboard_process_text_input(&event->text);
             }
             break;
 

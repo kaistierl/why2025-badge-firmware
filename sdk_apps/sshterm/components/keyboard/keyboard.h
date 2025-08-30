@@ -15,15 +15,34 @@
 #include "../term/term.h"
 
 /**
- * @brief Handle keyboard input events
+ * @brief Result of keyboard event processing
+ */
+typedef enum {
+    KEYBOARD_HANDLED,          /**< Event was fully handled, suppress any follow-up text input */
+    KEYBOARD_NOT_HANDLED,      /**< Event was not handled, continue with normal processing */
+    KEYBOARD_QUIT_REQUESTED    /**< Quit was requested (Ctrl+Q) */
+} keyboard_result_t;
+
+/**
+ * @brief Process keyboard events with enhanced modifier handling
  * 
- * Processes SDL keyboard events and converts them to appropriate terminal
- * input sequences. Handles special keys, modifiers, and control sequences.
+ * This function provides better coordination between KEY_DOWN and TEXT_INPUT events
+ * to properly handle modifier key combinations on different platforms.
  * 
  * @param key Pointer to SDL keyboard event structure
- * @param running Pointer to application running flag (may be modified for quit)
- * @return true if the key event was fully handled and no further text input processing should occur
+ * @return Result indicating how the event was processed
  */
-bool handle_key_event(const SDL_KeyboardEvent* key, bool* running);
+keyboard_result_t keyboard_process_key_event(const SDL_KeyboardEvent* key);
+
+/**
+ * @brief Process text input events with modifier awareness
+ * 
+ * Processes text input events, but only if they weren't suppressed by
+ * a previous key event with modifiers.
+ * 
+ * @param text Pointer to SDL text input event structure  
+ * @return true if the text was processed, false if it was suppressed
+ */
+bool keyboard_process_text_input(const SDL_TextInputEvent* text);
 
 #endif // KEYBOARD_H
