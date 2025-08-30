@@ -23,11 +23,6 @@
  * SSH-only configuration without ESP-IDF dependencies
  */
 
-/* Disable ESP-IDF specific features that require FreeRTOS */
-#undef WOLFSSL_ESPIDF
-#undef WOLFSSL_ESP32
-#undef WOLFSSL_ESPWROOM32SE
-#undef WOLFSSL_ESP8266
 
 /* SSH-only build - disable TLS */
 #undef  WOLFCRYPT_ONLY
@@ -172,6 +167,10 @@ extern int badge_generate_seed(unsigned char* output, unsigned int sz);
 #endif
 
 #define RSA_LOW_MEM
+
+/* Increase RSA buffer sizes for SSH handshake compatibility */
+#define FP_MAX_BITS 8192
+#define RSA_MAX_SIZE 4096
 
 /* #define WOLFSSL_ATECC508A_DEBUG         */
 
@@ -347,6 +346,14 @@ extern int badge_generate_seed(unsigned char* output, unsigned int sz);
     #define NO_WOLFSSL_ESP32_CRYPT_AES
     #define NO_WOLFSSL_ESP32_CRYPT_RSA_PRI
     /***** END CONFIG_IDF_TARGET_ESP32H2 *****/
+
+#elif defined(CONFIG_IDF_TARGET_ESP32P4)
+    /* ESP32-P4 specific configuration - wolfSSL Hardware Acceleration not yet implemented */
+    #define NO_ESP32_CRYPT
+    #define NO_WOLFSSL_ESP32_CRYPT_HASH
+    #define NO_WOLFSSL_ESP32_CRYPT_AES
+    #define NO_WOLFSSL_ESP32_CRYPT_RSA_PRI
+    /***** END CONFIG_IDF_TARGET_ESP32P4 *****/
 
 #elif defined(CONFIG_IDF_TARGET_ESP8266)
     /*  TODO: Revisit ESP8266 */

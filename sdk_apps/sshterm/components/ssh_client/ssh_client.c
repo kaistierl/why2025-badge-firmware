@@ -339,6 +339,7 @@ bool ssh_client_connect_continue(ssh_client_t* client) {
         case SSH_STATE_SSH_HANDSHAKING:
         case SSH_STATE_AUTHENTICATING: {
             // Attempt SSH handshake and authentication (BLOCKING)
+            printf("SSH: Attempting connection handshake...\n");
             int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
             
             // In blocking mode, wolfSSH_connect should complete immediately
@@ -357,8 +358,12 @@ bool ssh_client_connect_continue(ssh_client_t* client) {
                 
                 return false; // Done - success
             } else {
-                // Connection failed
+                // Connection failed - get detailed error information
                 const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
+                int error_code = wolfSSH_get_error((WOLFSSH*)client->ssh);
+                
+                printf("SSH: Connection failed with code %d (%s)\n", ret, error_name ? error_name : "unknown");
+                printf("SSH: Additional error info: %d\n", error_code);
                 
                 char error_details[512];
                 snprintf(error_details, sizeof(error_details), 

@@ -4,7 +4,15 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <time.h>
+#include <sys/time.h>
 #include "user_settings.h"
+
+/* Try to include ESP-IDF hardware RNG if available
+TODO: Does not work with BadgeVMS yet */
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+#include "esp_random.h"
+#endif
 
 /* Badge-specific random seed function 
  * This function is called by wolfSSL via the CUSTOM_RAND_GENERATE_SEED macro
@@ -28,26 +36,63 @@ int badge_generate_seed(unsigned char* output, unsigned int sz)
         return 3;
     }
     
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+    /* Use ESP32-P4 hardware RNG if available
+    TODO: Does not work with BadgeVMS yet */
+    esp_fill_random(output, sz);
+    printf("BADGE_RNG: Used ESP32-P4 hardware RNG\n");
+    return 0;
+#else
+    /* Fallback to software entropy sources */
+    printf("BADGE_RNG: Using software entropy sources\n");
+    
     /* Use multiple entropy sources available on badge:
      * - Current time/tick count
      * - Stack pointer address variation  
-     * - Simple LCG with varying seed
+     * - Multiple LCGs with different parameters
+     * - Memory addresses for additional entropy
      */
-    static unsigned int seed = 0;
+    static unsigned int seed1 = 0, seed2 = 0, seed3 = 0;
     unsigned int i;
     volatile char stack_var;
+    struct timeval tv;
     
-    // Initialize seed if not done yet
-    if (seed == 0) {
-        seed = (unsigned int)&stack_var;  /* Use stack address as initial entropy */
+    // Get microsecond precision time if available
+    if (gettimeofday(&tv, NULL) == 0) {
+        seed1 ^= (unsigned int)tv.tv_sec;
+        seed2 ^= (unsigned int)tv.tv_usec;
+    } else {
+        // Fallback to basic time
+        time_t t = time(NULL);
+        seed1 ^= (unsigned int)t;
+    }
+    
+    // Initialize seeds if not done yet, using multiple entropy sources
+    if (seed1 == 0) {
+        seed1 = (unsigned int)&stack_var ^ 0xAAAAAAAA;
+    }
+    if (seed2 == 0) {
+        seed2 = (unsigned int)&tv ^ 0x55555555;
+    }
+    if (seed3 == 0) {
+        seed3 = (unsigned int)&output ^ 0x33333333;
     }
     
     for (i = 0; i < sz; i++) {
         // Mix in stack pointer variation for each byte
-        seed ^= (unsigned int)&stack_var;
-        seed = seed * 1103515245 + 12345;  /* LCG */
-        output[i] = (unsigned char)(seed >> 16);
+        seed1 ^= (unsigned int)&stack_var;
+        seed2 ^= (unsigned int)&i;
+        seed3 ^= (unsigned int)&output;
+        
+        // Use multiple LCGs with different parameters
+        seed1 = seed1 * 1103515245 + 12345;
+        seed2 = seed2 * 1664525 + 1013904223;
+        seed3 = seed3 * 69069 + 1;
+        
+        // Combine outputs from all three generators
+        output[i] = (unsigned char)((seed1 >> 16) ^ (seed2 >> 8) ^ seed3);
     }
     
     return 0; /* Success */
+#endif
 }

@@ -461,6 +461,7 @@ build_app(sshterm PREINSTALL
      "I${CMAKE_CURRENT_SOURCE_DIR}/sshterm"
      # Use user_settings.h instead of complex config
      WOLFSSL_USER_SETTINGS
+     WOLFSSL_ESP32
 )
 
 get_property(SDK_APP_ELFS GLOBAL PROPERTY SDK_APP_ELFS)
