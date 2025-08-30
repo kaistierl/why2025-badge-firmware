@@ -73,7 +73,7 @@ add_executable(sshterm
 # Include directories
 target_include_directories(sshterm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../badgevms/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/badgevms_stubs  # BadgeVMS compatibility stubs for local builds
     ${CMAKE_CURRENT_SOURCE_DIR}/components
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/libvterm-0.3.3/include
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wolfssh-1.4.20
@@ -95,6 +95,11 @@ option(BADGEVMS_FULLSCREEN "Enable fullscreen mode" OFF)
 if(BADGEVMS_FULLSCREEN)
     target_compile_definitions(sshterm PRIVATE BADGEVMS_FULLSCREEN=1)
 endif()
+
+# Add local build identification
+target_compile_definitions(sshterm PRIVATE 
+    SSHTERM_LOCAL_BUILD=1
+)
 
 # Set output directory
 set_target_properties(sshterm PROPERTIES
