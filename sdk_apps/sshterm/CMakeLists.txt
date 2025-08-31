@@ -45,6 +45,8 @@ target_link_libraries(wolfssh PUBLIC wolfssl)
 # Define the executable
 add_executable(sshterm
     main.c
+    # BadgeVMS stubs for local builds
+    badgevms_stubs/badgevms/wifi.c
     # Badge-specific crypto implementations
     components/ssh_client/badge_crypto_port.c
      # Custom I/O implementation for wolfSSL/wolfSSH
