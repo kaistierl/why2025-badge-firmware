@@ -102,13 +102,6 @@ static void handle_special_key(int keysym, const char* sequence, const modifier_
 }
 
 /**
- * Reset keyboard state (for testing or state cleanup)
- */
-static void keyboard_reset_state(void) {
-    g_keyboard_state.suppress_next_text_input = false;
-}
-
-/**
  * Enhanced keyboard event processing with better modifier handling
  */
 keyboard_result_t keyboard_process_key_event(const SDL_KeyboardEvent* key) {

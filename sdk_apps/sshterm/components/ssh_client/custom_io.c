@@ -12,6 +12,7 @@
 
 /* Custom recv callback for wolfSSH - BLOCKING VERSION */
 int wolfssh_io_recv(WOLFSSH* ssh, void* data, word32 size, void* ctx) {
+    (void)ssh; // Unused parameter
     int sock_fd = *(int*)ctx;
     
     // Basic socket validation
@@ -38,6 +39,7 @@ int wolfssh_io_recv(WOLFSSH* ssh, void* data, word32 size, void* ctx) {
 
 /* Custom send callback for wolfSSH - BLOCKING VERSION */
 int wolfssh_io_send(WOLFSSH* ssh, void* data, word32 size, void* ctx) {
+    (void)ssh; // Unused parameter
     int sock_fd = *(int*)ctx;
     
     // Basic socket validation

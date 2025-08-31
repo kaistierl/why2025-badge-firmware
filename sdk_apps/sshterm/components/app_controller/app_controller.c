@@ -219,7 +219,6 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
         }
 
         // Track previous connection state to detect transitions
-        bool was_connecting = app_state->ssh_connecting;
         bool was_connected = app_state->ssh_connected;
 
         // Poll SSH connection for incoming data

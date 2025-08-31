@@ -3,6 +3,7 @@
  */
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <time.h>
 #include <sys/time.h>
@@ -69,20 +70,20 @@ int badge_generate_seed(unsigned char* output, unsigned int sz)
     
     // Initialize seeds if not done yet, using multiple entropy sources
     if (seed1 == 0) {
-        seed1 = (unsigned int)&stack_var ^ 0xAAAAAAAA;
+        seed1 = (unsigned int)((uintptr_t)&stack_var) ^ 0xAAAAAAAA;
     }
     if (seed2 == 0) {
-        seed2 = (unsigned int)&tv ^ 0x55555555;
+        seed2 = (unsigned int)((uintptr_t)&tv) ^ 0x55555555;
     }
     if (seed3 == 0) {
-        seed3 = (unsigned int)&output ^ 0x33333333;
+        seed3 = (unsigned int)((uintptr_t)&output) ^ 0x33333333;
     }
     
     for (i = 0; i < sz; i++) {
         // Mix in stack pointer variation for each byte
-        seed1 ^= (unsigned int)&stack_var;
-        seed2 ^= (unsigned int)&i;
-        seed3 ^= (unsigned int)&output;
+        seed1 ^= (unsigned int)((uintptr_t)&stack_var);
+        seed2 ^= (unsigned int)((uintptr_t)&i);
+        seed3 ^= (unsigned int)((uintptr_t)&output);
         
         // Use multiple LCGs with different parameters
         seed1 = seed1 * 1103515245 + 12345;
