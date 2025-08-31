@@ -32,6 +32,7 @@ include:
   # BadgeVMS
   - badgevms/application.h
   - badgevms/compositor.h
+  - badgevms/crypto.h
   - badgevms/device.h
   - badgevms/event.h
   - badgevms/misc_funcs.h
@@ -905,6 +906,8 @@ simple_function:
   - application_set_metadata
   - application_set_name
   - application_set_version
+  - crypto_esp_fill_random
+  - crypto_esp_random
   - device_get
   - get_mac_address
   - get_num_tasks

@@ -6,6 +6,7 @@ idf_component_register(
      "compositor/compositor.c"
      "compositor/pixel_functions.c"
      "compositor/window_decorations.c"
+     "crypto.c"
      "curl.c"
      "device.c"
      "drivers/badgevms_i2c_bus.c"
