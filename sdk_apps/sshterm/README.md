@@ -1,6 +1,6 @@
 # SSH Terminal for WHY 2025 Badge
 
-A minimal SSH terminal emulator designed for the MCH2025 badge.
+A terminal emulator and SSH client designed for the MCH2025 badge.
 
 ## AI Usage / Disclaimer:
 
