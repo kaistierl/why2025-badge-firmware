@@ -8,6 +8,7 @@
 #include "../test_mode/test_mode.h"
 #include "../ui_manager/ui_manager.h"
 #include <SDL3/SDL.h>
+#include <badgevms/wifi.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -192,6 +193,11 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
         fprintf(stderr, "term_init failed\n");
         return false;
     }
+
+    // Show WiFi connection screen and connect
+    ui_manager_show_wifi_connecting();
+    wifi_connect();
+    printf("Connected to WiFi\n");
 
     // Display startup mode selection prompt
     app_controller_return_to_startup(app_state);

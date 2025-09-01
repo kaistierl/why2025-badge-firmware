@@ -41,6 +41,13 @@ void ui_manager_shutdown(void);
 void ui_manager_show_startup_menu(app_state_t* app);
 
 /**
+ * @brief Display WiFi connection screen
+ * 
+ * Shows a "Connecting to WiFi..." message with please wait indication.
+ */
+void ui_manager_show_wifi_connecting(void);
+
+/**
  * @brief Display the SSH connection setup screen
  * 
  * Shows the SSH parameter input interface (hostname, username, port, password).

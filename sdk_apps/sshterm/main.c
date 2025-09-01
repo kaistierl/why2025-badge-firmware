@@ -1,7 +1,6 @@
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <badgevms/wifi.h>
 #include "components/app_controller/app_controller.h"
 
 static app_controller_t* g_app_controller = NULL;
@@ -10,9 +9,6 @@ int main(int argc, char** argv) {
     (void)argc; (void)argv;
     
     printf("Starting SSH Terminal application...\n");
-    
-    wifi_connect();
-    printf("Connected to WiFi\n");
 
     // Initialize application
     if (!app_controller_init(&g_app_controller)) {

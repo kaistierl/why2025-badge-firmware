@@ -58,6 +58,15 @@ void ui_manager_show_startup_menu(app_state_t* app) {
     term_input_string("\r\nChoice: ");
 }
 
+void ui_manager_show_wifi_connecting(void) {
+    // Clear screen and show WiFi connection screen
+    ui_manager_clear_screen();
+    ui_manager_show_header("WiFi Connection");
+    term_input_string("\r\nConnecting to WiFi, please wait...");
+    // render immediately
+    renderer_present_if_dirty(0);
+}
+
 void ui_manager_show_ssh_connection_setup(app_state_t* app) {
     if (!app) {
         return;
