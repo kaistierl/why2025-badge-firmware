@@ -368,15 +368,6 @@ build_app(wifi_test
      wifi_test.c
 )
 
-build_app(cyb3rk4t_term PREINSTALL
-    SOURCES
-     main.c
-    LIBRARIES
-     sdl3
-    COMPILE_DEFINITIONS
-     BADGEVMS_FULLSCREEN=1
-)
-
 build_app(sshterm PREINSTALL
     SOURCES
      # Main application entry point
