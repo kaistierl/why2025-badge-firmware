@@ -1,6 +1,6 @@
 # SSH Terminal for WHY 2025 Badge
 
-A terminal emulator and SSH client designed for the MCH2025 badge.
+A terminal emulator and SSH client designed for the WHY2025 badge.
 
 ## AI Usage / Disclaimer:
 
@@ -55,9 +55,13 @@ This has proven to be a much better fit for the badge after tediously trying to 
 - SDL3 development libraries
 - GCC or Clang compiler
 
-Install SDL3 using Homebrew (macOS):
+#### MacOS
+
+On macOS, you need to have the Xcode Command Line Tools installed.
+
+Then, install cmake, pkgconf and SDL3 using Homebrew:
 ```bash
-brew install sdl3
+brew install cmake pkgconf sdl3
 ```
 
 ### Building for Local Development
