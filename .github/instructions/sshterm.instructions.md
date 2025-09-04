@@ -1,3 +1,7 @@
+---
+applyTo: "sdk_apps/sshterm/**"
+---
+
 # SSH Terminal for WHY2025 Badge - Development Context
 
 ## Repository Structure
@@ -94,7 +98,7 @@ Production build for the physical badge hardware, integrated with the BadgeVMS b
 ```bash
 export IDF_PYTHON_ENV_PATH=~/.espressif/python_env/idf5.5_py3.9_env
 export IDF_TARGET=esp32p4
-source ~/esp/v5.5/esp-idf/export.sh 
+source ~/esp/v5.5/esp-idf/export.sh
 cd <repo_basedir>
 idf.py build flash monitor # flash and monitor are optional
 ```
@@ -143,6 +147,18 @@ When modifying build configuration, **ensure changes are reflected in both envir
 - **SSH Protocol Changes**: Modify `ssh_client` low-level wrapper, update `ssh_manager` coordination
 - **Input Handling**: Update `input_system` for new modes, `keyboard` for key mappings
 - **Display Changes**: Modify `renderer` for graphics, `term` for terminal emulation
+
+### Critical Guidelines
+
+#### ⚠️ MANDATORY: Architecture-First Development
+**Before implementing ANY new features or fixing bugs:**
+
+1. **Read ARCHITECTURE.md completely** - Understand the full system design
+2. **Identify the correct component(s) and respect boundaries** - Keep the separation of concerns and don't cross component boundaries
+3. **Understand existing patterns** - Extend proven approaches, don't replace them
+4. **Respect the threading model** - Never bypass the SSH worker thread system
+5. **Plan first, then execute** - No not start implementing anything before having agreed on a solid way forward
+6. **Test incrementally** - Verify each change doesn't break existing functionality before proceeding
 
 ### Implementation Status
 - **✅ Working**:
