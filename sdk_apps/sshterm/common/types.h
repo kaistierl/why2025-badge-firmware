@@ -1,7 +1,7 @@
 /**
  * @file types.h
  * @brief Common type definitions and data structures for SSH Terminal application
- * 
+ *
  * This file contains all shared data structures, enums, and type definitions
  * used across the SSH Terminal application components.
  */
@@ -21,22 +21,44 @@ typedef enum {
     INPUT_MODE_HOSTNAME,        /**< SSH hostname input mode */
     INPUT_MODE_USERNAME,        /**< SSH username input mode */
     INPUT_MODE_PORT,            /**< SSH port input mode */
-    INPUT_MODE_PASSWORD,        /**< SSH password input mode */
+    INPUT_MODE_AUTH_PROMPT,     /**< Dynamic authentication prompt mode */
     INPUT_MODE_DISCONNECT_PROMPT /**< Disconnect/retry prompt mode */
 } input_mode_t;
 
 /**
+ * @brief Authentication methods supported by SSH
+ */
+typedef enum {
+    AUTH_METHOD_PASSWORD,           /**< Traditional password authentication */
+    AUTH_METHOD_KEYBOARD_INTERACTIVE /**< Keyboard-interactive authentication */
+} auth_method_t;
+
+/**
+ * @brief Authentication prompt state for dynamic prompts
+ *
+ * Used to manage keyboard-interactive authentication prompts
+ * and facilitate communication between SSH thread and main thread.
+ */
+typedef struct {
+    auth_method_t method;           /**< Current authentication method */
+    char prompt_text[512];          /**< Current prompt text from server */
+    bool echo_input;                /**< Whether input should be echoed */
+    bool response_ready;            /**< Flag indicating response is ready */
+    char current_response[512];     /**< Current response buffer */
+} auth_prompt_t;
+
+/**
  * @brief Connection input data structure
- * 
+ *
  * Contains all SSH connection parameters entered by the user.
  */
 typedef struct {
     char hostname[256];         /**< SSH server hostname or IP address */
     char username[256];         /**< SSH username for authentication */
     char port_str[16];          /**< SSH port as string (default: "22") */
-    char password[256];         /**< SSH password for authentication */
     char startup_choice[16];    /**< User's startup menu choice */
-    
+    char auth_response[512];    /**< Dynamic authentication response */
+
     /**
      * @brief Field length tracking for input validation
      */
@@ -44,14 +66,14 @@ typedef struct {
         int hostname;           /**< Current length of hostname field */
         int username;           /**< Current length of username field */
         int port;               /**< Current length of port field */
-        int password;           /**< Current length of password field */
         int startup_choice;     /**< Current length of startup choice field */
+        int auth_response;      /**< Current length of auth response field */
     } field_lengths;
 } connection_input_t;
 
 /**
  * @brief Input field abstraction for unified handling
- * 
+ *
  * Provides a generic interface for handling different types of input fields
  * with consistent validation and display behavior.
  */
@@ -95,7 +117,7 @@ typedef enum {
 
 /**
  * @brief SSH client structure
- * 
+ *
  * Contains all data needed to manage an SSH connection including
  * connection parameters, state, and internal wolfSSH handles.
  */
@@ -105,7 +127,8 @@ typedef struct ssh_client {
     const char* username;       /**< SSH username (reference) */
     ssh_state_t state;          /**< Current connection state */
     char error_msg[256];        /**< Last error message if any */
-    
+    auth_prompt_t auth_prompt;  /**< Current authentication prompt state */
+
     // Private implementation details
     void* ctx;                  /**< WOLFSSH_CTX* (opaque pointer) */
     void* ssh;                  /**< WOLFSSH* (opaque pointer) */

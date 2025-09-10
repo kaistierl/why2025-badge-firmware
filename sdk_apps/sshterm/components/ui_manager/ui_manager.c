@@ -24,7 +24,7 @@ void ui_manager_show_header(const char* title) {
     if (!title) {
         return;
     }
-    
+
     char header[256];
     snprintf(header, sizeof(header), "\x1b[1;36m=== %s ===\x1b[0m\r\n", title);
     term_input_string(header);
@@ -34,26 +34,26 @@ void ui_manager_show_startup_menu(app_state_t* app) {
     if (!app) {
         return;
     }
-    
+
     // Clear screen and show startup menu
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Terminal Application");
-    
+
     const char* options = "Choose mode:\r\n";
     term_input_string(options);
-    
+
     const char* test_option = "  \x1b[33mtest\x1b[0m - Terminal test mode (colors, features)\r\n";
     term_input_string(test_option);
-    
+
     const char* ssh_option = "  \x1b[33mssh\x1b[0m  - SSH connection mode\r\n\r\n";
     term_input_string(ssh_option);
-    
+
     const char* quit_info = "Press Ctrl+Q to quit the application\r\n\r\n";
     term_input_string(quit_info);
-    
+
     // Set input mode and display prompt
     app->input_mode = INPUT_MODE_STARTUP_CHOICE;
-    
+
     // Show startup prompt
     term_input_string("\r\nChoice: ");
 }
@@ -71,11 +71,11 @@ void ui_manager_show_ssh_connection_setup(app_state_t* app) {
     if (!app) {
         return;
     }
-    
+
     // Clear screen and show SSH setup
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Connection Setup");
-    
+
     // Set initial input mode and display prompt
     app->input_mode = INPUT_MODE_HOSTNAME;
     input_field_t field = input_system_get_current_field(app);
@@ -106,7 +106,7 @@ void ui_manager_show_connection_error(const char* error) {
         return;
     }
     char error_msg[512];
-    snprintf(error_msg, sizeof(error_msg), "\x1b[31m%s\x1b[0m\r\n", error);
+    snprintf(error_msg, sizeof(error_msg), "\r\n\x1b[31mError: %s\x1b[0m\r\n", error);
     term_input_string(error_msg);
 }
 
@@ -123,28 +123,48 @@ void ui_manager_show_connection_success(const char* hostname, const char* userna
     if (!hostname || !username) {
         return;
     }
-    
+
     term_input_string("\x1b[2J\x1b[H");
-    
+
     char success_msg[256];
-    snprintf(success_msg, sizeof(success_msg), 
+    snprintf(success_msg, sizeof(success_msg),
              "\x1b[32mConnected to %s as %s\x1b[0m\r\n", hostname, username);
     term_input_string(success_msg);
+}
+
+void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input) {
+    if (!prompt_text) {
+        return;
+    }
+
+    // Show authentication prompt
+    char auth_header[256];
+    snprintf(auth_header, sizeof(auth_header),
+             "\x1b[33mAuthentication Required\x1b[0m\r\n");
+    term_input_string(auth_header);
+
+    if (!echo_input) {
+        const char* password_note = "\x1b[90m(input will be hidden)\x1b[0m\r\n";
+        term_input_string(password_note);
+    }
+
+    // Show the actual prompt - this will be followed by input_system display
+    term_input_string(prompt_text);
 }
 
 void ui_manager_display_field_prompt(input_field_t field) {
     if (!field.buffer || !field.prompt) {
         return;
     }
-    
+
     // Clear line and show prompt (no newline, just update current line)
     term_input_string("\r\x1b[K");
     term_input_string(field.prompt);
-    
+
     // Show field content (masked if password)
     if (field.is_password) {
         char password_display[256];
-        int safe_len = (*field.length < (int)sizeof(password_display) - 1) ? 
+        int safe_len = (*field.length < (int)sizeof(password_display) - 1) ?
                       *field.length : (int)sizeof(password_display) - 1;
         for (int i = 0; i < safe_len; i++) {
             password_display[i] = '*';
@@ -160,12 +180,12 @@ void ui_manager_display_current_prompt(app_state_t* app) {
     if (!app) {
         return;
     }
-    
+
     if (app->input_mode == INPUT_MODE_DISCONNECT_PROMPT) {
         // Disconnect prompt - different message based on whether connection failed or succeeded then disconnected
         const char* prompt;
-        if (strlen(app->connection_input.hostname) > 0 || 
-            strlen(app->connection_input.username) > 0 || 
+        if (strlen(app->connection_input.hostname) > 0 ||
+            strlen(app->connection_input.username) > 0 ||
             strlen(app->connection_input.port_str) > 0) {
             prompt = "Press Enter to try SSH connection again...";
         } else {
@@ -175,7 +195,7 @@ void ui_manager_display_current_prompt(app_state_t* app) {
         term_input_string(prompt);
         return;
     }
-    
+
     input_field_t field = input_system_get_current_field(app);
     ui_manager_display_field_prompt(field);
 }

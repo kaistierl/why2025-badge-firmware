@@ -15,7 +15,7 @@ This document defines the architecture for a terminal application with SSH suppo
 **Implemented Features**
 
 * Complete VT100/xterm-style terminal emulation with libvterm-0.3.3
-* SSH connections to remote hosts with password authentication via wolfSSH
+* SSH connections to remote hosts with password and keyboard-interactive authentication via wolfSSH
 * 720×720 display rendering with optimized dirty-flag system
 * Interactive SSH connection setup with field-by-field input
 * Terminal test mode for feature validation
@@ -171,8 +171,8 @@ Data Flow:
 * **Random generation:** Custom RNG implementation in `badge_crypto_port.c` for entropy (TODO: Improve this, check what ESP32 hardware can do)
 
 **Authentication & Connection:**
-* **Auth method:** Password-only authentication with interactive prompting
-* **Connection flow:** Multi-step user input (hostname → username → port → password) with field validation
+* **Auth methods:** Password and keyboard-interactive authentication with interactive prompting
+* **Connection flow:** Multi-step user input (hostname → username → port → password) with field validation, plus dynamic auth prompt handling
 * **Host key verification:** Basic SSH host key checking (TOFU support planned)
 * **Terminal setup:** Sets terminal size to 80×39 characters via SSH protocol
 * **State management:** Event-driven coordination between blocking I/O threads and main UI thread
@@ -183,6 +183,7 @@ Data Flow:
 * **Input modes:** 
   * Startup menu choice (test/ssh)
   * SSH connection setup (hostname/username/port/password fields)
+  * Authentication prompts (password/keyboard-interactive)
   * Normal terminal operation
   * Disconnect/retry prompts
 * **Field management:** Generic input field abstraction with validation, masking, and defaults
@@ -274,7 +275,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 ## 8. Security Implementation
 
 * **Host Key Verification:** SSH host key checking with TOFU (Trust On First Use) storage (planned)
-* **Authentication:** Password-only authentication with secure memory handling
+* **Authentication:** Password and keyboard-interactive authentication
 * **Crypto Configuration:** wolfSSL/wolfSSH optimized for embedded SSH-only environment:
   * **Key exchange:** FFDHE groups (2048, 3072, 4096-bit) for Diffie-Hellman key exchange
   * **Ciphers:** AES-CBC, AES-CTR, ChaCha20-Poly1305 (configurable via wolfSSH cipher suites)
@@ -339,7 +340,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 * **Connection Errors:** Comprehensive error reporting through threaded event system with specific failure reasons
 * **Network Issues:** Graceful handling of blocking socket errors and connection drops via thread communication
 * **Threading Errors:** Robust thread lifecycle management with proper startup/shutdown coordination
-* **Authentication Failures:** Clear feedback on authentication problems through SSH event system with retry options
+* **Authentication Failures:** Clear feedback on authentication problems through SSH event system with retry limiting and method-specific error messages
 * **Recovery Strategy:** After any connection failure, return to prompt allowing retry with same parameters
 * **Input Validation:** Field-level validation with immediate feedback for invalid entries
 * **Resource Management:** Proper cleanup of SSH sessions, threads, sockets, and wolfSSL/wolfSSH resources on all error paths
@@ -352,7 +353,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 ### ✅ **Fully Implemented and Working**
 
 * **Complete VT100/xterm terminal emulation** with libvterm-0.3.3
-* **Full SSH connectivity** with password authentication via wolfSSH using blocking I/O + threading
+* **Full SSH connectivity** with password and keyboard-interactive authentication via wolfSSH using blocking I/O + threading
 * **Optimized rendering system** with dirty-flag optimization and 80×39 grid
 * **Interactive SSH setup** with field-by-field input validation
 * **Multi-mode input system** supporting startup menu, SSH setup, and terminal operation

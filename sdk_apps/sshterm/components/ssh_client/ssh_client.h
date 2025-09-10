@@ -1,7 +1,7 @@
 /**
  * @file ssh_client.h
  * @brief Low-level SSH client interface
- * 
+ *
  * This file provides the public interface for low-level SSH protocol operations
  * using wolfSSH. It handles the SSH connection, authentication, channel management,
  * and data transfer at the protocol level.
@@ -30,7 +30,7 @@ bool ssh_client_init(ssh_client_t* client);
  * @param password Password for authentication
  * @return true if connection initiated successfully, false on immediate error
  */
-bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int port, 
+bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int port,
                              const char* username, const char* password);
 
 /**
@@ -124,5 +124,45 @@ bool ssh_client_peek(ssh_client_t* client);
  * @param client SSH client structure
  */
 void ssh_client_cleanup(ssh_client_t* client);
+
+// === AUTHENTICATION HELPER FUNCTIONS ===
+
+/**
+ * Auth event callback function type
+ * @param prompt_text The authentication prompt text
+ * @param echo_input Whether the input should be echoed
+ * @param method_name The authentication method name
+ */
+typedef void (*auth_event_callback_t)(const char* prompt_text, bool echo_input, const char* method_name);
+
+/**
+ * Set the auth event callback function
+ * @param callback Callback function to call when auth prompts are needed
+ */
+void ssh_client_set_auth_event_callback(auth_event_callback_t callback);
+
+/**
+ * Check if authentication input is needed from user
+ * @return true if auth input is needed, false otherwise
+ */
+bool ssh_client_needs_auth_input(void);
+
+/**
+ * Get current authentication prompt text
+ * @return Prompt text string (may be empty)
+ */
+const char* ssh_client_get_auth_prompt(void);
+
+/**
+ * Check if current authentication prompt should echo input
+ * @return true if input should be echoed, false for hidden input
+ */
+bool ssh_client_auth_prompt_echo(void);
+
+/**
+ * Submit authentication response from user
+ * @param response User's response to the authentication prompt
+ */
+void ssh_client_submit_auth_response(const char* response);
 
 #endif // SSH_CLIENT_H

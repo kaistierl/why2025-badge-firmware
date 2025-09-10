@@ -25,6 +25,7 @@ typedef enum {
     SSH_EVENT_CONNECTED,
     SSH_EVENT_CONNECTION_FAILED,
     SSH_EVENT_DATA_RECEIVED,
+    SSH_EVENT_AUTH_PROMPT,
     SSH_EVENT_DISCONNECTED,
     SSH_EVENT_ERROR
 } ssh_event_type_t;
@@ -58,6 +59,11 @@ typedef struct {
             size_t len;
         } data_received;
         struct {
+            char method_name[32];
+            char prompt_text[512];
+            bool echo_input;
+        } auth_prompt;
+        struct {
             char message[SSH_MAX_ERROR_MSG_LEN];
         } error;
         struct {
@@ -72,19 +78,19 @@ typedef struct {
     pid_t ssh_thread_id;
     bool thread_running;
     bool shutdown_requested;
-    
+
     // Thread communication queues (simulated with simple arrays for now)
     // In a full implementation, these would be proper thread-safe queues
     ssh_cmd_t cmd_queue[SSH_QUEUE_SIZE];
     volatile int cmd_queue_head;
     volatile int cmd_queue_tail;
     volatile int cmd_queue_count;
-    
+
     ssh_event_t event_queue[SSH_QUEUE_SIZE];
     volatile int event_queue_head;
     volatile int event_queue_tail;
     volatile int event_queue_count;
-    
+
     // SSH client instance (used by SSH thread)
     ssh_client_t ssh_client;
 } ssh_thread_manager_t;
@@ -102,7 +108,7 @@ bool ssh_thread_send_command(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd
 bool ssh_thread_poll_event(ssh_thread_manager_t* manager, ssh_event_t* event);
 
 // Convenience functions for common operations
-bool ssh_thread_connect(ssh_thread_manager_t* manager, const char* hostname, int port, 
+bool ssh_thread_connect(ssh_thread_manager_t* manager, const char* hostname, int port,
                        const char* username, const char* password);
 bool ssh_thread_send_data(ssh_thread_manager_t* manager, const char* data, size_t len);
 void ssh_thread_disconnect(ssh_thread_manager_t* manager);

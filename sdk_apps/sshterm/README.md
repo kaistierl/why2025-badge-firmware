@@ -20,7 +20,7 @@ really grateful for a review and your feedback!
 ## What it does
 
 - **Terminal emulation**: VT100/xterm-compatible terminal with 80×39 character grid
-- **SSH connectivity**: Connect to remote hosts via SSH with password authentication using blocking I/O + threading
+- **SSH connectivity**: Connect to remote hosts via SSH with password and keyboard-interactive authentication using blocking I/O + threading
 - **Hardware optimized**: Runs on 720×720 display with custom badge keyboard input
 - **Real-time rendering**: Efficient terminal display with color support and cursor blinking
 
@@ -31,7 +31,7 @@ really grateful for a review and your feedback!
 - Full UTF-8 text support with 24-bit RGB colors
 - Comprehensive keyboard mapping (arrows, modifiers, control keys)
 - libvterm-based terminal emulation for excellent compatibility
-- wolfSSH-powered SSH connectivity with password authentication and custom BadgeVMS I/O
+- wolfSSH-powered SSH connectivity with password and keyboard-interactive authentication and custom BadgeVMS I/O
 - SDL3-powered rendering optimized for the badge display
 - Leggie 9×18 bitmap font for crisp text rendering
 - Blocking I/O with threading for responsive user interface while maintaining BadgeVMS compatibility

@@ -35,15 +35,15 @@ bool app_controller_init(app_controller_t** controller) {
     if (!controller) {
         return false;
     }
-    
+
     *controller = calloc(1, sizeof(app_controller_t));
     if (!*controller) {
         return false;
     }
-    
+
     // Initialize shutdown state
     (*controller)->shutdown_requested = false;
-    
+
     return true;
 }
 
@@ -51,11 +51,11 @@ void app_controller_shutdown(app_controller_t* controller) {
     if (!controller) {
         return;
     }
-    
+
     if (controller->system_initialized) {
         app_controller_cleanup_system(controller);
     }
-    
+
     free(controller);
 }
 
@@ -63,7 +63,7 @@ void app_controller_cleanup(app_controller_t* controller, app_state_t* app_state
     if (!controller || !app_state) {
         return;
     }
-    
+
     // Clean up SSH connections and state
     ssh_manager_cleanup(app_state);
 }
@@ -73,30 +73,30 @@ bool app_controller_run(app_controller_t* controller) {
     if (!controller) {
         return false;
     }
-    
+
     // Create application state
     app_state_t app_state = app_controller_create_default_state();
     controller->current_app_state = &app_state;
-    
+
     // Initialize the system (SDL, renderer, etc.)
     if (!app_controller_initialize_system(controller)) {
         fprintf(stderr, "Failed to initialize system\n");
         return false;
     }
-    
+
     // Run the main application loop
     bool success = app_controller_run_main_loop(controller, &app_state);
-    
+
     // Cleanup system resources
     app_controller_cleanup_system(controller);
-    
+
     return success;
 }
 
 void app_controller_request_shutdown(app_controller_t* controller) {
     if (controller) {
         controller->shutdown_requested = true;
-        
+
         // Also cleanup SSH if connected
         if (controller->current_app_state) {
             ssh_manager_cleanup(controller->current_app_state);
@@ -126,7 +126,7 @@ bool app_controller_initialize_system(app_controller_t* controller) {
     if (!controller) {
         return false;
     }
-    
+
     // Initialize SDL
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL initialization failed: %s\n", SDL_GetError());
@@ -136,20 +136,20 @@ bool app_controller_initialize_system(app_controller_t* controller) {
     // Create window
     const int WIN_W = 720;
     const int WIN_H = 720;
-    
+
 #if defined(BADGEVMS_FULLSCREEN) && BADGEVMS_FULLSCREEN
     Uint32 win_flags = SDL_WINDOW_FULLSCREEN;
 #else
     Uint32 win_flags = 0;
 #endif
-    
+
     controller->window = SDL_CreateWindow("SSH Terminal", WIN_W, WIN_H, win_flags);
     if (!controller->window) {
         fprintf(stderr, "Window creation failed: %s\n", SDL_GetError());
         SDL_Quit();
         return false;
     }
-    
+
     controller->renderer = SDL_CreateRenderer(controller->window, NULL);
     if (!controller->renderer) {
         fprintf(stderr, "Renderer creation failed: %s\n", SDL_GetError());
@@ -157,7 +157,7 @@ bool app_controller_initialize_system(app_controller_t* controller) {
         SDL_Quit();
         return false;
     }
-    
+
     // Initialize renderer
     if (!renderer_init(controller->window, controller->renderer)) {
         fprintf(stderr, "Renderer initialization failed\n");
@@ -178,7 +178,7 @@ bool app_controller_initialize_system(app_controller_t* controller) {
 
     // Enable SDL text input events
     SDL_StartTextInput(controller->window);
-    
+
     controller->system_initialized = true;
     return true;
 }
@@ -187,7 +187,7 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
     if (!controller || !app_state) {
         return false;
     }
-    
+
     // Initialize terminal emulator
     if (!term_init(TERMINAL_COLS, TERMINAL_ROWS, term_write_callback, app_state)) {
         fprintf(stderr, "term_init failed\n");
@@ -204,7 +204,7 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
 
     bool running = true;
     SDL_Event ev;
-    
+
     while (running && !controller->shutdown_requested) {
         // Process all pending events without blocking
         while (SDL_PollEvent(&ev)) {
@@ -229,20 +229,20 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
 
         // Poll SSH connection for incoming data
         ssh_manager_poll_and_read(app_state);
-        
+
         // Handle SSH connection success transition
         if (!was_connected && app_state->ssh_connected) {
             // Connection just succeeded - delegate UI transition to ssh_ui_controller
             ssh_ui_handle_connection_success(app_state);
         }
-        
+
         // Update screen if needed (handles cursor blinking internally)
         renderer_present_if_dirty(SDL_GetTicks());
-        
+
         // Small delay to prevent excessive CPU usage while maintaining responsiveness
         SDL_Delay(16);  // ~60 FPS refresh rate
     }
-    
+
     return true;
 }
 
@@ -250,29 +250,29 @@ void app_controller_cleanup_system(app_controller_t* controller) {
     if (!controller || !controller->system_initialized) {
         return;
     }
-    
+
     // Shutdown SSH manager and threading support
     ssh_manager_shutdown();
-    
+
     term_shutdown();
     renderer_shutdown();
     SDL_StopTextInput(controller->window);
     SDL_DestroyRenderer(controller->renderer);
     SDL_DestroyWindow(controller->window);
     SDL_Quit();
-    
+
     controller->system_initialized = false;
 }
 
 // Event handling
-bool app_controller_handle_sdl_event(app_controller_t* controller, 
-                                    app_state_t* app_state, 
-                                    const SDL_Event* event, 
+bool app_controller_handle_sdl_event(app_controller_t* controller,
+                                    app_state_t* app_state,
+                                    const SDL_Event* event,
                                     bool* should_quit) {
     if (!controller || !app_state || !event || !should_quit) {
         return false;
     }
-    
+
     switch (event->type) {
         case SDL_EVENT_QUIT:
             *should_quit = true;
@@ -346,7 +346,7 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                     }
                     break;
                 }
-                
+
                 // Use enhanced keyboard processing for normal terminal operation
                 keyboard_process_text_input(&event->text);
             }
@@ -355,24 +355,24 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
         default:
             break;
     }
-    
+
     return true;
 }
 
 // Input routing - simplified to delegate everything to input system
-void app_controller_route_prompt_char(app_controller_t* controller, 
-                                     app_state_t* app_state, 
+void app_controller_route_prompt_char(app_controller_t* controller,
+                                     app_state_t* app_state,
                                      char ch) {
     if (!controller || !app_state) {
         return;
     }
-    
+
     // Handle Enter key
     if (ch == '\r' || ch == '\n') {
         input_system_handle_enter(app_state);
         return;
     }
-    
+
     // Handle other input
     input_system_handle_char(app_state, ch);
 }
@@ -380,12 +380,12 @@ void app_controller_route_prompt_char(app_controller_t* controller,
 // Term write callback
 static void term_write_callback(const uint8_t* data, size_t len, void* user) {
     app_state_t* app = (app_state_t*)user;
-    
+
     if (!app) {
         fprintf(stderr, "term_write: null app state\n");
         return;
     }
-    
+
     // Delegate all terminal output handling to input_system
     input_system_handle_terminal_output(app, data, len);
 }
@@ -401,10 +401,10 @@ void app_controller_return_to_startup(app_state_t* app) {
     if (!app) {
         return;
     }
-    
+
     // Clear connection state before showing startup menu
     ssh_ui_clear_connection_input(app);
-    
+
     // Show startup menu through ui_manager
     app_controller_show_startup_menu(app);
 }
@@ -413,10 +413,10 @@ void app_controller_handle_startup_choice(app_state_t* app, int choice) {
     if (!app) {
         return;
     }
-    
-    // Reset input mode  
+
+    // Reset input mode
     app->input_mode = INPUT_MODE_NORMAL;
-    
+
     if (choice == 1) {
         // Start SSH connection setup
         ssh_ui_start_connection_sequence(app);
@@ -434,7 +434,7 @@ void app_controller_handle_field_submit(app_state_t* app, input_mode_t field_mod
     if (!app) {
         return;
     }
-    
+
     // Delegate to appropriate domain module based on field type
     switch (field_mode) {
         case INPUT_MODE_STARTUP_CHOICE:
@@ -443,10 +443,19 @@ void app_controller_handle_field_submit(app_state_t* app, input_mode_t field_mod
         case INPUT_MODE_HOSTNAME:
         case INPUT_MODE_USERNAME:
         case INPUT_MODE_PORT:
-        case INPUT_MODE_PASSWORD:
             {
                 // Handle SSH field submission
                 app_result_t result = ssh_ui_handle_field_submit(app, field_mode);
+                if (result == APP_RESULT_RETRY || result == APP_RESULT_CONTINUE) {
+                    // Show the prompt for current or next field
+                    ui_manager_display_current_prompt(app);
+                }
+            }
+            break;
+        case INPUT_MODE_AUTH_PROMPT:
+            {
+                // Handle authentication prompt submission
+                app_result_t result = ssh_ui_handle_auth_submit(app);
                 if (result == APP_RESULT_RETRY || result == APP_RESULT_CONTINUE) {
                     // Show the prompt for current or next field
                     ui_manager_display_current_prompt(app);
@@ -469,7 +478,7 @@ void app_controller_handle_disconnect_prompt(app_state_t* app, const char* input
     if (!app) {
         return;
     }
-    
+
     // Handle disconnect prompt
     app_result_t result = ssh_ui_handle_disconnect_prompt(app, input);
     if (result == APP_RESULT_CANCEL) {
@@ -485,7 +494,7 @@ void app_controller_handle_escape_key(app_state_t* app) {
     if (!app) {
         return;
     }
-    
+
     // Business logic: decide what to do based on current mode
     switch (app->input_mode) {
         case INPUT_MODE_STARTUP_CHOICE:
@@ -504,7 +513,6 @@ void app_controller_handle_escape_key(app_state_t* app) {
         case INPUT_MODE_HOSTNAME:
         case INPUT_MODE_USERNAME:
         case INPUT_MODE_PORT:
-        case INPUT_MODE_PASSWORD:
         case INPUT_MODE_DISCONNECT_PROMPT:
             // Cancel current operation and return to startup menu
             ssh_manager_cleanup(app);
@@ -521,7 +529,7 @@ void app_controller_handle_terminal_output(app_state_t* app, const uint8_t* data
     if (!app || !data || len == 0) {
         return;
     }
-    
+
     // Business logic: route terminal output based on connection state
     if (ssh_manager_is_connected(app)) {
         // Send data to SSH connection
@@ -530,7 +538,7 @@ void app_controller_handle_terminal_output(app_state_t* app, const uint8_t* data
         }
         return;
     }
-    
+
     // Demo mode: Echo user input back for testing (when not connected to SSH)
     if (app->input_mode == INPUT_MODE_NORMAL) {
         app_controller_handle_test_mode_input((const char*)data, len);
