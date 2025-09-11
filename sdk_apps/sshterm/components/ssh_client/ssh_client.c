@@ -17,6 +17,10 @@
 /* Application includes */
 #include "../common/terminal_config.h"  /* For SSH_TERMINAL_WIDTH/HEIGHT */
 
+/* SDL3 for threading support */
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_mutex.h>
+
 /* System includes */
 #include <stdio.h>
 #include <string.h>
@@ -39,59 +43,111 @@
 #error "WOLFSSH_TERM should be defined in user_settings.h"
 #endif
 
-// Global state for authentication
-static const char* stored_password = NULL;
-static const char* stored_username = NULL;
-static ssh_client_t* current_client = NULL;
+// === SAFE STRING OPERATIONS ===
 
-// Thread synchronization for authentication prompts
-static volatile bool auth_response_ready = false;
-static char auth_response_buffer[512];
-static volatile bool auth_input_needed = false;
-static volatile bool auth_in_progress = false;
+/**
+ * Safe string copy with guaranteed null termination
+ * @param dest Destination buffer
+ * @param src Source string
+ * @param dest_size Size of destination buffer
+ * @return true if string fit completely, false if truncated
+ */
+static bool strncpy_safe(char* dest, const char* src, size_t dest_size) {
+    if (!dest || !src || dest_size == 0) {
+        return false;
+    }
 
-// Auth retry tracking
-static int password_retry_count = 0;
-#define MAX_PASSWORD_RETRIES 3
+    size_t src_len = strlen(src);
+    bool fits_completely = (src_len < dest_size);
 
-// Auth event callback
-static auth_event_callback_t auth_event_callback = NULL;
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
 
-// Authentication timeout (60 seconds)
-#define AUTH_TIMEOUT_SEC 60
+    return fits_completely;
+}
 
-// Internal helper to set error message
-static void ssh_set_error(ssh_client_t* client, const char* msg) {
-    if (client && msg) {
-        strncpy(client->error_msg, msg, sizeof(client->error_msg) - 1);
-        client->error_msg[sizeof(client->error_msg) - 1] = '\0';
-        client->state = SSH_STATE_ERROR;
-        printf("SSH Error: %s\n", msg);
+/**
+ * Secure memory clearing for sensitive data
+ * @param ptr Pointer to memory to clear
+ * @param size Size of memory to clear
+ */
+static void secure_clear(void* ptr, size_t size) {
+    if (ptr && size > 0) {
+        memset(ptr, 0, size);
+        // Compiler barrier to prevent optimization
+        __asm__ __volatile__("" ::: "memory");
     }
 }
 
-void ssh_client_set_auth_event_callback(auth_event_callback_t callback) {
-    auth_event_callback = callback;
+/**
+ * Validate client instance integrity
+ * @param client SSH client instance to validate
+ * @return true if valid, false if corrupted or invalid
+ */
+static bool ssh_client_validate(ssh_client_t* client) {
+    return (client != NULL &&
+            client->is_initialized &&
+            client->magic_number == SSH_CLIENT_MAGIC_NUMBER);
 }
 
-bool ssh_client_needs_auth_input(void) {
-    return auth_input_needed && auth_in_progress && !auth_response_ready;
+// === ERROR HANDLING ===
+
+// Internal helper to set error message with safe string handling
+static void ssh_set_error(ssh_client_t* client, const char* msg) {
+    if (!ssh_client_validate(client) || !msg) return;
+
+    if (!strncpy_safe(client->error_msg, msg, sizeof(client->error_msg))) {
+        printf("SSH Error: (message truncated) %s\n", client->error_msg);
+    } else {
+        printf("SSH Error: %s\n", msg);
+    }
+    client->state = SSH_STATE_ERROR;
 }
 
-const char* ssh_client_get_auth_prompt(void) {
-    return (current_client != NULL) ? current_client->auth_prompt.prompt_text : "";
+// === AUTHENTICATION STATE MANAGEMENT ===
+
+void ssh_client_set_auth_event_callback(ssh_client_t* client, auth_event_callback_t callback) {
+    if (!ssh_client_validate(client)) return;
+
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+    client->auth_state.auth_event_callback = (void*)callback;
+    SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
 }
 
-bool ssh_client_auth_prompt_echo(void) {
-    return (current_client != NULL) ? current_client->auth_prompt.echo_input : false;
+bool ssh_client_needs_auth_input(ssh_client_t* client) {
+    if (!ssh_client_validate(client)) return false;
+
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+    bool needs_input = client->auth_state.auth_input_needed &&
+                      client->auth_state.auth_in_progress &&
+                      !client->auth_state.auth_response_ready;
+    SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+    return needs_input;
 }
 
-void ssh_client_submit_auth_response(const char* response) {
-    if (!response) return;
+const char* ssh_client_get_auth_prompt(ssh_client_t* client) {
+    if (!ssh_client_validate(client)) return "";
 
-    strncpy(auth_response_buffer, response, sizeof(auth_response_buffer) - 1);
-    auth_response_buffer[sizeof(auth_response_buffer) - 1] = '\0';
-    auth_response_ready = true;
+    return client->auth_prompt.prompt_text;
+}
+
+bool ssh_client_auth_prompt_echo(ssh_client_t* client) {
+    if (!ssh_client_validate(client)) return false;
+
+    return client->auth_prompt.echo_input;
+}
+
+void ssh_client_submit_auth_response(ssh_client_t* client, const char* response) {
+    if (!ssh_client_validate(client) || !response) {
+        return;
+    }
+
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+    strncpy_safe(client->auth_state.auth_response_buffer, response,
+                 sizeof(client->auth_state.auth_response_buffer));
+    client->auth_state.auth_response_ready = true;
+    SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
 }
 
 // Public key check callback (accepting all for now - can be enhanced for security)
@@ -105,12 +161,19 @@ static int ssh_public_key_check(const byte* pubKey, word32 pubKeySz, void* ctx) 
 }
 
 // Forward declarations for authentication helper functions
-static int ssh_handle_password_auth(WS_UserAuthData* authData);
-static int ssh_handle_keyboard_interactive_auth(WS_UserAuthData* authData);
+static int ssh_handle_password_auth(ssh_client_t* client, WS_UserAuthData* authData);
+static int ssh_handle_keyboard_interactive_auth(ssh_client_t* client, WS_UserAuthData* authData);
 
 // Enhanced authentication callback with keyboard-interactive support
 static int ssh_auth_callback(byte authType, WS_UserAuthData* authData, void* ctx) {
     int ret = WOLFSSH_USERAUTH_FAILURE;
+
+    // Extract client instance from user auth context (ctx is the client instance we set)
+    ssh_client_t* client = (ssh_client_t*)ctx;
+    if (!ssh_client_validate(client)) {
+        printf("SSH Auth: Invalid client instance in callback\n");
+        return WOLFSSH_USERAUTH_FAILURE;
+    }
 
     printf("SSH Auth: Server supports auth types: ");
     if (authData->type & WOLFSSH_USERAUTH_PASSWORD) printf("password ");
@@ -120,11 +183,11 @@ static int ssh_auth_callback(byte authType, WS_UserAuthData* authData, void* ctx
 
     switch (authType) {
         case WOLFSSH_USERAUTH_PASSWORD:
-            ret = ssh_handle_password_auth(authData);
+            ret = ssh_handle_password_auth(client, authData);
             break;
 
         case WOLFSSH_USERAUTH_KEYBOARD:
-            ret = ssh_handle_keyboard_interactive_auth(authData);
+            ret = ssh_handle_keyboard_interactive_auth(client, authData);
             break;
 
         case WOLFSSH_USERAUTH_PUBLICKEY:
@@ -138,77 +201,94 @@ static int ssh_auth_callback(byte authType, WS_UserAuthData* authData, void* ctx
             break;
     }
 
-    (void)ctx;
     return ret;
 }
 
-// Handle password authentication
-static int ssh_handle_password_auth(WS_UserAuthData* authData) {
-    // Check retry limit for password auth
-    if (password_retry_count >= MAX_PASSWORD_RETRIES) {
-        printf("SSH Auth: Maximum password attempts (%d) exceeded\n", MAX_PASSWORD_RETRIES);
+// Handle password authentication using client instance
+static int ssh_handle_password_auth(ssh_client_t* client, WS_UserAuthData* authData) {
+    if (!ssh_client_validate(client)) {
         return WOLFSSH_USERAUTH_FAILURE;
     }
 
-    if (stored_password != NULL && strlen(stored_password) > 0) {
-        password_retry_count++;
-        authData->sf.password.password = (byte*)stored_password;
-        authData->sf.password.passwordSz = (word32)strlen(stored_password);
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+    // Check retry limit for password auth
+    if (client->auth_state.password_retry_count >= MAX_PASSWORD_RETRIES) {
+        printf("SSH Auth: Maximum password attempts (%d) exceeded\n", MAX_PASSWORD_RETRIES);
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        return WOLFSSH_USERAUTH_FAILURE;
+    }
+
+    // Check if we have a stored password to use
+    if (strlen(client->auth_state.stored_password) > 0) {
+        client->auth_state.password_retry_count++;
+        authData->sf.password.password = (byte*)client->auth_state.stored_password;
+        authData->sf.password.passwordSz = (word32)strlen(client->auth_state.stored_password);
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         return WOLFSSH_USERAUTH_SUCCESS;
     }
 
-    if (current_client == NULL) {
-        return WOLFSSH_USERAUTH_FAILURE;
-    }
-
     // Set up password prompt for the main thread to display
-    current_client->auth_prompt.method = AUTH_METHOD_PASSWORD;
-    strncpy(current_client->auth_prompt.prompt_text, "Password: ",
-            sizeof(current_client->auth_prompt.prompt_text) - 1);
-    current_client->auth_prompt.prompt_text[sizeof(current_client->auth_prompt.prompt_text) - 1] = '\0';
-    current_client->auth_prompt.echo_input = false;
-    auth_input_needed = true;
-    auth_response_ready = false;
-    auth_in_progress = true;
+    client->auth_prompt.method = AUTH_METHOD_PASSWORD;
+    strncpy_safe(client->auth_prompt.prompt_text, "Password: ",
+                 sizeof(client->auth_prompt.prompt_text));
+    client->auth_prompt.echo_input = false;
+    client->auth_state.auth_input_needed = true;
+    client->auth_state.auth_response_ready = false;
+    client->auth_state.auth_in_progress = true;
 
-    // Immediately trigger auth event callback if set
-    if (auth_event_callback) {
-        auth_event_callback("Password: ", false, "password");
+    // Trigger auth event callback if set
+    auth_event_callback_t callback = (auth_event_callback_t)client->auth_state.auth_event_callback;
+    SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+    if (callback) {
+        callback(client, "Password: ", false, "password");
     }
 
-    // Wait for response from main thread
+    // Wait for response from main thread with timeout
     int timeout_count = 0;
     const int max_timeout = AUTH_TIMEOUT_SEC * 20; // 20 polls per second = 50ms each
-    
-    while (!auth_response_ready && auth_in_progress && timeout_count < max_timeout) {
+
+    while (timeout_count < max_timeout) {
+        SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        bool response_ready = client->auth_state.auth_response_ready;
+        bool in_progress = client->auth_state.auth_in_progress;
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+        if (response_ready || !in_progress) break;
+
         usleep(50000); // 50ms
         timeout_count++;
     }
 
-    if (auth_response_ready) {
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+    if (client->auth_state.auth_response_ready) {
         // Use the response directly (password buffer must remain valid)
-        authData->sf.password.password = (byte*)auth_response_buffer;
-        authData->sf.password.passwordSz = (word32)strlen(auth_response_buffer);
+        authData->sf.password.password = (byte*)client->auth_state.auth_response_buffer;
+        authData->sf.password.passwordSz = (word32)strlen(client->auth_state.auth_response_buffer);
 
         // Reset state but keep response buffer valid for wolfSSH
-        auth_input_needed = false;
-        auth_in_progress = false;
+        client->auth_state.auth_input_needed = false;
+        client->auth_state.auth_in_progress = false;
         // Note: We don't reset auth_response_ready here to keep buffer valid
 
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         return WOLFSSH_USERAUTH_SUCCESS;
     } else {
         // Auth timed out or was cancelled
         printf("SSH Auth: Password prompt timed out after %d seconds\n", AUTH_TIMEOUT_SEC);
-        auth_in_progress = false;
-        auth_input_needed = false;
+        client->auth_state.auth_in_progress = false;
+        client->auth_state.auth_input_needed = false;
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         return WOLFSSH_USERAUTH_FAILURE;
     }
 }
 
 // Handle keyboard-interactive authentication (blocking approach like wolfSSH example)
-static int ssh_handle_keyboard_interactive_auth(WS_UserAuthData* authData) {
-    if (current_client == NULL) {
-        printf("SSH Auth: No current client for keyboard-interactive auth\n");
+// Handle keyboard-interactive authentication using client instance
+static int ssh_handle_keyboard_interactive_auth(ssh_client_t* client, WS_UserAuthData* authData) {
+    if (!ssh_client_validate(client)) {
+        printf("SSH Auth: No valid client for keyboard-interactive auth\n");
         return WOLFSSH_USERAUTH_FAILURE;
     }
 
@@ -233,46 +313,65 @@ static int ssh_handle_keyboard_interactive_auth(WS_UserAuthData* authData) {
         return WOLFSSH_USERAUTH_FAILURE;
     }
 
-    // Process each prompt (simplified polling until we get responses)
+    // Process each prompt
     for (word32 i = 0; i < kb->promptCount; i++) {
-        // Set up auth prompt state for the main thread to display
-        current_client->auth_prompt.method = AUTH_METHOD_KEYBOARD_INTERACTIVE;
-        strncpy(current_client->auth_prompt.prompt_text, (char*)kb->prompts[i],
-                sizeof(current_client->auth_prompt.prompt_text) - 1);
-        current_client->auth_prompt.prompt_text[sizeof(current_client->auth_prompt.prompt_text) - 1] = '\0';
-        current_client->auth_prompt.echo_input = kb->promptEcho[i];
-        auth_input_needed = true;
-        auth_response_ready = false;
-        auth_in_progress = true;
+        SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
 
-        // Immediately trigger auth event callback if set
-        if (auth_event_callback) {
-            auth_event_callback((char*)kb->prompts[i], kb->promptEcho[i], "keyboard-interactive");
+        // Set up auth prompt state for the main thread to display
+        client->auth_prompt.method = AUTH_METHOD_KEYBOARD_INTERACTIVE;
+        strncpy_safe(client->auth_prompt.prompt_text, (char*)kb->prompts[i],
+                     sizeof(client->auth_prompt.prompt_text));
+        client->auth_prompt.echo_input = kb->promptEcho[i];
+        client->auth_state.auth_input_needed = true;
+        client->auth_state.auth_response_ready = false;
+        client->auth_state.auth_in_progress = true;
+
+        // Trigger auth event callback if set
+        auth_event_callback_t callback = (auth_event_callback_t)client->auth_state.auth_event_callback;
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+        printf("SSH Auth: Triggering callback for prompt %d: '%s' (callback=%p)\n",
+               i, kb->prompts[i] ? (char*)kb->prompts[i] : "(null)", (void*)callback);
+
+        if (callback) {
+            callback(client, (char*)kb->prompts[i], kb->promptEcho[i], "keyboard-interactive");
+        } else {
+            printf("SSH Auth: No callback set - prompt will timeout\n");
         }
 
-        // Wait for response from main thread
+        // Wait for response from main thread with timeout
         int timeout_count = 0;
         const int max_timeout = AUTH_TIMEOUT_SEC * 20; // 20 polls per second = 50ms each
-        
-        while (!auth_response_ready && auth_in_progress && timeout_count < max_timeout) {
+
+        while (timeout_count < max_timeout) {
+            SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+            bool response_ready = client->auth_state.auth_response_ready;
+            bool in_progress = client->auth_state.auth_in_progress;
+            SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+            if (response_ready || !in_progress) break;
+
             usleep(50000); // 50ms
             timeout_count++;
         }
 
-        if (auth_response_ready) {
+        SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        if (client->auth_state.auth_response_ready) {
             // Copy the response (similar to wolfSSH example using strdup)
-            kb->responses[i] = (byte*)strdup(auth_response_buffer);
-            kb->responseLengths[i] = (word32)strlen(auth_response_buffer);
+            kb->responses[i] = (byte*)strdup(client->auth_state.auth_response_buffer);
+            kb->responseLengths[i] = (word32)strlen(client->auth_state.auth_response_buffer);
             kb->responseCount++;
 
             // Reset for next prompt
-            auth_response_ready = false;
-            auth_input_needed = false;
+            client->auth_state.auth_response_ready = false;
+            client->auth_state.auth_input_needed = false;
+            SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         } else {
             // Auth timed out or was cancelled
             printf("SSH Auth: Prompt %d timed out after %d seconds\n", i, AUTH_TIMEOUT_SEC);
-            auth_in_progress = false;
-            auth_input_needed = false;
+            client->auth_state.auth_in_progress = false;
+            client->auth_state.auth_input_needed = false;
+            SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
 
             // Clean up allocated responses
             for (word32 j = 0; j < i; j++) {
@@ -285,8 +384,10 @@ static int ssh_handle_keyboard_interactive_auth(WS_UserAuthData* authData) {
     }
 
     // All prompts handled successfully
-    auth_in_progress = false;
-    auth_input_needed = false;
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+    client->auth_state.auth_in_progress = false;
+    client->auth_state.auth_input_needed = false;
+    SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
 
     return WOLFSSH_USERAUTH_SUCCESS;
 }
@@ -339,11 +440,40 @@ bool ssh_client_init(ssh_client_t* client) {
 
     printf("SSH: Initializing client subsystem\n");
 
+    // Initialize client structure first
+    memset(client, 0, sizeof(ssh_client_t));
+
+    // Initialize memory safety fields
+    client->magic_number = SSH_CLIENT_MAGIC_NUMBER;
+    client->is_initialized = false;  // Set to true only after complete initialization
+    client->state = SSH_STATE_DISCONNECTED;
+    client->socket_fd = -1;
+
+    // Initialize authentication state
+    secure_clear(client->auth_state.stored_password, sizeof(client->auth_state.stored_password));
+    secure_clear(client->auth_state.stored_username, sizeof(client->auth_state.stored_username));
+    secure_clear(client->auth_state.auth_response_buffer, sizeof(client->auth_state.auth_response_buffer));
+    client->auth_state.auth_response_ready = false;
+    client->auth_state.auth_input_needed = false;
+    client->auth_state.auth_in_progress = false;
+    client->auth_state.password_retry_count = 0;
+    client->auth_state.auth_event_callback = NULL;
+
+    // Create authentication state mutex
+    client->auth_state.auth_state_mutex = SDL_CreateMutex();
+    if (!client->auth_state.auth_state_mutex) {
+        printf("SSH: Failed to create authentication state mutex\n");
+        ssh_set_error(client, "Failed to create mutex for thread safety");
+        return false;
+    }
+
     // Initialize wolfSSL/wolfCrypt first (required for wolfSSH)
     int wc_ret = wolfCrypt_Init();
     if (wc_ret != 0) {
         printf("SSH: wolfCrypt_Init failed with error: %d\n", wc_ret);
         ssh_set_error(client, "Failed to initialize wolfCrypt");
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
         return false;
     }
 
@@ -353,6 +483,8 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rng_ret != 0) {
         printf("SSH: Failed to initialize RNG with error: %d\n", rng_ret);
         ssh_set_error(client, "Failed to initialize RNG");
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
     }
@@ -363,6 +495,8 @@ bool ssh_client_init(ssh_client_t* client) {
         printf("SSH: RNG test failed with error: %d\n", rng_ret);
         wc_FreeRng(&rng);
         ssh_set_error(client, "RNG functionality test failed");
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
     }
@@ -374,15 +508,16 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rc != WS_SUCCESS) {
         printf("SSH: wolfSSH_Init failed with error: %d\n", rc);
         ssh_set_error(client, "Failed to initialize wolfSSH library");
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
     }
 
-    // Initialize client structure
-    memset(client, 0, sizeof(ssh_client_t));
-    client->state = SSH_STATE_DISCONNECTED;
-    client->socket_fd = -1;
+    // Initialization successful - mark as initialized
+    client->is_initialized = true;
 
+    printf("SSH: Client initialization completed successfully\n");
     return true;
 }
 
@@ -423,8 +558,11 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
         return false;
     }
 
-    // Set authentication context (password will be passed to callback)
+    // Set authentication context (client instance for callbacks)
     wolfSSH_SetUserAuthCtx((WOLFSSH*)client->ssh, (void*)client);
+
+    // Store client instance in wolfSSH user data for callback access
+    // Note: Using UserAuthCtx since UserData functions are not available in this wolfSSH version
 
     // Set public key check context
     wolfSSH_SetPublicKeyCheckCtx((WOLFSSH*)client->ssh, (void*)hostname);
@@ -490,7 +628,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 
 bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int port,
                              const char* username, const char* password) {
-    if (!client || !hostname || !username) {
+    if (!ssh_client_validate(client) || !hostname || !username) {
         ssh_set_error(client, "Invalid parameters for SSH connection");
         return false;
     }
@@ -499,30 +637,39 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
 
     client->state = SSH_STATE_SOCKET_CONNECTING;
 
-    // Store connection parameters
-    strncpy(client->hostname, hostname, sizeof(client->hostname) - 1);
-    client->hostname[sizeof(client->hostname) - 1] = '\0';
+    // Store connection parameters using safe string operations
+    strncpy_safe(client->hostname, hostname, sizeof(client->hostname));
     client->port = port;
     client->username = username;
 
-    // Store credentials for authentication callback
-    stored_password = password;  // Can be NULL for dynamic auth
-    stored_username = username;
+    // Store credentials for authentication callback in client instance
+    SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+    // Clear any previous credentials securely
+    secure_clear(client->auth_state.stored_password, sizeof(client->auth_state.stored_password));
+    secure_clear(client->auth_state.stored_username, sizeof(client->auth_state.stored_username));
+
+    // Store new credentials if provided
+    if (password) {
+        strncpy_safe(client->auth_state.stored_password, password,
+                     sizeof(client->auth_state.stored_password));
+    }
+    strncpy_safe(client->auth_state.stored_username, username,
+                 sizeof(client->auth_state.stored_username));
 
     // Reset auth retry counters for new connection
-    password_retry_count = 0;
-
-    // Set current client for authentication callbacks
-    current_client = client;
+    client->auth_state.password_retry_count = 0;
 
     // Initialize auth prompt state
     memset(&client->auth_prompt, 0, sizeof(client->auth_prompt));
 
     // Reset auth state
-    auth_response_ready = false;
-    auth_input_needed = false;
-    auth_in_progress = false;
-    memset(auth_response_buffer, 0, sizeof(auth_response_buffer));
+    client->auth_state.auth_response_ready = false;
+    client->auth_state.auth_input_needed = false;
+    client->auth_state.auth_in_progress = false;
+    secure_clear(client->auth_state.auth_response_buffer, sizeof(client->auth_state.auth_response_buffer));
+
+    SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
 
     // Create socket connection (blocking)
     client->socket_fd = ssh_create_socket(hostname, port);
@@ -733,18 +880,35 @@ void ssh_client_cleanup(ssh_client_t* client) {
         client->socket_fd = -1;
     }
 
+    // Securely clear authentication state
+    if (client->auth_state.auth_state_mutex) {
+        SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+        secure_clear(client->auth_state.stored_password, sizeof(client->auth_state.stored_password));
+        secure_clear(client->auth_state.stored_username, sizeof(client->auth_state.stored_username));
+        secure_clear(client->auth_state.auth_response_buffer, sizeof(client->auth_state.auth_response_buffer));
+        client->auth_state.auth_response_ready = false;
+        client->auth_state.auth_input_needed = false;
+        client->auth_state.auth_in_progress = false;
+        client->auth_state.password_retry_count = 0;
+        client->auth_state.auth_event_callback = NULL;
+
+        SDL_UnlockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+
+        // Destroy the mutex
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
+    }
+
     // Reset client state
     client->state = SSH_STATE_DISCONNECTED;
-    memset(client->error_msg, 0, sizeof(client->error_msg));
+    secure_clear(client->error_msg, sizeof(client->error_msg));
 
-    // Clear stored credentials
-    stored_password = NULL;
-    stored_username = NULL;
+    // Clear initialization markers
+    client->is_initialized = false;
+    client->magic_number = 0;
 
-    // Clear current client reference
-    if (current_client == client) {
-        current_client = NULL;
-    }
+    printf("SSH: Cleanup completed\n");
 }
 
 // New functions to support wolfSSH threading pattern

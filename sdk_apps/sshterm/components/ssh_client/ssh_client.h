@@ -14,6 +14,14 @@
 #include <stddef.h>
 #include "../../common/types.h"
 
+// Memory safety constants
+#define SSH_CLIENT_MAGIC_NUMBER 0xDEADBEEF
+#define MAX_PASSWORD_RETRIES 3
+#define AUTH_TIMEOUT_SEC 60
+
+// Forward declarations for opaque SDL types (to avoid including SDL3 in header)
+typedef struct SDL_Mutex SDL_Mutex;
+
 /**
  * Initialize SSH client
  * @param client SSH client structure to initialize
@@ -129,40 +137,46 @@ void ssh_client_cleanup(ssh_client_t* client);
 
 /**
  * Auth event callback function type
+ * @param client SSH client instance triggering the event
  * @param prompt_text The authentication prompt text
  * @param echo_input Whether the input should be echoed
  * @param method_name The authentication method name
  */
-typedef void (*auth_event_callback_t)(const char* prompt_text, bool echo_input, const char* method_name);
+typedef void (*auth_event_callback_t)(ssh_client_t* client, const char* prompt_text, bool echo_input, const char* method_name);
 
 /**
- * Set the auth event callback function
+ * Set the auth event callback function for a specific client
+ * @param client SSH client instance
  * @param callback Callback function to call when auth prompts are needed
  */
-void ssh_client_set_auth_event_callback(auth_event_callback_t callback);
+void ssh_client_set_auth_event_callback(ssh_client_t* client, auth_event_callback_t callback);
 
 /**
- * Check if authentication input is needed from user
+ * Check if authentication input is needed from user for a specific client
+ * @param client SSH client instance
  * @return true if auth input is needed, false otherwise
  */
-bool ssh_client_needs_auth_input(void);
+bool ssh_client_needs_auth_input(ssh_client_t* client);
 
 /**
- * Get current authentication prompt text
+ * Get current authentication prompt text for a specific client
+ * @param client SSH client instance
  * @return Prompt text string (may be empty)
  */
-const char* ssh_client_get_auth_prompt(void);
+const char* ssh_client_get_auth_prompt(ssh_client_t* client);
 
 /**
- * Check if current authentication prompt should echo input
+ * Check if current authentication prompt should echo input for a specific client
+ * @param client SSH client instance
  * @return true if input should be echoed, false for hidden input
  */
-bool ssh_client_auth_prompt_echo(void);
+bool ssh_client_auth_prompt_echo(ssh_client_t* client);
 
 /**
- * Submit authentication response from user
+ * Submit authentication response from user for a specific client
+ * @param client SSH client instance
  * @param response User's response to the authentication prompt
  */
-void ssh_client_submit_auth_response(const char* response);
+void ssh_client_submit_auth_response(ssh_client_t* client, const char* response);
 
 #endif // SSH_CLIENT_H

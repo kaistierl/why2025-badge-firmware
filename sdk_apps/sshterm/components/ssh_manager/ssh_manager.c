@@ -185,9 +185,9 @@ bool ssh_manager_submit_auth_response(app_state_t* app, const char* response) {
         return false;
     }
 
-    // Submit response directly to SSH client instead of going through SSH thread command queue
+    // Submit response directly to SSH client instance from thread manager instead of app state
     // This is necessary because the SSH thread is blocked in the auth callback
-    ssh_client_submit_auth_response(response);
+    ssh_client_submit_auth_response(&ssh_thread_mgr.ssh_client, response);
 
     return true;
 }
@@ -238,4 +238,16 @@ void ssh_manager_cleanup(app_state_t* app) {
 
     app->ssh_connected = false;
     app->ssh_connecting = false;
+}
+
+// === AUTHENTICATION PROMPT ACCESS ===
+
+const char* ssh_manager_get_auth_prompt(void) {
+    // Get prompt from the actual SSH client instance used by the thread
+    return ssh_client_get_auth_prompt(&ssh_thread_mgr.ssh_client);
+}
+
+bool ssh_manager_auth_prompt_echo(void) {
+    // Get echo setting from the actual SSH client instance used by the thread
+    return ssh_client_auth_prompt_echo(&ssh_thread_mgr.ssh_client);
 }

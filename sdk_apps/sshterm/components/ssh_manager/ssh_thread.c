@@ -18,7 +18,7 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd);
 static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd);
 static bool queue_put_event(ssh_thread_manager_t* manager, const ssh_event_t* event);
 static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event);
-static void ssh_auth_event_callback(const char* prompt_text, bool echo_input, const char* method_name);
+static void ssh_auth_event_callback(ssh_client_t* client, const char* prompt_text, bool echo_input, const char* method_name);
 
 // Simple global manager for auth callback (will be replaced with better solution)
 // TODO: Replace with thread-local storage when available on all platforms
@@ -178,6 +178,9 @@ static void ssh_thread_main(void* data) {
         SDL_UnlockMutex(manager->state_mutex);
         return;
     }
+
+    // Set up auth event callback after SSH client initialization
+    ssh_client_set_auth_event_callback(&manager->ssh_client, ssh_auth_event_callback);
 
     // Signal that worker thread is ready
     SDL_LockMutex(manager->state_mutex);
@@ -523,7 +526,8 @@ static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event) {
 }
 
 // Auth event callback - called from SSH auth callbacks to generate events immediately
-static void ssh_auth_event_callback(const char* prompt_text, bool echo_input, const char* method_name) {
+static void ssh_auth_event_callback(ssh_client_t* client, const char* prompt_text, bool echo_input, const char* method_name) {
+    (void)client; // Unused parameter - client instance already known via global manager
     ssh_thread_manager_t* manager = NULL;
 
     // Get manager with mutex protection
@@ -620,9 +624,6 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         g_current_auth_manager = manager;
         SDL_UnlockMutex(g_auth_manager_mutex);
     }
-
-    // Register auth event callback with SSH client
-    ssh_client_set_auth_event_callback(ssh_auth_event_callback);
 
     manager->ssh_thread_id = thread_create(ssh_thread_main, manager, SSH_MAIN_THREAD_STACK);
 

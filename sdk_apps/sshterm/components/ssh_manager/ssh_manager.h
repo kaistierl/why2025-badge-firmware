@@ -128,6 +128,22 @@ bool ssh_manager_send_data(app_state_t* app, const char* data, size_t len);
  */
 bool ssh_manager_poll_and_read(app_state_t* app);
 
+// === AUTHENTICATION PROMPT ACCESS ===
+
+/**
+ * @brief Get authentication prompt text from active SSH client
+ *
+ * @return Current authentication prompt text, or empty string if none
+ */
+const char* ssh_manager_get_auth_prompt(void);
+
+/**
+ * @brief Check if authentication prompt should echo input
+ *
+ * @return true if input should be echoed, false if hidden (password)
+ */
+bool ssh_manager_auth_prompt_echo(void);
+
 // === STATE MANAGEMENT ===
 
 /**

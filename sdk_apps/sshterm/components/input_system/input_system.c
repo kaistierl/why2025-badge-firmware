@@ -1,6 +1,6 @@
 #include "input_system.h"
 #include "../app_controller/app_controller.h"
-#include "../ssh_client/ssh_client.h"
+#include "../ssh_manager/ssh_manager.h"
 #include "../../common/types.h"
 #include <string.h>
 #include <stdio.h>
@@ -73,9 +73,9 @@ input_field_t input_system_get_current_field(app_state_t* app) {
                 .buffer = app->connection_input.auth_response,
                 .length = &app->connection_input.field_lengths.auth_response,
                 .max_length = sizeof(app->connection_input.auth_response) - 1,
-                .prompt = ssh_client_get_auth_prompt(),
+                .prompt = ssh_manager_get_auth_prompt(),
                 .default_value = NULL,
-                .is_password = !ssh_client_auth_prompt_echo(),
+                .is_password = !ssh_manager_auth_prompt_echo(),
                 .numeric_only = false
             };
             break;

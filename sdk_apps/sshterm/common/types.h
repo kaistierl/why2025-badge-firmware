@@ -11,6 +11,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * @brief Input modes for different application states
@@ -120,6 +121,7 @@ typedef enum {
  *
  * Contains all data needed to manage an SSH connection including
  * connection parameters, state, and internal wolfSSH handles.
+ * Now includes secure authentication state management and thread safety.
  */
 typedef struct ssh_client {
     char hostname[256];         /**< SSH server hostname (stored copy) */
@@ -133,6 +135,23 @@ typedef struct ssh_client {
     void* ctx;                  /**< WOLFSSH_CTX* (opaque pointer) */
     void* ssh;                  /**< WOLFSSH* (opaque pointer) */
     int socket_fd;              /**< Network socket file descriptor */
+
+    // NEW: Authentication state (replaces globals)
+    struct {
+        char stored_password[512];      /**< Secure local copy of password */
+        char stored_username[256];      /**< Secure local copy of username */
+        char auth_response_buffer[512]; /**< Thread-safe response buffer */
+        volatile bool auth_response_ready;  /**< Flag for response availability */
+        volatile bool auth_input_needed;    /**< Flag for input requirement */
+        volatile bool auth_in_progress;     /**< Flag for auth process state */
+        int password_retry_count;           /**< Password retry counter */
+        void* auth_event_callback;          /**< auth_event_callback_t function pointer */
+        void* auth_state_mutex;             /**< SDL_Mutex* for thread safety */
+    } auth_state;
+
+    // NEW: Memory safety enhancements
+    bool is_initialized;        /**< Initialization sentinel */
+    uint32_t magic_number;      /**< Corruption detection (0xDEADBEEF when valid) */
 } ssh_client_t;
 
 #endif // COMMON_TYPES_H
