@@ -18,6 +18,7 @@
 typedef enum {
     SSH_CMD_CONNECT,
     SSH_CMD_SEND_DATA,
+    SSH_CMD_SEND_RAW_INPUT,  // New: unified queue for raw input data
     SSH_CMD_DISCONNECT,
     SSH_CMD_SHUTDOWN
 } ssh_cmd_type_t;
@@ -47,6 +48,10 @@ typedef struct {
             size_t len;
         } send_data;
         struct {
+            char input_data[256];
+            size_t input_len;
+        } send_raw_input;  // New: for raw input handling
+        struct {
             char message[SSH_MAX_ERROR_MSG_LEN];
         } error;
     };
@@ -75,8 +80,15 @@ typedef struct {
     };
 } ssh_event_t;
 
-// SSH thread manager state
+// Thread arguments structure
 typedef struct {
+    ssh_client_t* ssh_client;
+    struct ssh_thread_manager* manager;  // Forward reference
+    volatile bool quit;
+} ssh_thread_args_t;
+
+// SSH thread manager state
+typedef struct ssh_thread_manager {
     pid_t ssh_thread_id;
     bool thread_running;
     bool shutdown_requested;
@@ -84,6 +96,17 @@ typedef struct {
     // Thread coordination flags (protected by state_mutex)
     volatile bool shutdown_complete;   // Set by worker thread before exit
     volatile bool worker_ready;        // Set when worker thread finishes initialization
+
+    // Thread handles and state for I/O threads (moved from global)
+    pid_t read_input_thread_id;
+    pid_t read_peer_thread_id;
+    ssh_thread_args_t thread_args;
+
+    // Thread state tracking for cooperative termination
+    volatile bool input_thread_active;
+    volatile bool peer_thread_active;
+    volatile bool input_thread_complete;
+    volatile bool peer_thread_complete;
 
     // Thread synchronization mutexes
     SDL_Mutex* cmd_queue_mutex;    // Protects command queue operations
@@ -122,6 +145,7 @@ bool ssh_thread_poll_event(ssh_thread_manager_t* manager, ssh_event_t* event);
 bool ssh_thread_connect(ssh_thread_manager_t* manager, const char* hostname, int port,
                        const char* username, const char* password);
 bool ssh_thread_send_data(ssh_thread_manager_t* manager, const char* data, size_t len);
+bool ssh_thread_send_raw_input(ssh_thread_manager_t* manager, const char* input, size_t len);
 void ssh_thread_disconnect(ssh_thread_manager_t* manager);
 
 // Check if SSH thread is running

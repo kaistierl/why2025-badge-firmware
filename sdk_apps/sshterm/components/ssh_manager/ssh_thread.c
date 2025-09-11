@@ -20,90 +20,66 @@ static bool queue_put_event(ssh_thread_manager_t* manager, const ssh_event_t* ev
 static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event);
 static void ssh_auth_event_callback(const char* prompt_text, bool echo_input, const char* method_name);
 
-// Thread arguments structure
-typedef struct {
-    ssh_client_t* ssh_client;
-    ssh_thread_manager_t* manager;
-    bool quit;
-} ssh_thread_args_t;
-
-// Thread handles
-static pid_t read_input_thread_id = 0;
-static pid_t read_peer_thread_id = 0;
-static ssh_thread_args_t thread_args = {0};
-
-// Global manager reference for auth callback
-static ssh_thread_manager_t* g_auth_manager = NULL;
-
-// Command queue for input thread
-typedef struct {
-    char command[256];
-    bool has_command;
-} ssh_command_t;
-
-static ssh_command_t command_queue[10];
-static int queue_head = 0;
-static int queue_tail = 0;
-
-static bool queue_empty(void) {
-    return queue_head == queue_tail;
-}
-
-static bool queue_full(void) {
-    return ((queue_tail + 1) % 10) == queue_head;
-}
-
-static bool enqueue_command(const char* command) {
-    if (queue_full()) {
-        return false;
-    }
-
-    strncpy(command_queue[queue_tail].command, command, sizeof(command_queue[queue_tail].command) - 1);
-    command_queue[queue_tail].command[sizeof(command_queue[queue_tail].command) - 1] = '\0';
-    command_queue[queue_tail].has_command = true;
-
-    queue_tail = (queue_tail + 1) % 10;
-    return true;
-}
-
-static bool dequeue_command(char* command, size_t size) {
-    if (queue_empty()) {
-        return false;
-    }
-
-    strncpy(command, command_queue[queue_head].command, size - 1);
-    command[size - 1] = '\0';
-
-    queue_head = (queue_head + 1) % 10;
-    return true;
-}
+// Simple global manager for auth callback (will be replaced with better solution)
+// TODO: Replace with thread-local storage when available on all platforms
+static ssh_thread_manager_t* g_current_auth_manager = NULL;
+static SDL_Mutex* g_auth_manager_mutex = NULL;
 
 // Read input thread - handles keyboard input and sends to SSH
 static void read_input_thread(void* arg) {
     ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
-    char command[256];
+    ssh_cmd_t cmd;
 
-    while (!args->quit && args->manager->thread_running) {
-        // Check for queued commands (from keyboard input)
-        if (dequeue_command(command, sizeof(command))) {
-            // Send command to SSH server
-            bool sent = ssh_client_send(args->ssh_client, command, strlen(command));
+    // Signal thread is active
+    SDL_LockMutex(args->manager->state_mutex);
+    args->manager->input_thread_active = true;
+    SDL_UnlockMutex(args->manager->state_mutex);
 
-            if (!sent) {
-                printf("SSH Input Thread: Failed to send command: %s\n",
-                       ssh_client_get_error(args->ssh_client));
+    while (true) {
+        // Check quit flag with mutex protection
+        SDL_LockMutex(args->manager->state_mutex);
+        bool should_quit = args->quit;
+        bool manager_running = args->manager->thread_running;
+        SDL_UnlockMutex(args->manager->state_mutex);
 
-                // Signal error to manager
-                ssh_event_t event = {.type = SSH_EVENT_ERROR};
-                strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
-                        sizeof(event.error.message) - 1);
-                queue_put_event(args->manager, &event);
+        if (should_quit || !manager_running) {
+            break;
+        }
+
+        // Check for SSH_CMD_SEND_RAW_INPUT commands in main queue
+        if (queue_get_cmd(args->manager, &cmd)) {
+            if (cmd.type == SSH_CMD_SEND_RAW_INPUT) {
+                // Send raw input to SSH server
+                bool sent = ssh_client_send(args->ssh_client, cmd.send_raw_input.input_data, cmd.send_raw_input.input_len);
+
+                if (!sent) {
+                    printf("SSH Input Thread: Failed to send input: %s\n",
+                           ssh_client_get_error(args->ssh_client));
+
+                    // Signal error to manager
+                    ssh_event_t event = {.type = SSH_EVENT_ERROR};
+                    strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
+                            sizeof(event.error.message) - 1);
+                    queue_put_event(args->manager, &event);
+                }
+            } else {
+                // Put non-raw-input commands back at the front of the queue
+                // This is a simplification - ideally we'd have separate queues or priority
+                if (!queue_put_cmd(args->manager, &cmd)) {
+                    printf("SSH Input Thread: Warning - could not requeue command type %d\n", cmd.type);
+                }
             }
         }
 
         // Small delay to prevent busy waiting
         usleep(SSH_THREAD_POLL_INTERVAL); // 50ms
     }
+
+    // Signal thread completion
+    SDL_LockMutex(args->manager->state_mutex);
+    args->manager->input_thread_active = false;
+    args->manager->input_thread_complete = true;
+    SDL_UnlockMutex(args->manager->state_mutex);
 }
 
 // Read peer thread - handles SSH data reception with PURE BLOCKING I/O
@@ -112,7 +88,22 @@ static void read_peer_thread(void* arg) {
     ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
     char buffer[1024];
 
-    while (!args->quit && args->manager->thread_running) {
+    // Signal thread is active
+    SDL_LockMutex(args->manager->state_mutex);
+    args->manager->peer_thread_active = true;
+    SDL_UnlockMutex(args->manager->state_mutex);
+
+    while (true) {
+        // Check quit flag with mutex protection
+        SDL_LockMutex(args->manager->state_mutex);
+        bool should_quit = args->quit;
+        bool manager_running = args->manager->thread_running;
+        SDL_UnlockMutex(args->manager->state_mutex);
+
+        if (should_quit || !manager_running) {
+            break;
+        }
+
         // ssh_client_receive already has internal locking - no external lock needed
         int received = ssh_client_receive(args->ssh_client, buffer, sizeof(buffer) - 1);
 
@@ -126,7 +117,11 @@ static void read_peer_thread(void* arg) {
         } else if (received == -2) {
             // Clean disconnect
             printf("SSH Peer Thread: Connection closed by remote\n");
+
+            // Set quit flag with mutex protection
+            SDL_LockMutex(args->manager->state_mutex);
             args->quit = true;
+            SDL_UnlockMutex(args->manager->state_mutex);
 
             ssh_event_t event = {.type = SSH_EVENT_DISCONNECTED};
             queue_put_event(args->manager, &event);
@@ -135,7 +130,11 @@ static void read_peer_thread(void* arg) {
             // Error
             printf("SSH Peer Thread: Receive error: %s\n",
                    ssh_client_get_error(args->ssh_client));
+
+            // Set quit flag with mutex protection
+            SDL_LockMutex(args->manager->state_mutex);
             args->quit = true;
+            SDL_UnlockMutex(args->manager->state_mutex);
 
             ssh_event_t event = {.type = SSH_EVENT_ERROR};
             strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
@@ -148,6 +147,12 @@ static void read_peer_thread(void* arg) {
             usleep(10000); // 10ms
         }
     }
+
+    // Signal thread completion
+    SDL_LockMutex(args->manager->state_mutex);
+    args->manager->peer_thread_active = false;
+    args->manager->peer_thread_complete = true;
+    SDL_UnlockMutex(args->manager->state_mutex);
 }
 
 // Modified SSH thread main function to set up the two-thread pattern
@@ -193,6 +198,14 @@ static void ssh_thread_main(void* data) {
         // Process connection commands only (data I/O handled by separate threads)
         if (queue_get_cmd(manager, &cmd)) {
             switch (cmd.type) {
+                case SSH_CMD_SEND_RAW_INPUT:
+                    // Raw input commands are handled by input thread, not main thread
+                    // Put it back in queue for input thread to process
+                    if (!queue_put_cmd(manager, &cmd)) {
+                        printf("SSH Main Thread: Could not requeue raw input command\n");
+                    }
+                    break;
+
                 case SSH_CMD_CONNECT: {
                     if (ssh_client_connect_start(&manager->ssh_client,
                                                cmd.connect.hostname, cmd.connect.port,
@@ -203,15 +216,23 @@ static void ssh_thread_main(void* data) {
                                 ssh_connected = true;
                                 printf("SSH Thread: Connection successful, starting I/O threads\n");
 
-                                // Start the two I/O threads
-                                thread_args.ssh_client = &manager->ssh_client;
-                                thread_args.manager = manager;
-                                thread_args.quit = false;
+                                // Initialize thread args in manager structure
+                                manager->thread_args.ssh_client = &manager->ssh_client;
+                                manager->thread_args.manager = manager;
+                                manager->thread_args.quit = false;
 
-                                read_input_thread_id = thread_create(read_input_thread, &thread_args, SSH_IO_THREAD_STACK);
-                                read_peer_thread_id = thread_create(read_peer_thread, &thread_args, SSH_IO_THREAD_STACK);
+                                // Reset thread state tracking
+                                SDL_LockMutex(manager->state_mutex);
+                                manager->input_thread_active = false;
+                                manager->peer_thread_active = false;
+                                manager->input_thread_complete = false;
+                                manager->peer_thread_complete = false;
+                                SDL_UnlockMutex(manager->state_mutex);
 
-                                if (read_input_thread_id > 0 && read_peer_thread_id > 0) {
+                                manager->read_input_thread_id = thread_create(read_input_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
+                                manager->read_peer_thread_id = thread_create(read_peer_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
+
+                                if (manager->read_input_thread_id > 0 && manager->read_peer_thread_id > 0) {
                                     event.type = SSH_EVENT_CONNECTED;
                                     strncpy(event.connected.hostname, cmd.connect.hostname,
                                            sizeof(event.connected.hostname) - 1);
@@ -243,8 +264,16 @@ static void ssh_thread_main(void* data) {
 
                 case SSH_CMD_SEND_DATA: {
                     if (ssh_connected) {
-                        // Queue the command for the input thread
-                        if (!enqueue_command(cmd.send_data.data)) {
+                        // Convert to raw input command for unified queue system
+                        ssh_cmd_t raw_cmd = { .type = SSH_CMD_SEND_RAW_INPUT };
+                        size_t len = cmd.send_data.len;
+                        if (len > sizeof(raw_cmd.send_raw_input.input_data) - 1) {
+                            len = sizeof(raw_cmd.send_raw_input.input_data) - 1;
+                        }
+                        memcpy(raw_cmd.send_raw_input.input_data, cmd.send_data.data, len);
+                        raw_cmd.send_raw_input.input_len = len;
+
+                        if (!queue_put_cmd(manager, &raw_cmd)) {
                             printf("SSH Main Thread: Input queue full!\n");
                         }
                     }
@@ -255,14 +284,43 @@ static void ssh_thread_main(void* data) {
                     if (ssh_connected) {
                         printf("SSH Thread: Disconnecting\n");
 
-                        // Signal threads to quit
-                        thread_args.quit = true;
+                        // Signal threads to quit with mutex protection
+                        SDL_LockMutex(manager->state_mutex);
+                        manager->thread_args.quit = true;
+                        SDL_UnlockMutex(manager->state_mutex);
 
-                        // Wait a bit for threads to exit
-                        usleep(SSH_THREAD_SHUTDOWN_WAIT); // 100ms
+                        // Wait for I/O threads to complete using cooperative termination
+                        printf("SSH Thread: Waiting for I/O threads to complete...\n");
+                        int timeout_ms = 2000; // 2 second timeout
+                        int poll_interval_ms = 10;
+                        int elapsed_ms = 0;
+
+                        bool threads_complete = false;
+                        while (elapsed_ms < timeout_ms) {
+                            SDL_LockMutex(manager->state_mutex);
+                            threads_complete = manager->input_thread_complete && manager->peer_thread_complete;
+                            SDL_UnlockMutex(manager->state_mutex);
+
+                            if (threads_complete) {
+                                break;
+                            }
+
+                            usleep(poll_interval_ms * 1000);
+                            elapsed_ms += poll_interval_ms;
+                        }
+
+                        if (!threads_complete) {
+                            printf("SSH Thread: Warning - I/O threads did not complete within timeout\n");
+                        } else {
+                            printf("SSH Thread: I/O threads completed successfully\n");
+                        }
 
                         ssh_client_cleanup(&manager->ssh_client);
                         ssh_connected = false;
+
+                        // Reset thread handles
+                        manager->read_input_thread_id = 0;
+                        manager->read_peer_thread_id = 0;
 
                         event.type = SSH_EVENT_DISCONNECTED;
                         queue_put_event(manager, &event);
@@ -278,8 +336,33 @@ static void ssh_thread_main(void* data) {
                     SDL_UnlockMutex(manager->state_mutex);
 
                     if (ssh_connected) {
-                        thread_args.quit = true;
-                        usleep(SSH_THREAD_SHUTDOWN_WAIT); // 100ms
+                        // Signal I/O threads to quit
+                        SDL_LockMutex(manager->state_mutex);
+                        manager->thread_args.quit = true;
+                        SDL_UnlockMutex(manager->state_mutex);
+
+                        // Wait for threads with timeout
+                        int timeout_ms = 2000;
+                        int poll_interval_ms = 10;
+                        int elapsed_ms = 0;
+
+                        bool threads_complete = false;
+                        while (elapsed_ms < timeout_ms) {
+                            SDL_LockMutex(manager->state_mutex);
+                            threads_complete = manager->input_thread_complete && manager->peer_thread_complete;
+                            SDL_UnlockMutex(manager->state_mutex);
+
+                            if (threads_complete) {
+                                break;
+                            }
+
+                            usleep(poll_interval_ms * 1000);
+                            elapsed_ms += poll_interval_ms;
+                        }
+
+                        if (!threads_complete) {
+                            printf("SSH Thread: Warning - I/O threads did not complete during shutdown\n");
+                        }
                     }
                     break;
                 }
@@ -294,8 +377,34 @@ static void ssh_thread_main(void* data) {
 
     // Cleanup
     if (ssh_connected) {
-        thread_args.quit = true;
-        usleep(SSH_THREAD_SHUTDOWN_WAIT); // 100ms
+        // Signal I/O threads to quit
+        SDL_LockMutex(manager->state_mutex);
+        manager->thread_args.quit = true;
+        SDL_UnlockMutex(manager->state_mutex);
+
+        // Wait for threads to complete
+        int timeout_ms = 2000;
+        int poll_interval_ms = 10;
+        int elapsed_ms = 0;
+
+        bool threads_complete = false;
+        while (elapsed_ms < timeout_ms) {
+            SDL_LockMutex(manager->state_mutex);
+            threads_complete = manager->input_thread_complete && manager->peer_thread_complete;
+            SDL_UnlockMutex(manager->state_mutex);
+
+            if (threads_complete) {
+                break;
+            }
+
+            usleep(poll_interval_ms * 1000);
+            elapsed_ms += poll_interval_ms;
+        }
+
+        if (!threads_complete) {
+            printf("SSH Thread: Warning - I/O threads did not complete during main thread cleanup\n");
+        }
+
         ssh_client_cleanup(&manager->ssh_client);
     }
 
@@ -415,7 +524,16 @@ static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event) {
 
 // Auth event callback - called from SSH auth callbacks to generate events immediately
 static void ssh_auth_event_callback(const char* prompt_text, bool echo_input, const char* method_name) {
-    if (!g_auth_manager) {
+    ssh_thread_manager_t* manager = NULL;
+
+    // Get manager with mutex protection
+    if (g_auth_manager_mutex) {
+        SDL_LockMutex(g_auth_manager_mutex);
+        manager = g_current_auth_manager;
+        SDL_UnlockMutex(g_auth_manager_mutex);
+    }
+
+    if (!manager) {
         printf("SSH Thread: Auth event callback called but no manager set\n");
         return;
     }
@@ -433,7 +551,7 @@ static void ssh_auth_event_callback(const char* prompt_text, bool echo_input, co
            sizeof(auth_event.auth_prompt.method_name) - 1);
     auth_event.auth_prompt.method_name[sizeof(auth_event.auth_prompt.method_name) - 1] = '\0';
 
-    queue_put_event(g_auth_manager, &auth_event);
+    queue_put_event(manager, &auth_event);
 }
 
 // Public API implementation (same as original)
@@ -450,6 +568,26 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
     // Initialize coordination flags
     manager->shutdown_complete = false;
     manager->worker_ready = false;
+
+    // Initialize thread state tracking
+    manager->read_input_thread_id = 0;
+    manager->read_peer_thread_id = 0;
+    manager->input_thread_active = false;
+    manager->peer_thread_active = false;
+    manager->input_thread_complete = false;
+    manager->peer_thread_complete = false;
+
+    // Initialize thread arguments structure
+    memset(&manager->thread_args, 0, sizeof(manager->thread_args));
+
+    // Create auth manager mutex if not already created (global singleton)
+    if (!g_auth_manager_mutex) {
+        g_auth_manager_mutex = SDL_CreateMutex();
+        if (!g_auth_manager_mutex) {
+            printf("SSH Thread Init: Failed to create auth manager mutex: %s\n", SDL_GetError());
+            // Not fatal, continue without protected auth
+        }
+    }
 
     // Initialize mutexes
     manager->cmd_queue_mutex = SDL_CreateMutex();
@@ -476,8 +614,12 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
-    // Set global manager reference for auth callback
-    g_auth_manager = manager;
+    // Set auth manager reference with mutex protection
+    if (g_auth_manager_mutex) {
+        SDL_LockMutex(g_auth_manager_mutex);
+        g_current_auth_manager = manager;
+        SDL_UnlockMutex(g_auth_manager_mutex);
+    }
 
     // Register auth event callback with SSH client
     ssh_client_set_auth_event_callback(ssh_auth_event_callback);
@@ -576,6 +718,15 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     manager->thread_running = false;
     manager->ssh_thread_id = 0;
 
+    // Clear auth manager reference if it matches this manager
+    if (g_auth_manager_mutex) {
+        SDL_LockMutex(g_auth_manager_mutex);
+        if (g_current_auth_manager == manager) {
+            g_current_auth_manager = NULL;
+        }
+        SDL_UnlockMutex(g_auth_manager_mutex);
+    }
+
     // Reset coordination flags
     SDL_LockMutex(manager->state_mutex);
     manager->shutdown_requested = false;
@@ -645,6 +796,18 @@ bool ssh_thread_send_data(ssh_thread_manager_t* manager, const char* data, size_
     ssh_cmd_t cmd = { .type = SSH_CMD_SEND_DATA };
     memcpy(cmd.send_data.data, data, len);
     cmd.send_data.len = len;
+
+    return ssh_thread_send_command(manager, &cmd);
+}
+
+bool ssh_thread_send_raw_input(ssh_thread_manager_t* manager, const char* input, size_t len) {
+    if (!manager || !input || len == 0 || len >= sizeof(((ssh_cmd_t*)0)->send_raw_input.input_data)) {
+        return false;
+    }
+
+    ssh_cmd_t cmd = { .type = SSH_CMD_SEND_RAW_INPUT };
+    memcpy(cmd.send_raw_input.input_data, input, len);
+    cmd.send_raw_input.input_len = len;
 
     return ssh_thread_send_command(manager, &cmd);
 }
