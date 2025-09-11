@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_mutex.h>
 
 // SSH thread command types
 typedef enum {
@@ -78,6 +80,15 @@ typedef struct {
     pid_t ssh_thread_id;
     bool thread_running;
     bool shutdown_requested;
+
+    // Thread coordination flags (protected by state_mutex)
+    volatile bool shutdown_complete;   // Set by worker thread before exit
+    volatile bool worker_ready;        // Set when worker thread finishes initialization
+
+    // Thread synchronization mutexes
+    SDL_Mutex* cmd_queue_mutex;    // Protects command queue operations
+    SDL_Mutex* event_queue_mutex;  // Protects event queue operations
+    SDL_Mutex* state_mutex;        // Protects thread state variables
 
     // Thread communication queues (simulated with simple arrays for now)
     // In a full implementation, these would be proper thread-safe queues

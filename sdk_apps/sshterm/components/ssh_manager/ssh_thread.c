@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_mutex.h>
 
 // Forward declarations
 static void read_input_thread(void* arg);
@@ -164,10 +166,30 @@ static void ssh_thread_main(void* data) {
         snprintf(event.error.message, sizeof(event.error.message),
                 "Failed to initialize SSH client");
         queue_put_event(manager, &event);
+
+        // Signal completion before exit (error case)
+        SDL_LockMutex(manager->state_mutex);
+        manager->shutdown_complete = true;
+        SDL_UnlockMutex(manager->state_mutex);
         return;
     }
 
-    while (!manager->shutdown_requested) {
+    // Signal that worker thread is ready
+    SDL_LockMutex(manager->state_mutex);
+    manager->worker_ready = true;
+    SDL_UnlockMutex(manager->state_mutex);
+    printf("SSH Thread: Worker thread ready, starting main loop\n");
+
+    while (true) {
+        // Check shutdown status with mutex protection
+        SDL_LockMutex(manager->state_mutex);
+        bool should_shutdown = manager->shutdown_requested;
+        SDL_UnlockMutex(manager->state_mutex);
+
+        if (should_shutdown) {
+            break;
+        }
+
         // Process connection commands only (data I/O handled by separate threads)
         if (queue_get_cmd(manager, &cmd)) {
             switch (cmd.type) {
@@ -250,7 +272,10 @@ static void ssh_thread_main(void* data) {
 
                 case SSH_CMD_SHUTDOWN: {
                     printf("SSH Thread: Shutdown requested\n");
+
+                    SDL_LockMutex(manager->state_mutex);
                     manager->shutdown_requested = true;
+                    SDL_UnlockMutex(manager->state_mutex);
 
                     if (ssh_connected) {
                         thread_args.quit = true;
@@ -273,12 +298,31 @@ static void ssh_thread_main(void* data) {
         usleep(SSH_THREAD_SHUTDOWN_WAIT); // 100ms
         ssh_client_cleanup(&manager->ssh_client);
     }
+
+    // Signal completion before exit
+    SDL_LockMutex(manager->state_mutex);
+    manager->shutdown_complete = true;
+    SDL_UnlockMutex(manager->state_mutex);
+    printf("SSH Thread: Worker thread signaled completion\n");
 }
 
 // Queue operations (same as original)
 static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
+    if (!manager || !cmd) {
+        printf("SSH Thread: queue_put_cmd called with NULL pointers\n");
+        return false;
+    }
+
+    if (!manager->cmd_queue_mutex) {
+        printf("SSH Thread: queue_put_cmd called but mutex not initialized\n");
+        return false;
+    }
+
+    SDL_LockMutex(manager->cmd_queue_mutex);
+
     if (manager->cmd_queue_count >= SSH_QUEUE_SIZE) {
         printf("SSH Thread: Command queue full!\n");
+        SDL_UnlockMutex(manager->cmd_queue_mutex);
         return false; // Queue full
     }
 
@@ -286,11 +330,25 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
     manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_QUEUE_SIZE;
     manager->cmd_queue_count++;
 
+    SDL_UnlockMutex(manager->cmd_queue_mutex);
     return true;
 }
 
 static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd) {
+    if (!manager || !cmd) {
+        printf("SSH Thread: queue_get_cmd called with NULL pointers\n");
+        return false;
+    }
+
+    if (!manager->cmd_queue_mutex) {
+        printf("SSH Thread: queue_get_cmd called but mutex not initialized\n");
+        return false;
+    }
+
+    SDL_LockMutex(manager->cmd_queue_mutex);
+
     if (manager->cmd_queue_count == 0) {
+        SDL_UnlockMutex(manager->cmd_queue_mutex);
         return false; // Queue empty
     }
 
@@ -298,28 +356,60 @@ static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd) {
     manager->cmd_queue_head = (manager->cmd_queue_head + 1) % SSH_QUEUE_SIZE;
     manager->cmd_queue_count--;
 
+    SDL_UnlockMutex(manager->cmd_queue_mutex);
     return true;
 }
 
 static bool queue_put_event(ssh_thread_manager_t* manager, const ssh_event_t* event) {
+    if (!manager || !event) {
+        printf("SSH Thread: queue_put_event called with NULL pointers\n");
+        return false;
+    }
+
+    if (!manager->event_queue_mutex) {
+        printf("SSH Thread: queue_put_event called but mutex not initialized\n");
+        return false;
+    }
+
+    SDL_LockMutex(manager->event_queue_mutex);
+
     if (manager->event_queue_count >= SSH_QUEUE_SIZE) {
+        printf("SSH Thread: Event queue full!\n");
+        SDL_UnlockMutex(manager->event_queue_mutex);
         return false; // Queue full
     }
 
     manager->event_queue[manager->event_queue_tail] = *event;
     manager->event_queue_tail = (manager->event_queue_tail + 1) % SSH_QUEUE_SIZE;
     manager->event_queue_count++;
+
+    SDL_UnlockMutex(manager->event_queue_mutex);
     return true;
 }
 
 static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event) {
+    if (!manager || !event) {
+        printf("SSH Thread: queue_get_event called with NULL pointers\n");
+        return false;
+    }
+
+    if (!manager->event_queue_mutex) {
+        printf("SSH Thread: queue_get_event called but mutex not initialized\n");
+        return false;
+    }
+
+    SDL_LockMutex(manager->event_queue_mutex);
+
     if (manager->event_queue_count == 0) {
+        SDL_UnlockMutex(manager->event_queue_mutex);
         return false; // Queue empty
     }
 
     *event = manager->event_queue[manager->event_queue_head];
     manager->event_queue_head = (manager->event_queue_head + 1) % SSH_QUEUE_SIZE;
     manager->event_queue_count--;
+
+    SDL_UnlockMutex(manager->event_queue_mutex);
     return true;
 }
 
@@ -357,6 +447,35 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     printf("SSH Thread: Initializing thread manager\n");
 
+    // Initialize coordination flags
+    manager->shutdown_complete = false;
+    manager->worker_ready = false;
+
+    // Initialize mutexes
+    manager->cmd_queue_mutex = SDL_CreateMutex();
+    if (!manager->cmd_queue_mutex) {
+        printf("SSH Thread Init: Failed to create command queue mutex: %s\n", SDL_GetError());
+        return false;
+    }
+
+    manager->event_queue_mutex = SDL_CreateMutex();
+    if (!manager->event_queue_mutex) {
+        printf("SSH Thread Init: Failed to create event queue mutex: %s\n", SDL_GetError());
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        manager->cmd_queue_mutex = NULL;
+        return false;
+    }
+
+    manager->state_mutex = SDL_CreateMutex();
+    if (!manager->state_mutex) {
+        printf("SSH Thread Init: Failed to create state mutex: %s\n", SDL_GetError());
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        return false;
+    }
+
     // Set global manager reference for auth callback
     g_auth_manager = manager;
 
@@ -367,15 +486,46 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     if (manager->ssh_thread_id <= 0) {
         printf("SSH Thread Init: Failed to create thread (invalid pid)\n");
+        // Cleanup mutexes on thread creation failure
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        manager->state_mutex = NULL;
         return false;
     }
 
     manager->thread_running = true;
 
-    printf("SSH Thread: Manager initialized successfully\n");
+    // Wait for worker thread to signal ready (with timeout)
+    printf("SSH Thread: Waiting for worker thread to become ready...\n");
+    int timeout_ms = 2000; // 2 seconds timeout
+    int poll_interval_ms = 10; // 10ms polling interval
+    int elapsed_ms = 0;
 
-    // Give the thread a moment to start up
-    usleep(SSH_THREAD_STARTUP_DELAY); // 50ms
+    bool worker_ready = false;
+    while (elapsed_ms < timeout_ms) {
+        SDL_LockMutex(manager->state_mutex);
+        worker_ready = manager->worker_ready;
+        SDL_UnlockMutex(manager->state_mutex);
+
+        if (worker_ready) {
+            break;
+        }
+
+        usleep(poll_interval_ms * 1000); // Convert ms to microseconds
+        elapsed_ms += poll_interval_ms;
+    }
+
+    if (!worker_ready) {
+        printf("SSH Thread Init: Warning - worker thread did not signal ready within timeout\n");
+        // Continue anyway - this is non-fatal but worth logging
+    } else {
+        printf("SSH Thread: Worker thread ready\n");
+    }
+
+    printf("SSH Thread: Manager initialized successfully\n");
 
     return true;
 }
@@ -387,15 +537,67 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
 
     printf("SSH Thread: Shutting down manager\n");
 
+    // Signal shutdown request using state mutex
+    SDL_LockMutex(manager->state_mutex);
+    manager->shutdown_requested = true;
+    SDL_UnlockMutex(manager->state_mutex);
+
     // Send shutdown command
     ssh_cmd_t cmd = { .type = SSH_CMD_SHUTDOWN };
     ssh_thread_send_command(manager, &cmd);
 
-    // Wait a bit for thread to exit gracefully
-    usleep(SSH_THREAD_SHUTDOWN_WAIT); // 100ms
+    // Wait for worker thread to signal completion (with timeout)
+    printf("SSH Thread: Waiting for worker thread to complete...\n");
+    int timeout_ms = 5000; // 5 seconds timeout
+    int poll_interval_ms = 10; // 10ms polling interval
+    int elapsed_ms = 0;
+
+    bool shutdown_complete = false;
+    while (elapsed_ms < timeout_ms) {
+        SDL_LockMutex(manager->state_mutex);
+        shutdown_complete = manager->shutdown_complete;
+        SDL_UnlockMutex(manager->state_mutex);
+
+        if (shutdown_complete) {
+            break;
+        }
+
+        usleep(poll_interval_ms * 1000); // Convert ms to microseconds
+        elapsed_ms += poll_interval_ms;
+    }
+
+    if (!shutdown_complete) {
+        printf("SSH Thread: Warning - worker thread did not signal completion within timeout\n");
+        // Continue with cleanup anyway
+    } else {
+        printf("SSH Thread: Worker thread completed successfully\n");
+    }
 
     manager->thread_running = false;
     manager->ssh_thread_id = 0;
+
+    // Reset coordination flags
+    SDL_LockMutex(manager->state_mutex);
+    manager->shutdown_requested = false;
+    manager->shutdown_complete = false;
+    manager->worker_ready = false;
+    SDL_UnlockMutex(manager->state_mutex);
+
+    // Cleanup mutexes
+    if (manager->cmd_queue_mutex) {
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        manager->cmd_queue_mutex = NULL;
+    }
+    if (manager->event_queue_mutex) {
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        manager->event_queue_mutex = NULL;
+    }
+    if (manager->state_mutex) {
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->state_mutex = NULL;
+    }
+
+    printf("SSH Thread: Manager shutdown complete\n");
 }
 
 bool ssh_thread_send_command(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
