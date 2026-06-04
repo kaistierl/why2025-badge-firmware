@@ -84,6 +84,7 @@ idf.py build flash monitor
 ### Code standards
 
 - Use BadgeVMS APIs for all hardware access (crypto, display, WiFi) — never direct ESP-IDF calls.
+- Whatever you implement, ensure that it will work within the constrained BadgeVMS ecosystem.
 - Maintain dual-build compatibility; guard hardware-only code with `#ifndef SSHTERM_LOCAL_BUILD`.
 - Robust error handling and user-visible feedback for network operations.
 - Keep component interfaces (public headers) minimal and well-defined.
