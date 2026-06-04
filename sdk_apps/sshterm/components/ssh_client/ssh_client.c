@@ -180,7 +180,10 @@ static int ssh_auth_callback(byte authType, WS_UserAuthData* authData, void* ctx
     if (authData->type & WOLFSSH_USERAUTH_PASSWORD) printf("password ");
     if (authData->type & WOLFSSH_USERAUTH_PUBLICKEY) printf("publickey ");
     if (authData->type & WOLFSSH_USERAUTH_KEYBOARD) printf("keyboard-interactive ");
-    printf("\nSSH Auth: Attempting type %d\n", authType);
+    printf("\nSSH Auth: Attempting %s\n",
+           authType == WOLFSSH_USERAUTH_PASSWORD  ? "password" :
+           authType == WOLFSSH_USERAUTH_PUBLICKEY ? "publickey" :
+           authType == WOLFSSH_USERAUTH_KEYBOARD  ? "keyboard-interactive" : "unknown");
 
     switch (authType) {
         case WOLFSSH_USERAUTH_PASSWORD:
