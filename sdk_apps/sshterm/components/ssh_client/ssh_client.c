@@ -16,7 +16,6 @@
 
 /* Application includes */
 #include "../common/terminal_config.h"  /* For SSH_TERMINAL_WIDTH/HEIGHT */
-#include "../ssh_manager/ssh_config.h"  /* For SSH_CONNECT_TIMEOUT_SEC */
 
 /* SDL3 for threading support */
 #include <SDL3/SDL.h>
@@ -30,6 +29,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <time.h>
@@ -418,16 +418,8 @@ static int ssh_create_socket(const char* hostname, int port) {
             continue;
         }
 
-        // Apply connect timeout so an unreachable host fails fast instead of
-        // blocking the SSH thread for the OS default (~130 s).
-        struct timeval tv = { .tv_sec = SSH_CONNECT_TIMEOUT_SEC, .tv_usec = 0 };
-        setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
         int connect_result = connect(sock_fd, rp->ai_addr, rp->ai_addrlen);
         if (connect_result == 0) {
-            // Reset the send timeout so subsequent sends block indefinitely.
-            struct timeval no_tv = { .tv_sec = 0, .tv_usec = 0 };
-            setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &no_tv, sizeof(no_tv));
             break;
         } else {
             // Connection failed or timed out, try next address
