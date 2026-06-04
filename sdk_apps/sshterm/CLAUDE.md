@@ -89,6 +89,10 @@ idf.py build flash monitor
 - Keep component interfaces (public headers) minimal and well-defined.
 - Update `ARCHITECTURE.md` for any architectural change.
 
+### Working files — never commit
+
+- `TODO.md` — living log of open issues and implementation status. Read it at the start of a session; update it as work lands. **Never stage or commit it.**
+
 ### Testing
 
 - **Local**: `./build.sh` then run the binary — use `test_mode` to exercise terminal rendering without SSH.
