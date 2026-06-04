@@ -14,22 +14,6 @@
 #include <stdint.h>
 #include "../../common/app_state.h"
 
-/**
- * @brief Initialize the input system
- * 
- * Sets up any resources needed for input processing.
- * 
- * @return true on successful initialization, false on failure
- */
-bool input_system_init(void);
-
-/**
- * @brief Shutdown the input system
- * 
- * Cleans up all input system resources and state.
- */
-void input_system_shutdown(void);
-
 // === INPUT PROCESSING ===
 
 /**
@@ -83,15 +67,6 @@ void input_system_handle_terminal_output(app_state_t* app, const uint8_t* data, 
  * @param app Application state
  */
 void input_system_display_prompt(app_state_t* app);
-
-/**
- * @brief Show startup menu
- * 
- * Displays the application startup menu.
- * 
- * @param app Application state
- */
-void input_system_show_startup_menu(app_state_t* app);
 
 // === STATE MANAGEMENT ===
 

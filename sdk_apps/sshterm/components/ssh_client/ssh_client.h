@@ -121,13 +121,6 @@ const char* ssh_client_get_error(ssh_client_t* client);
 int ssh_client_get_fd(ssh_client_t* client);
 
 /**
- * Peek at available data without consuming it (for wolfSSH threading pattern)
- * @param client SSH client structure
- * @return true if data is available, false otherwise
- */
-bool ssh_client_peek(ssh_client_t* client);
-
-/**
  * Cleanup SSH client resources
  * @param client SSH client structure
  */

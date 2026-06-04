@@ -59,15 +59,6 @@ void app_controller_shutdown(app_controller_t* controller) {
     free(controller);
 }
 
-void app_controller_cleanup(app_controller_t* controller, app_state_t* app_state) {
-    if (!controller || !app_state) {
-        return;
-    }
-
-    // Clean up SSH connections and state
-    ssh_manager_cleanup(app_state);
-}
-
 // Main application lifecycle
 bool app_controller_run(app_controller_t* controller) {
     if (!controller) {
@@ -113,12 +104,6 @@ app_state_t app_controller_create_default_state(void) {
         .connection_input = {0}
     };
     return state;
-}
-
-void app_controller_set_app_state(app_controller_t* controller, app_state_t* app_state) {
-    if (controller) {
-        controller->current_app_state = app_state;
-    }
 }
 
 // System management
@@ -388,13 +373,6 @@ static void term_write_callback(const uint8_t* data, size_t len, void* user) {
 
     // Delegate all terminal output handling to input_system
     input_system_handle_terminal_output(app, data, len);
-}
-
-void app_controller_transition_to_mode(app_state_t* app, input_mode_t mode) {
-    if (!app) {
-        return;
-    }
-    app->input_mode = mode;
 }
 
 void app_controller_return_to_startup(app_state_t* app) {
