@@ -206,6 +206,12 @@ static void ssh_manager_handle_disconnect(app_state_t* app, const char* message,
         return;
     }
 
+    // ssh_manager_cleanup() sends SSH_CMD_DISCONNECT which causes the SSH thread
+    // to post a second SSH_EVENT_DISCONNECTED. Ignore it if we already cleaned up.
+    if (!app->ssh_connected && !app->ssh_connecting) {
+        return;
+    }
+
     // Output to console
     printf("%s\n", message);
 
@@ -220,6 +226,10 @@ static void ssh_manager_handle_disconnect(app_state_t* app, const char* message,
 
     // Cleanup
     ssh_manager_cleanup(app);
+
+    // Return to disconnect prompt so the user can get back to the main menu
+    app->input_mode = INPUT_MODE_DISCONNECT_PROMPT;
+    ui_manager_display_current_prompt(app);
 }
 
 bool ssh_manager_is_connecting(app_state_t* app) {
