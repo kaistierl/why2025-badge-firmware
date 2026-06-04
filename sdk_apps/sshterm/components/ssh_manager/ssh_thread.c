@@ -210,6 +210,18 @@ static void ssh_thread_main(void* data) {
                     break;
 
                 case SSH_CMD_CONNECT: {
+                    // ssh_client_cleanup() clears is_initialized; re-init for each connection.
+                    if (!manager->ssh_client.is_initialized) {
+                        if (!ssh_client_init(&manager->ssh_client)) {
+                            printf("SSH Main Thread: Failed to re-initialize SSH client\n");
+                            event.type = SSH_EVENT_CONNECTION_FAILED;
+                            snprintf(event.error.message, sizeof(event.error.message),
+                                    "Failed to re-initialize SSH client");
+                            queue_put_event(manager, &event);
+                            break;
+                        }
+                        ssh_client_set_auth_event_callback(&manager->ssh_client, ssh_auth_event_callback);
+                    }
                     if (ssh_client_connect_start(&manager->ssh_client,
                                                cmd.connect.hostname, cmd.connect.port,
                                                cmd.connect.username, cmd.connect.password)) {
@@ -307,8 +319,9 @@ static void ssh_thread_main(void* data) {
                         manager->read_input_thread_id = 0;
                         manager->read_peer_thread_id = 0;
 
-                        event.type = SSH_EVENT_DISCONNECTED;
-                        queue_put_event(manager, &event);
+                        // Do NOT post SSH_EVENT_DISCONNECTED here: the peer thread already
+                        // posted it when it detected the remote close, which is what
+                        // triggered this SSH_CMD_DISCONNECT in the first place.
                     }
                     break;
                 }
