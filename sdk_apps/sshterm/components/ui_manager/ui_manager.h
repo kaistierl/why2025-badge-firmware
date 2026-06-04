@@ -121,8 +121,9 @@ void ui_manager_show_connection_success(const char* hostname, const char* userna
  *
  * @param prompt_text The prompt text from the server
  * @param echo_input Whether to echo the user's input (false for passwords)
+ * @param show_header Whether to show the "Authentication Required" header (first prompt only)
  */
-void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input);
+void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input, bool show_header);
 
 // === INPUT FIELD MANAGEMENT ===
 

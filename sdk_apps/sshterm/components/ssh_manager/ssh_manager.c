@@ -9,6 +9,9 @@
 // Global SSH thread manager
 static ssh_thread_manager_t ssh_thread_mgr;
 
+// Track whether the auth-exchange header has been shown this connection
+static bool ssh_auth_header_shown = false;
+
 // Forward declarations
 static void ssh_manager_handle_disconnect(app_state_t* app, const char* message, bool show_in_terminal);
 
@@ -38,6 +41,7 @@ bool ssh_manager_connect(app_state_t* app, const char* hostname, int port,
     }
 
     ui_manager_show_connecting_message();
+    ssh_auth_header_shown = false;
 
     // Validate and set default port if needed
     int safe_port = (port > 0 && port <= 65535) ? port : 22;
@@ -60,6 +64,7 @@ bool ssh_manager_connect_negotiate(app_state_t* app, const char* hostname, int p
     }
 
     ui_manager_show_connecting_message();
+    ssh_auth_header_shown = false;
 
     // Validate and set default port if needed
     int safe_port = (port > 0 && port <= 65535) ? port : 22;
@@ -99,7 +104,7 @@ bool ssh_manager_send_data(app_state_t* app, const char* data, size_t len) {
     }
 
     // Send data to SSH thread (non-blocking)
-    if (!ssh_thread_send_data(&ssh_thread_mgr, data, len)) {
+    if (!ssh_thread_send_raw_input(&ssh_thread_mgr, data, len)) {
         return false;
     }
 
@@ -158,7 +163,10 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
                 // Clear any previous auth response
                 memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
                 app->connection_input.field_lengths.auth_response = 0;
-                ui_manager_show_auth_prompt(event.auth_prompt.prompt_text, event.auth_prompt.echo_input);
+                ui_manager_show_auth_prompt(event.auth_prompt.prompt_text,
+                                            event.auth_prompt.echo_input,
+                                            !ssh_auth_header_shown);
+                ssh_auth_header_shown = true;
                 break;
             }
 
@@ -216,14 +224,6 @@ static void ssh_manager_handle_disconnect(app_state_t* app, const char* message,
 
 bool ssh_manager_is_connecting(app_state_t* app) {
     return app && app->ssh_connecting;
-}
-
-const char* ssh_manager_get_error(app_state_t* app) {
-    if (!app) {
-        return "Invalid app state";
-    }
-    // In threaded mode, specific error messages come through events
-    return "SSH thread error - check event messages";
 }
 
 void ssh_manager_cleanup(app_state_t* app) {

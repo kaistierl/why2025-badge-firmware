@@ -9,16 +9,6 @@
 // Forward declarations for functions we'll need to implement
 static void handle_startup_choice_submit(app_state_t* app);
 
-// Input system initialization
-bool input_system_init(void) {
-    // Currently no initialization needed
-    return true;
-}
-
-void input_system_shutdown(void) {
-    // Currently no cleanup needed
-}
-
 // Get current input field configuration
 input_field_t input_system_get_current_field(app_state_t* app) {
     input_field_t field = {0};
@@ -41,7 +31,7 @@ input_field_t input_system_get_current_field(app_state_t* app) {
                 .length = &app->connection_input.field_lengths.hostname,
                 .max_length = sizeof(app->connection_input.hostname) - 1,
                 .prompt = "Hostname: ",
-                .default_value = "NULL",
+                .default_value = NULL,
                 .is_password = false,
                 .numeric_only = false
             };
@@ -52,7 +42,7 @@ input_field_t input_system_get_current_field(app_state_t* app) {
                 .length = &app->connection_input.field_lengths.username,
                 .max_length = sizeof(app->connection_input.username) - 1,
                 .prompt = "Username: ",
-                .default_value = "NULL",
+                .default_value = NULL,
                 .is_password = false,
                 .numeric_only = false
             };
@@ -185,18 +175,6 @@ static void handle_startup_choice_submit(app_state_t* app) {
         // Delegate business logic to app_controller
         app_controller_handle_startup_choice(app, choice);
     }
-}
-
-void input_system_show_startup_menu(app_state_t* app) {
-    if (!app) {
-        return;
-    }
-
-    // Set input mode
-    app->input_mode = INPUT_MODE_STARTUP_CHOICE;
-
-    // Delegate UI display to ui_manager
-    app_controller_show_startup_menu(app);
 }
 
 void input_system_handle_escape_key(app_state_t* app) {

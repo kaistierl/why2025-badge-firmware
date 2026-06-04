@@ -28,9 +28,8 @@ int wolfssh_io_recv(WOLFSSH* ssh, void* data, word32 size, void* ctx) {
         printf("SSH_IO: Read error: %s (errno=%d)\n", strerror(errno), errno);
         return WS_SOCKET_ERROR_E;
     } else if (bytes_read == 0) {
-        // Connection closed
-        printf("SSH_IO: Connection closed by remote host\n");
-        return WS_SOCKET_ERROR_E;
+        // TCP connection closed cleanly by remote end
+        return WS_CBIO_ERR_CONN_CLOSE;
     }
     
     // Successfully read data

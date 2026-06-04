@@ -221,7 +221,7 @@ void renderer_present_if_dirty(uint32_t now_ms) {
             }
             
             // Draw character
-            draw_glyph_runs((uint8_t)cell->cp, px, py, cell->fg.rgb);
+            draw_glyph_runs(cell->cp, px, py, cell->fg.rgb);
         }
     }
 

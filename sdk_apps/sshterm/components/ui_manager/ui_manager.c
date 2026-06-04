@@ -132,23 +132,19 @@ void ui_manager_show_connection_success(const char* hostname, const char* userna
     term_input_string(success_msg);
 }
 
-void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input) {
+void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input, bool show_header) {
     if (!prompt_text) {
         return;
     }
 
-    // Show authentication prompt
-    char auth_header[256];
-    snprintf(auth_header, sizeof(auth_header),
-             "\x1b[33mAuthentication Required\x1b[0m\r\n");
-    term_input_string(auth_header);
-
-    if (!echo_input) {
-        const char* password_note = "\x1b[90m(input will be hidden)\x1b[0m\r\n";
-        term_input_string(password_note);
+    if (show_header) {
+        term_input_string("\x1b[33mAuthentication Required\x1b[0m\r\n");
     }
 
-    // Show the actual prompt - this will be followed by input_system display
+    if (!echo_input) {
+        term_input_string("\x1b[90m(input will be hidden)\x1b[0m\r\n");
+    }
+
     term_input_string(prompt_text);
 }
 
@@ -182,7 +178,8 @@ void ui_manager_display_current_prompt(app_state_t* app) {
     }
 
     if (app->input_mode == INPUT_MODE_DISCONNECT_PROMPT) {
-        // Disconnect prompt - different message based on whether connection failed or succeeded then disconnected
+        // Non-empty hostname means the connection never succeeded (see ssh_ui_controller.c
+        // for the invariant explanation). Show a retry prompt in that case.
         const char* prompt;
         if (strlen(app->connection_input.hostname) > 0 ||
             strlen(app->connection_input.username) > 0 ||

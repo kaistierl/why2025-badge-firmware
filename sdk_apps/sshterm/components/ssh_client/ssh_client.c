@@ -16,6 +16,7 @@
 
 /* Application includes */
 #include "../common/terminal_config.h"  /* For SSH_TERMINAL_WIDTH/HEIGHT */
+#include "../ssh_manager/ssh_config.h"  /* For SSH_CONNECT_TIMEOUT_SEC */
 
 /* SDL3 for threading support */
 #include <SDL3/SDL.h>
@@ -417,12 +418,19 @@ static int ssh_create_socket(const char* hostname, int port) {
             continue;
         }
 
+        // Apply connect timeout so an unreachable host fails fast instead of
+        // blocking the SSH thread for the OS default (~130 s).
+        struct timeval tv = { .tv_sec = SSH_CONNECT_TIMEOUT_SEC, .tv_usec = 0 };
+        setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
         int connect_result = connect(sock_fd, rp->ai_addr, rp->ai_addrlen);
         if (connect_result == 0) {
-            // Connection successful - keep socket in blocking mode
+            // Reset the send timeout so subsequent sends block indefinitely.
+            struct timeval no_tv = { .tv_sec = 0, .tv_usec = 0 };
+            setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, &no_tv, sizeof(no_tv));
             break;
         } else {
-            // Connection failed, try next address
+            // Connection failed or timed out, try next address
             close(sock_fd);
             sock_fd = -1;
         }
@@ -920,14 +928,3 @@ int ssh_client_get_fd(ssh_client_t* client) {
     return client->socket_fd;
 }
 
-bool ssh_client_peek(ssh_client_t* client) {
-    if (!client || !client->ssh) {
-        return false;
-    }
-
-    // Use wolfSSH_stream_peek to check if data is available
-    char temp_buf[1];
-    int peek_result = wolfSSH_stream_peek((WOLFSSH*)client->ssh, (byte*)temp_buf, 1);
-
-    return peek_result > 0;
-}
