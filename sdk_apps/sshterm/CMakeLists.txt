@@ -98,9 +98,21 @@ if(BADGEVMS_FULLSCREEN)
     target_compile_definitions(sshterm PRIVATE BADGEVMS_FULLSCREEN=1)
 endif()
 
+# Embed git commit hash at configure time
+execute_process(
+    COMMAND git -C ${CMAKE_SOURCE_DIR} rev-parse --short HEAD
+    OUTPUT_VARIABLE SSHTERM_GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT SSHTERM_GIT_COMMIT_HASH)
+    set(SSHTERM_GIT_COMMIT_HASH "unknown")
+endif()
+
 # Add local build identification
-target_compile_definitions(sshterm PRIVATE 
+target_compile_definitions(sshterm PRIVATE
     SSHTERM_LOCAL_BUILD=1
+    "SSHTERM_GIT_COMMIT=\"${SSHTERM_GIT_COMMIT_HASH}\""
 )
 
 # Set output directory

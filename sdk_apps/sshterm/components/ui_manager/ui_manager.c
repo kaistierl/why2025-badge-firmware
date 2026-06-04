@@ -30,6 +30,10 @@ void ui_manager_show_header(const char* title) {
     term_input_string(header);
 }
 
+#ifndef SSHTERM_GIT_COMMIT
+#define SSHTERM_GIT_COMMIT "unknown"
+#endif
+
 void ui_manager_show_startup_menu(app_state_t* app) {
     if (!app) {
         return;
@@ -38,6 +42,8 @@ void ui_manager_show_startup_menu(app_state_t* app) {
     // Clear screen and show startup menu
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Terminal Application");
+
+    term_input_string("\x1b[90mVersion: " SSHTERM_GIT_COMMIT "\x1b[0m\r\n\r\n");
 
     const char* options = "Choose mode:\r\n";
     term_input_string(options);
