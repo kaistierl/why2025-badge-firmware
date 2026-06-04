@@ -16,19 +16,23 @@ static void read_peer_thread(void* arg);
 static void ssh_thread_main(void* data);
 static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd);
 static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd);
+static bool queue_peek_cmd_type(ssh_thread_manager_t* manager, ssh_cmd_type_t* type);
 static bool queue_put_event(ssh_thread_manager_t* manager, const ssh_event_t* event);
 static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event);
 static void ssh_auth_event_callback(ssh_client_t* client, const char* prompt_text, bool echo_input, const char* method_name);
 
-// Simple global manager for auth callback (will be replaced with better solution)
-// TODO: Replace with thread-local storage when available on all platforms
+// Global singleton for auth event callback routing.
+// Only one manager can be active at a time (single-connection constraint).
+// Passing the manager through wolfSSH callbacks is not straightforward because
+// the wolfSSH auth callback signature only provides authType, authData, and ctx,
+// and ctx is already used for the ssh_client instance. A second indirection
+// through a global is the simplest correct solution given this constraint.
 static ssh_thread_manager_t* g_current_auth_manager = NULL;
 static SDL_Mutex* g_auth_manager_mutex = NULL;
 
 // Read input thread - handles keyboard input and sends to SSH
 static void read_input_thread(void* arg) {
     ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
-    ssh_cmd_t cmd;
 
     // Signal thread is active
     SDL_LockMutex(args->manager->state_mutex);
@@ -46,27 +50,23 @@ static void read_input_thread(void* arg) {
             break;
         }
 
-        // Check for SSH_CMD_SEND_RAW_INPUT commands in main queue
-        if (queue_get_cmd(args->manager, &cmd)) {
-            if (cmd.type == SSH_CMD_SEND_RAW_INPUT) {
-                // Send raw input to SSH server
-                bool sent = ssh_client_send(args->ssh_client, cmd.send_raw_input.input_data, cmd.send_raw_input.input_len);
+        // Only dequeue SSH_CMD_SEND_RAW_INPUT; leave control commands for the main thread.
+        ssh_cmd_type_t next_type;
+        if (queue_peek_cmd_type(args->manager, &next_type) &&
+            next_type == SSH_CMD_SEND_RAW_INPUT) {
 
+            ssh_cmd_t cmd;
+            if (queue_get_cmd(args->manager, &cmd)) {
+                bool sent = ssh_client_send(args->ssh_client,
+                                            cmd.send_raw_input.input_data,
+                                            cmd.send_raw_input.input_len);
                 if (!sent) {
                     printf("SSH Input Thread: Failed to send input: %s\n",
                            ssh_client_get_error(args->ssh_client));
-
-                    // Signal error to manager
                     ssh_event_t event = {.type = SSH_EVENT_ERROR};
                     strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
                             sizeof(event.error.message) - 1);
                     queue_put_event(args->manager, &event);
-                }
-            } else {
-                // Put non-raw-input commands back at the front of the queue
-                // This is a simplification - ideally we'd have separate queues or priority
-                if (!queue_put_cmd(args->manager, &cmd)) {
-                    printf("SSH Input Thread: Warning - could not requeue command type %d\n", cmd.type);
                 }
             }
         }
@@ -202,8 +202,8 @@ static void ssh_thread_main(void* data) {
         if (queue_get_cmd(manager, &cmd)) {
             switch (cmd.type) {
                 case SSH_CMD_SEND_RAW_INPUT:
-                    // Raw input commands are handled by input thread, not main thread
-                    // Put it back in queue for input thread to process
+                    // Handled by read_input_thread; main thread should not see these
+                    // but re-enqueue if it does to avoid dropping data.
                     if (!queue_put_cmd(manager, &cmd)) {
                         printf("SSH Main Thread: Could not requeue raw input command\n");
                     }
@@ -261,24 +261,6 @@ static void ssh_thread_main(void* data) {
                                sizeof(event.error.message) - 1);
                         printf("SSH Main Thread: Connection start failed: %s\n", event.error.message);
                         queue_put_event(manager, &event);
-                    }
-                    break;
-                }
-
-                case SSH_CMD_SEND_DATA: {
-                    if (ssh_connected) {
-                        // Convert to raw input command for unified queue system
-                        ssh_cmd_t raw_cmd = { .type = SSH_CMD_SEND_RAW_INPUT };
-                        size_t len = cmd.send_data.len;
-                        if (len > sizeof(raw_cmd.send_raw_input.input_data) - 1) {
-                            len = sizeof(raw_cmd.send_raw_input.input_data) - 1;
-                        }
-                        memcpy(raw_cmd.send_raw_input.input_data, cmd.send_data.data, len);
-                        raw_cmd.send_raw_input.input_len = len;
-
-                        if (!queue_put_cmd(manager, &raw_cmd)) {
-                            printf("SSH Main Thread: Input queue full!\n");
-                        }
                     }
                     break;
                 }
@@ -442,6 +424,20 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
     manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_QUEUE_SIZE;
     manager->cmd_queue_count++;
 
+    SDL_UnlockMutex(manager->cmd_queue_mutex);
+    return true;
+}
+
+static bool queue_peek_cmd_type(ssh_thread_manager_t* manager, ssh_cmd_type_t* type) {
+    if (!manager || !type || !manager->cmd_queue_mutex) {
+        return false;
+    }
+    SDL_LockMutex(manager->cmd_queue_mutex);
+    if (manager->cmd_queue_count == 0) {
+        SDL_UnlockMutex(manager->cmd_queue_mutex);
+        return false;
+    }
+    *type = manager->cmd_queue[manager->cmd_queue_head].type;
     SDL_UnlockMutex(manager->cmd_queue_mutex);
     return true;
 }
@@ -789,18 +785,6 @@ bool ssh_thread_connect(ssh_thread_manager_t* manager, const char* hostname, int
     return ssh_thread_send_command(manager, &cmd);
 }
 
-bool ssh_thread_send_data(ssh_thread_manager_t* manager, const char* data, size_t len) {
-    if (!manager || !data || len == 0 || len >= SSH_DATA_BUFFER_SIZE) {
-        return false;
-    }
-
-    ssh_cmd_t cmd = { .type = SSH_CMD_SEND_DATA };
-    memcpy(cmd.send_data.data, data, len);
-    cmd.send_data.len = len;
-
-    return ssh_thread_send_command(manager, &cmd);
-}
-
 bool ssh_thread_send_raw_input(ssh_thread_manager_t* manager, const char* input, size_t len) {
     if (!manager || !input || len == 0 || len >= sizeof(((ssh_cmd_t*)0)->send_raw_input.input_data)) {
         return false;
@@ -823,9 +807,5 @@ void ssh_thread_disconnect(ssh_thread_manager_t* manager) {
 }
 
 bool ssh_thread_is_running(ssh_thread_manager_t* manager) {
-    return manager && manager->thread_running;
-}
-
-bool ssh_thread_is_connected(ssh_thread_manager_t* manager) {
     return manager && manager->thread_running;
 }

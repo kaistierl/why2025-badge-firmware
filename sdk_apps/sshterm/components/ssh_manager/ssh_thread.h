@@ -17,8 +17,7 @@
 // SSH thread command types
 typedef enum {
     SSH_CMD_CONNECT,
-    SSH_CMD_SEND_DATA,
-    SSH_CMD_SEND_RAW_INPUT,  // New: unified queue for raw input data
+    SSH_CMD_SEND_RAW_INPUT,
     SSH_CMD_DISCONNECT,
     SSH_CMD_SHUTDOWN
 } ssh_cmd_type_t;
@@ -44,13 +43,9 @@ typedef struct {
             int port;
         } connect;
         struct {
-            char data[SSH_DATA_BUFFER_SIZE];
-            size_t len;
-        } send_data;
-        struct {
             char input_data[256];
             size_t input_len;
-        } send_raw_input;  // New: for raw input handling
+        } send_raw_input;
         struct {
             char message[SSH_MAX_ERROR_MSG_LEN];
         } error;
@@ -84,7 +79,7 @@ typedef struct {
 typedef struct {
     ssh_client_t* ssh_client;
     struct ssh_thread_manager* manager;  // Forward reference
-    volatile bool quit;
+    bool quit;  // Protected by manager->state_mutex
 } ssh_thread_args_t;
 
 // SSH thread manager state
@@ -94,36 +89,35 @@ typedef struct ssh_thread_manager {
     bool shutdown_requested;
 
     // Thread coordination flags (protected by state_mutex)
-    volatile bool shutdown_complete;   // Set by worker thread before exit
-    volatile bool worker_ready;        // Set when worker thread finishes initialization
+    bool shutdown_complete;   // Set by worker thread before exit
+    bool worker_ready;        // Set when worker thread finishes initialization
 
-    // Thread handles and state for I/O threads (moved from global)
+    // Thread handles and state for I/O threads
     pid_t read_input_thread_id;
     pid_t read_peer_thread_id;
     ssh_thread_args_t thread_args;
 
-    // Thread state tracking for cooperative termination
-    volatile bool input_thread_active;
-    volatile bool peer_thread_active;
-    volatile bool input_thread_complete;
-    volatile bool peer_thread_complete;
+    // Thread state tracking for cooperative termination (protected by state_mutex)
+    bool input_thread_active;
+    bool peer_thread_active;
+    bool input_thread_complete;
+    bool peer_thread_complete;
 
     // Thread synchronization mutexes
     SDL_Mutex* cmd_queue_mutex;    // Protects command queue operations
     SDL_Mutex* event_queue_mutex;  // Protects event queue operations
     SDL_Mutex* state_mutex;        // Protects thread state variables
 
-    // Thread communication queues (simulated with simple arrays for now)
-    // In a full implementation, these would be proper thread-safe queues
+    // Thread communication queues — access protected by cmd_queue_mutex/event_queue_mutex
     ssh_cmd_t cmd_queue[SSH_QUEUE_SIZE];
-    volatile int cmd_queue_head;
-    volatile int cmd_queue_tail;
-    volatile int cmd_queue_count;
+    int cmd_queue_head;
+    int cmd_queue_tail;
+    int cmd_queue_count;
 
     ssh_event_t event_queue[SSH_QUEUE_SIZE];
-    volatile int event_queue_head;
-    volatile int event_queue_tail;
-    volatile int event_queue_count;
+    int event_queue_head;
+    int event_queue_tail;
+    int event_queue_count;
 
     // SSH client instance (used by SSH thread)
     ssh_client_t ssh_client;
@@ -144,14 +138,10 @@ bool ssh_thread_poll_event(ssh_thread_manager_t* manager, ssh_event_t* event);
 // Convenience functions for common operations
 bool ssh_thread_connect(ssh_thread_manager_t* manager, const char* hostname, int port,
                        const char* username, const char* password);
-bool ssh_thread_send_data(ssh_thread_manager_t* manager, const char* data, size_t len);
 bool ssh_thread_send_raw_input(ssh_thread_manager_t* manager, const char* input, size_t len);
 void ssh_thread_disconnect(ssh_thread_manager_t* manager);
 
 // Check if SSH thread is running
 bool ssh_thread_is_running(ssh_thread_manager_t* manager);
-
-// Check if SSH is connected
-bool ssh_thread_is_connected(ssh_thread_manager_t* manager);
 
 #endif /* SSH_THREAD_H */

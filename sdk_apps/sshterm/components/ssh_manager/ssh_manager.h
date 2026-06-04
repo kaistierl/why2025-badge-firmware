@@ -147,14 +147,6 @@ bool ssh_manager_auth_prompt_echo(void);
 // === STATE MANAGEMENT ===
 
 /**
- * @brief Get last error message
- *
- * @param app Application state
- * @return Error message string, or empty string if no error
- */
-const char* ssh_manager_get_error(app_state_t* app);
-
-/**
  * @brief Cleanup SSH connection state
  *
  * Performs emergency cleanup of SSH connection resources.
