@@ -41,27 +41,27 @@ This document defines the architecture for a terminal application with SSH suppo
 │                                                                             │
 │  ┌──────────────┐    ┌─────────────┐    ┌──────────────┐    ┌────────────┐  │
 │  │ SSH Manager  │    │Input System │    │ UI Manager   │    │ Test Mode  │  │
-│  │ (Connection, │◄──►│(Input mode  │◄──►│ (UI displays │    │ (Terminal  │  │
+│  │ (Connection, │    │(Input mode  │◄──►│ (UI displays │    │ (Terminal  │  │
 │  │  threading,  │    │ routing)    │    │  & prompts)  │    │  testing)  │  │
 │  │  UI flows)   │    │             │    │              │    │            │  │
-│  └──────┬───────┘    └─────┬───────┘    └──────┬───────┘    └────────────┘  │
-│         │                  │                   │                            │
-│         │                  │                   │                            │
-│  ┌──────▼───────┐          │            ┌──────▼──────┐                     │
-│  │  SSH Client  │          │            │  Terminal   │                     │
-│  │ (wolfSSH +   │          │            │ (libvterm)  │                     │
-│  │  wolfSSL)    │          │            │             │                     │
-│  │              │          │            └──────┬──────┘                     │
-│  └──────┬───────┘          │                   │ screen updates             │
-│         │ blocking I/O     │                   ▼                            │
-│         ▼                  │            ┌─────────────┐                     │
-│   TCP sockets              │            │  Renderer   │                     │
-│   (lwIP/POSIX)             │            │ (SDL3 grid) │─► Display           │
-│                            │            │             │   Framebuffer       │
-│                            │            └─────────────┘                     │
-│                            │                                                │
-│    ┌─────────────┐         │                                                │
-│    │  Keyboard   │─────────┘                                                │
+│  └──────┬───────┘    └─────────────┘    └──────┬───────┘    └────────────┘  │
+│         │                                      │                            │
+│         │                                      │                            │
+│  ┌──────▼───────┐                       ┌──────▼──────┐                     │
+│  │  SSH Client  │                       │  Terminal   │                     │
+│  │ (wolfSSH +   │                       │ (libvterm)  │                     │
+│  │  wolfSSL)    │                       │             │                     │
+│  │              │                       └──────┬──────┘                     │
+│  └──────┬───────┘                              │ screen updates             │
+│         │ blocking I/O                         ▼                            │
+│         ▼                               ┌─────────────┐                     │
+│   TCP sockets                           │  Renderer   │                     │
+│   (lwIP/POSIX)                          │ (SDL3 grid) │─► Display           │
+│                                         │             │   Framebuffer       │
+│                                         └─────────────┘                     │
+│                                                                             │
+│    ┌─────────────┐                                                          │
+│    │  Keyboard   │───────────────────────────────────────────────► Terminal │
 │    │ (SDL events)│                                                          │
 │    └─────────────┘                                                          │
 │                                                                             │
@@ -69,10 +69,10 @@ This document defines the architecture for a terminal application with SSH suppo
 └─────────────────────────────────────────────────────────────────────────────┘
 
 Data Flow:
-• Keyboard → Input System → SSH Manager/Terminal
+• Keyboard → Terminal (key sequences in normal mode, via App Controller)
 • SSH Manager ← → SSH Client ← → Network (blocking I/O + threading)
-• SSH Client → Terminal → Renderer → Display
-• UI Manager → Terminal → Renderer (for menus/prompts)
+• SSH Manager → Terminal → Renderer → Display (received SSH session data)
+• UI Manager → Terminal → Renderer (menus, prompts, status messages)
 ```
 
 **Concurrency model:** **Hybrid threading with blocking I/O:** Main UI thread + SSH thread + dedicated I/O worker threads using traditional blocking sockets. Initially a Single-threaded event loop (SDL events + non-blocking SSH I/O) was planned, but this never worked well with BadgeVMS.
