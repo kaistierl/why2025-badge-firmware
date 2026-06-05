@@ -643,7 +643,6 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
     // Store connection parameters using safe string operations
     strncpy_safe(client->hostname, hostname, sizeof(client->hostname));
     client->port = port;
-    client->username = username;
 
     // Store credentials for authentication callback in client instance
     SDL_LockMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
@@ -659,6 +658,9 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
     }
     strncpy_safe(client->auth_state.stored_username, username,
                  sizeof(client->auth_state.stored_username));
+
+    // Point username at the owned copy so it doesn't dangle after the caller's buffer is gone
+    client->username = client->auth_state.stored_username;
 
     // Reset auth retry counters for new connection
     client->auth_state.password_retry_count = 0;
