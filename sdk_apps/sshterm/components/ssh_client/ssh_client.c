@@ -524,104 +524,82 @@ bool ssh_client_init(ssh_client_t* client) {
     return true;
 }
 
+// Free wolfSSH session, context and socket — used on every ssh_setup_session error path
+static void ssh_session_teardown(ssh_client_t* client) {
+    if (client->ssh) {
+        wolfSSH_free((WOLFSSH*)client->ssh);
+        client->ssh = NULL;
+    }
+    if (client->ctx) {
+        wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
+        client->ctx = NULL;
+    }
+    if (client->socket_fd != -1) {
+        close(client->socket_fd);
+        client->socket_fd = -1;
+    }
+    client->state = SSH_STATE_ERROR;
+}
+
 // Internal helper to set up SSH session after socket is connected
 static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const char* username) {
     if (!client || !hostname || !username) {
         return false;
     }
 
-    // Create wolfSSH context
     client->ctx = wolfSSH_CTX_new(WOLFSSH_ENDPOINT_CLIENT, NULL);
     if (!client->ctx) {
         ssh_set_error(client, "Failed to create SSH context");
-        close(client->socket_fd);
-        client->socket_fd = -1;
-        client->state = SSH_STATE_ERROR;
+        ssh_session_teardown(client);
         return false;
     }
 
-    // Configure context before creating sessions
     wolfSSH_SetUserAuth((WOLFSSH_CTX*)client->ctx, ssh_auth_callback);
     wolfSSH_CTX_SetPublicKeyCheck((WOLFSSH_CTX*)client->ctx, ssh_public_key_check);
 
-    // Set up custom I/O callbacks on context
 #ifdef WOLFSSH_USER_IO
     setup_wolfssh_custom_io((WOLFSSH_CTX*)client->ctx);
 #endif
 
-    // Create SSH session
     client->ssh = wolfSSH_new((WOLFSSH_CTX*)client->ctx);
     if (!client->ssh) {
         ssh_set_error(client, "Failed to create SSH session");
-        wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
-        close(client->socket_fd);
-        client->ctx = NULL;
-        client->socket_fd = -1;
-        client->state = SSH_STATE_ERROR;
+        ssh_session_teardown(client);
         return false;
     }
 
-    // Set authentication context (client instance for callbacks)
     wolfSSH_SetUserAuthCtx((WOLFSSH*)client->ssh, (void*)client);
-
-    // Store client instance in wolfSSH user data for callback access
-    // Note: Using UserAuthCtx since UserData functions are not available in this wolfSSH version
-
-    // Set public key check context
     wolfSSH_SetPublicKeyCheckCtx((WOLFSSH*)client->ssh, (void*)hostname);
 
-    // Set socket file descriptor
     int ret = wolfSSH_set_fd((WOLFSSH*)client->ssh, client->socket_fd);
     if (ret != WS_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg),
                 "Failed to set socket for SSH session (error: %d)", ret);
         ssh_set_error(client, error_msg);
-        wolfSSH_free((WOLFSSH*)client->ssh);
-        wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
-        close(client->socket_fd);
-        client->ssh = NULL;
-        client->ctx = NULL;
-        client->socket_fd = -1;
-        client->state = SSH_STATE_ERROR;
+        ssh_session_teardown(client);
         return false;
     }
 
-    // Set I/O context for custom I/O callbacks
 #ifdef WOLFSSH_USER_IO
     wolfSSH_SetIOReadCtx((WOLFSSH*)client->ssh, &client->socket_fd);
     wolfSSH_SetIOWriteCtx((WOLFSSH*)client->ssh, &client->socket_fd);
 #endif
 
-    // Set username
     ret = wolfSSH_SetUsername((WOLFSSH*)client->ssh, username);
     if (ret != WS_SUCCESS) {
         ssh_set_error(client, "Failed to set username for SSH session");
-        wolfSSH_free((WOLFSSH*)client->ssh);
-        wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
-        close(client->socket_fd);
-        client->ssh = NULL;
-        client->ctx = NULL;
-        client->socket_fd = -1;
-        client->state = SSH_STATE_ERROR;
+        ssh_session_teardown(client);
         return false;
     }
 
-    // Set channel type to terminal for interactive shell
-    // Setup terminal channel type for interactive sessions
     ret = wolfSSH_SetChannelType((WOLFSSH*)client->ssh, WOLFSSH_SESSION_TERMINAL, NULL, 0);
     if (ret != WS_SUCCESS) {
         char error_details[256];
         snprintf(error_details, sizeof(error_details),
                 "Failed to set terminal channel type (error code: %d)", ret);
         ssh_set_error(client, error_details);
-        wolfSSH_free((WOLFSSH*)client->ssh);
-        wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
-        close(client->socket_fd);
-        client->ssh = NULL;
-        client->ctx = NULL;
-        client->socket_fd = -1;
-        client->state = SSH_STATE_ERROR;
+        ssh_session_teardown(client);
         return false;
     }
 
@@ -716,14 +694,7 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
             "SSH connection failed (ret=%d, %s)", ret,
             error_name ? error_name : "unknown error");
     ssh_set_error(client, error_details);
-
-    wolfSSH_free((WOLFSSH*)client->ssh);
-    wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
-    close(client->socket_fd);
-    client->ssh = NULL;
-    client->ctx = NULL;
-    client->socket_fd = -1;
-
+    ssh_session_teardown(client);
     return false;
 }
 
