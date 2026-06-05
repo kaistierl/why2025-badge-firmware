@@ -94,9 +94,10 @@ static bool ssh_client_validate(ssh_client_t* client) {
 // === ERROR HANDLING ===
 
 // Internal helper to set error message with safe string handling
-static void ssh_set_error(ssh_client_t* client, const char* msg) {
+static void ssh_set_error(ssh_client_t* client, ssh_error_code_t code, const char* msg) {
     if (!ssh_client_validate(client) || !msg) return;
 
+    client->last_error_code = code;
     if (!strncpy_safe(client->error_msg, msg, sizeof(client->error_msg))) {
         printf("SSH Error: (message truncated) %s\n", client->error_msg);
     } else {
@@ -466,7 +467,7 @@ bool ssh_client_init(ssh_client_t* client) {
     client->auth_state.auth_state_mutex = SDL_CreateMutex();
     if (!client->auth_state.auth_state_mutex) {
         printf("SSH: Failed to create authentication state mutex\n");
-        ssh_set_error(client, "Failed to create mutex for thread safety");
+        ssh_set_error(client, SSH_ERR_MUTEX_FAILED, "Failed to create mutex for thread safety");
         return false;
     }
 
@@ -474,7 +475,7 @@ bool ssh_client_init(ssh_client_t* client) {
     int wc_ret = wolfCrypt_Init();
     if (wc_ret != 0) {
         printf("SSH: wolfCrypt_Init failed with error: %d\n", wc_ret);
-        ssh_set_error(client, "Failed to initialize wolfCrypt");
+        ssh_set_error(client, SSH_ERR_WOLFSSL_INIT, "Failed to initialize wolfCrypt");
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         client->auth_state.auth_state_mutex = NULL;
         return false;
@@ -485,7 +486,7 @@ bool ssh_client_init(ssh_client_t* client) {
     int rng_ret = wc_InitRng(&rng);
     if (rng_ret != 0) {
         printf("SSH: Failed to initialize RNG with error: %d\n", rng_ret);
-        ssh_set_error(client, "Failed to initialize RNG");
+        ssh_set_error(client, SSH_ERR_RNG_FAILED, "Failed to initialize RNG");
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
@@ -497,7 +498,7 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rng_ret != 0) {
         printf("SSH: RNG test failed with error: %d\n", rng_ret);
         wc_FreeRng(&rng);
-        ssh_set_error(client, "RNG functionality test failed");
+        ssh_set_error(client, SSH_ERR_RNG_FAILED, "RNG functionality test failed");
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
@@ -510,7 +511,7 @@ bool ssh_client_init(ssh_client_t* client) {
     int rc = wolfSSH_Init();
     if (rc != WS_SUCCESS) {
         printf("SSH: wolfSSH_Init failed with error: %d\n", rc);
-        ssh_set_error(client, "Failed to initialize wolfSSH library");
+        ssh_set_error(client, SSH_ERR_WOLFSSH_INIT, "Failed to initialize wolfSSH library");
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
@@ -545,7 +546,7 @@ static void ssh_session_teardown(ssh_client_t* client) {
 static bool ssh_create_wolfssh_context(ssh_client_t* client) {
     client->ctx = wolfSSH_CTX_new(WOLFSSH_ENDPOINT_CLIENT, NULL);
     if (!client->ctx) {
-        ssh_set_error(client, "Failed to create SSH context");
+        ssh_set_error(client, SSH_ERR_CONTEXT_FAILED, "Failed to create SSH context");
         return false;
     }
     wolfSSH_SetUserAuth((WOLFSSH_CTX*)client->ctx, ssh_auth_callback);
@@ -569,7 +570,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 
     client->ssh = wolfSSH_new((WOLFSSH_CTX*)client->ctx);
     if (!client->ssh) {
-        ssh_set_error(client, "Failed to create SSH session");
+        ssh_set_error(client, SSH_ERR_SESSION_FAILED, "Failed to create SSH session");
         ssh_session_teardown(client);
         return false;
     }
@@ -582,7 +583,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
         char error_msg[SSH_ERROR_MSG_LEN];
         snprintf(error_msg, sizeof(error_msg),
                 "Failed to set socket for SSH session (error: %d)", ret);
-        ssh_set_error(client, error_msg);
+        ssh_set_error(client, SSH_ERR_SESSION_FAILED, error_msg);
         ssh_session_teardown(client);
         return false;
     }
@@ -594,7 +595,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 
     ret = wolfSSH_SetUsername((WOLFSSH*)client->ssh, username);
     if (ret != WS_SUCCESS) {
-        ssh_set_error(client, "Failed to set username for SSH session");
+        ssh_set_error(client, SSH_ERR_SESSION_FAILED, "Failed to set username for SSH session");
         ssh_session_teardown(client);
         return false;
     }
@@ -604,7 +605,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
         char error_details[SSH_ERROR_MSG_LEN];
         snprintf(error_details, sizeof(error_details),
                 "Failed to set terminal channel type (error code: %d)", ret);
-        ssh_set_error(client, error_details);
+        ssh_set_error(client, SSH_ERR_SESSION_FAILED, error_details);
         ssh_session_teardown(client);
         return false;
     }
@@ -638,7 +639,7 @@ static bool ssh_run_handshake(ssh_client_t* client) {
     snprintf(error_details, sizeof(error_details),
             "SSH connection failed (ret=%d, %s)", ret,
             error_name ? error_name : "unknown error");
-    ssh_set_error(client, error_details);
+    ssh_set_error(client, SSH_ERR_HANDSHAKE_FAILED, error_details);
     ssh_session_teardown(client);
     return false;
 }
@@ -646,7 +647,7 @@ static bool ssh_run_handshake(ssh_client_t* client) {
 bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int port,
                              const char* username, const char* password) {
     if (!ssh_client_validate(client) || !hostname || !username) {
-        ssh_set_error(client, "Invalid parameters for SSH connection");
+        ssh_set_error(client, SSH_ERR_INVALID_PARAM, "Invalid parameters for SSH connection");
         return false;
     }
 
@@ -693,7 +694,7 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
     // Create socket connection (blocking)
     client->socket_fd = ssh_create_socket(hostname, port);
     if (client->socket_fd == -1) {
-        ssh_set_error(client, "Failed to create socket connection to host");
+        ssh_set_error(client, SSH_ERR_SOCKET_FAILED, "Failed to create socket connection to host");
         client->state = SSH_STATE_ERROR;
         return false;
     }
@@ -715,7 +716,7 @@ bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {
     int bytes_written = wolfSSH_stream_send((WOLFSSH*)client->ssh, (byte*)data, (word32)len);
 
     if (bytes_written < 0) {
-        ssh_set_error(client, "Failed to send data");
+        ssh_set_error(client, SSH_ERR_SEND_FAILED, "Failed to send data");
         return false;
     }
 
@@ -752,7 +753,7 @@ int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
         snprintf(error_details, sizeof(error_details),
                 "Failed to receive data (ret=%d, %s)", bytes_read,
                 error_name ? error_name : "unknown error");
-        ssh_set_error(client, error_details);
+        ssh_set_error(client, SSH_ERR_RECV_FAILED, error_details);
         return -1;
     }
 
@@ -807,6 +808,11 @@ ssh_state_t ssh_client_get_state(ssh_client_t* client) {
 
 const char* ssh_client_get_error(ssh_client_t* client) {
     return client ? client->error_msg : "Invalid client";
+}
+
+ssh_error_code_t ssh_client_get_error_code(ssh_client_t* client) {
+    if (!ssh_client_validate(client)) return SSH_ERR_NONE;
+    return client->last_error_code;
 }
 
 void ssh_client_cleanup(ssh_client_t* client) {

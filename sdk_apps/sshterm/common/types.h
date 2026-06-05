@@ -95,6 +95,27 @@ typedef enum {
 } app_result_t;
 
 /**
+ * @brief Machine-readable SSH error categories
+ *
+ * Stored alongside the human-readable error_msg so callers can branch on
+ * error type without parsing strings.
+ */
+typedef enum {
+    SSH_ERR_NONE = 0,
+    SSH_ERR_INVALID_PARAM,
+    SSH_ERR_MUTEX_FAILED,
+    SSH_ERR_WOLFSSL_INIT,
+    SSH_ERR_RNG_FAILED,
+    SSH_ERR_WOLFSSH_INIT,
+    SSH_ERR_CONTEXT_FAILED,
+    SSH_ERR_SESSION_FAILED,
+    SSH_ERR_SOCKET_FAILED,
+    SSH_ERR_HANDSHAKE_FAILED,
+    SSH_ERR_SEND_FAILED,
+    SSH_ERR_RECV_FAILED,
+} ssh_error_code_t;
+
+/**
  * @brief SSH client connection state
  */
 typedef enum {
@@ -119,6 +140,7 @@ typedef struct ssh_client {
     const char* username;       /**< SSH username (reference) */
     ssh_state_t state;          /**< Current connection state */
     char error_msg[256];        /**< Last error message if any */
+    ssh_error_code_t last_error_code; /**< Machine-readable error category */
     auth_prompt_t auth_prompt;  /**< Current authentication prompt state */
 
     // Private implementation details

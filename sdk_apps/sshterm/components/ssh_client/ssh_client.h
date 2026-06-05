@@ -109,6 +109,13 @@ ssh_state_t ssh_client_get_state(ssh_client_t* client);
 const char* ssh_client_get_error(ssh_client_t* client);
 
 /**
+ * Get the machine-readable error code for the last error
+ * @param client SSH client structure
+ * @return Error code (SSH_ERR_NONE if no error has occurred)
+ */
+ssh_error_code_t ssh_client_get_error_code(ssh_client_t* client);
+
+/**
  * Get the socket file descriptor for the SSH connection
  * @param client SSH client structure
  * @return Socket file descriptor, or -1 if not connected
