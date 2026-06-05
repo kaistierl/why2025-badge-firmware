@@ -688,71 +688,41 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
         return false;
     }
 
-    // Session setup successful, ready for SSH handshake
-    client->state = SSH_STATE_SSH_HANDSHAKING;
-    return true;
-}
+    // Attempt SSH handshake and authentication (blocking)
+    printf("SSH: Attempting connection handshake...\n");
+    int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
 
-bool ssh_client_connect_continue(ssh_client_t* client) {
-    if (!client) {
-        return false;
-    }
+    if (ret == WS_SUCCESS) {
+        client->state = SSH_STATE_CONNECTED;
+        printf("SSH: Connection established successfully\n");
 
-    switch (client->state) {
-        case SSH_STATE_SSH_HANDSHAKING:
-        case SSH_STATE_AUTHENTICATING: {
-            // Attempt SSH handshake and authentication (BLOCKING)
-            printf("SSH: Attempting connection handshake...\n");
-            int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
-
-            // In blocking mode, wolfSSH_connect should complete immediately
-            if (ret == WS_SUCCESS) {
-                // Connection successful
-                client->state = SSH_STATE_CONNECTED;
-                printf("SSH: Connection established successfully\n");
-
-                // Set terminal size to match our configured terminal emulator
-                int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh,
-                                                       TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
-                if (pty_ret != WS_SUCCESS) {
-                    printf("SSH: Warning - failed to set terminal size (error: %d)\n", pty_ret);
-                    // Don't fail the connection for this, just warn
-                }
-
-                return false; // Done - success
-            } else {
-                // Connection failed - get detailed error information
-                const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
-                int error_code = wolfSSH_get_error((WOLFSSH*)client->ssh);
-
-                printf("SSH: Connection failed with code %d (%s)\n", ret, error_name ? error_name : "unknown");
-                printf("SSH: Additional error info: %d\n", error_code);
-
-                char error_details[512];
-                snprintf(error_details, sizeof(error_details),
-                        "SSH connection failed (ret=%d, %s)", ret,
-                        error_name ? error_name : "unknown error");
-                ssh_set_error(client, error_details);
-
-                wolfSSH_free((WOLFSSH*)client->ssh);
-                wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
-                close(client->socket_fd);
-                client->ssh = NULL;
-                client->ctx = NULL;
-                client->socket_fd = -1;
-                client->state = SSH_STATE_ERROR;
-                return false; // Done - error
-            }
+        int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh,
+                                               TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
+        if (pty_ret != WS_SUCCESS) {
+            printf("SSH: Warning - failed to set terminal size (error: %d)\n", pty_ret);
         }
-
-        case SSH_STATE_CONNECTED:
-            return false; // Already connected, done
-
-        case SSH_STATE_ERROR:
-        case SSH_STATE_DISCONNECTED:
-        default:
-            return false; // Done (error or invalid state)
+        return true;
     }
+
+    const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
+    int error_code = wolfSSH_get_error((WOLFSSH*)client->ssh);
+    printf("SSH: Connection failed with code %d (%s)\n", ret, error_name ? error_name : "unknown");
+    printf("SSH: Additional error info: %d\n", error_code);
+
+    char error_details[512];
+    snprintf(error_details, sizeof(error_details),
+            "SSH connection failed (ret=%d, %s)", ret,
+            error_name ? error_name : "unknown error");
+    ssh_set_error(client, error_details);
+
+    wolfSSH_free((WOLFSSH*)client->ssh);
+    wolfSSH_CTX_free((WOLFSSH_CTX*)client->ctx);
+    close(client->socket_fd);
+    client->ssh = NULL;
+    client->ctx = NULL;
+    client->socket_fd = -1;
+
+    return false;
 }
 
 bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {

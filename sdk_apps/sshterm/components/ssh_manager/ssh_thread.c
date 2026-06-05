@@ -225,55 +225,42 @@ static void ssh_thread_main(void* data) {
                     if (ssh_client_connect_start(&manager->ssh_client,
                                                cmd.connect.hostname, cmd.connect.port,
                                                cmd.connect.username, cmd.connect.password)) {
+                        ssh_connected = true;
+                        printf("SSH Thread: Connection successful, starting I/O threads\n");
 
-                        if (!ssh_client_connect_continue(&manager->ssh_client)) {
-                            if (ssh_client_get_state(&manager->ssh_client) == SSH_STATE_CONNECTED) {
-                                ssh_connected = true;
-                                printf("SSH Thread: Connection successful, starting I/O threads\n");
+                        manager->thread_args.ssh_client = &manager->ssh_client;
+                        manager->thread_args.manager = manager;
+                        manager->thread_args.quit = false;
 
-                                // Initialize thread args in manager structure
-                                manager->thread_args.ssh_client = &manager->ssh_client;
-                                manager->thread_args.manager = manager;
-                                manager->thread_args.quit = false;
+                        SDL_LockMutex(manager->state_mutex);
+                        manager->input_thread_active = false;
+                        manager->peer_thread_active = false;
+                        manager->input_thread_complete = false;
+                        manager->peer_thread_complete = false;
+                        SDL_UnlockMutex(manager->state_mutex);
 
-                                // Reset thread state tracking
-                                SDL_LockMutex(manager->state_mutex);
-                                manager->input_thread_active = false;
-                                manager->peer_thread_active = false;
-                                manager->input_thread_complete = false;
-                                manager->peer_thread_complete = false;
-                                SDL_UnlockMutex(manager->state_mutex);
+                        manager->read_input_thread_id = thread_create(read_input_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
+                        manager->read_peer_thread_id = thread_create(read_peer_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
 
-                                manager->read_input_thread_id = thread_create(read_input_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
-                                manager->read_peer_thread_id = thread_create(read_peer_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
-
-                                if (manager->read_input_thread_id > 0 && manager->read_peer_thread_id > 0) {
-                                    event.type = SSH_EVENT_CONNECTED;
-                                    strncpy(event.connected.hostname, cmd.connect.hostname,
-                                           sizeof(event.connected.hostname) - 1);
-                                    strncpy(event.connected.username, cmd.connect.username,
-                                           sizeof(event.connected.username) - 1);
-                                } else {
-                                    printf("SSH Main Thread: Failed to start I/O threads\n");
-                                    event.type = SSH_EVENT_ERROR;
-                                    snprintf(event.error.message, sizeof(event.error.message),
-                                            "Failed to start I/O threads");
-                                }
-                            } else {
-                                event.type = SSH_EVENT_CONNECTION_FAILED;
-                                strncpy(event.error.message, ssh_client_get_error(&manager->ssh_client),
-                                       sizeof(event.error.message) - 1);
-                                printf("SSH Main Thread: Connection failed: %s\n", event.error.message);
-                            }
-                            queue_put_event(manager, &event);
+                        if (manager->read_input_thread_id > 0 && manager->read_peer_thread_id > 0) {
+                            event.type = SSH_EVENT_CONNECTED;
+                            strncpy(event.connected.hostname, cmd.connect.hostname,
+                                   sizeof(event.connected.hostname) - 1);
+                            strncpy(event.connected.username, cmd.connect.username,
+                                   sizeof(event.connected.username) - 1);
+                        } else {
+                            printf("SSH Main Thread: Failed to start I/O threads\n");
+                            event.type = SSH_EVENT_ERROR;
+                            snprintf(event.error.message, sizeof(event.error.message),
+                                    "Failed to start I/O threads");
                         }
                     } else {
                         event.type = SSH_EVENT_CONNECTION_FAILED;
                         strncpy(event.error.message, ssh_client_get_error(&manager->ssh_client),
                                sizeof(event.error.message) - 1);
-                        printf("SSH Main Thread: Connection start failed: %s\n", event.error.message);
-                        queue_put_event(manager, &event);
+                        printf("SSH Main Thread: Connection failed: %s\n", event.error.message);
                     }
+                    queue_put_event(manager, &event);
                     break;
                 }
 

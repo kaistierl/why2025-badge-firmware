@@ -42,14 +42,6 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
                              const char* username, const char* password);
 
 /**
- * Continue SSH connection process (blocking)
- * This will block until the SSH connection completes (success or error)
- * @param client SSH client structure
- * @return false when done (check state for success/error)
- */
-bool ssh_client_connect_continue(ssh_client_t* client);
-
-/**
  * Send data to SSH session (blocking)
  * @param client SSH client structure
  * @param data Data buffer to send
