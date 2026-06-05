@@ -7,6 +7,12 @@
 
 // UI Manager implementation
 
+static bool s_auth_header_shown = false;
+
+void ui_manager_reset_auth_header(void) {
+    s_auth_header_shown = false;
+}
+
 bool ui_manager_init(void) {
     // No initialization needed currently
     return true;
@@ -138,13 +144,14 @@ void ui_manager_show_connection_success(const char* hostname, const char* userna
     term_input_string(success_msg);
 }
 
-void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input, bool show_header) {
+void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input) {
     if (!prompt_text) {
         return;
     }
 
-    if (show_header) {
+    if (!s_auth_header_shown) {
         term_input_string("\x1b[33mAuthentication Required\x1b[0m\r\n");
+        s_auth_header_shown = true;
     }
 
     if (!echo_input) {

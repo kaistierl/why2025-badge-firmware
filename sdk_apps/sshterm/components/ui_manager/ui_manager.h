@@ -118,12 +118,21 @@ void ui_manager_show_connection_success(const char* hostname, const char* userna
  * @brief Show authentication prompt
  *
  * Displays an interactive authentication prompt (password or keyboard-interactive).
+ * Shows the "Authentication Required" header automatically on the first prompt
+ * after ui_manager_reset_auth_header() is called.
  *
  * @param prompt_text The prompt text from the server
  * @param echo_input Whether to echo the user's input (false for passwords)
- * @param show_header Whether to show the "Authentication Required" header (first prompt only)
  */
-void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input, bool show_header);
+void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input);
+
+/**
+ * @brief Reset the auth-header-shown flag
+ *
+ * Call this at the start of each new connection attempt so the
+ * "Authentication Required" header is shown again on the first prompt.
+ */
+void ui_manager_reset_auth_header(void);
 
 // === INPUT FIELD MANAGEMENT ===
 

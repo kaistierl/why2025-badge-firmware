@@ -9,9 +9,6 @@
 // Global SSH thread manager
 static ssh_thread_manager_t ssh_thread_mgr;
 
-// Track whether the auth-exchange header has been shown this connection
-static bool ssh_auth_header_shown = false;
-
 // Forward declarations
 static void ssh_manager_handle_disconnect(app_state_t* app, const char* message, bool show_in_terminal);
 
@@ -41,7 +38,7 @@ bool ssh_manager_connect(app_state_t* app, const char* hostname, int port,
     }
 
     ui_manager_show_connecting_message();
-    ssh_auth_header_shown = false;
+    ui_manager_reset_auth_header();
 
     // Validate and set default port if needed
     int safe_port = (port > 0 && port <= 65535) ? port : 22;
@@ -64,7 +61,7 @@ bool ssh_manager_connect_negotiate(app_state_t* app, const char* hostname, int p
     }
 
     ui_manager_show_connecting_message();
-    ssh_auth_header_shown = false;
+    ui_manager_reset_auth_header();
 
     // Validate and set default port if needed
     int safe_port = (port > 0 && port <= 65535) ? port : 22;
@@ -163,9 +160,7 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
                 // Clear any previous auth response
                 memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
                 ui_manager_show_auth_prompt(event.auth_prompt.prompt_text,
-                                            event.auth_prompt.echo_input,
-                                            !ssh_auth_header_shown);
-                ssh_auth_header_shown = true;
+                                            event.auth_prompt.echo_input);
                 break;
             }
 
