@@ -1,7 +1,6 @@
 #include "ui_manager.h"
 #include "../term/term.h"
 #include "../input_system/input_system.h"
-#include "../renderer/renderer.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -58,7 +57,7 @@ void ui_manager_show_wifi_connecting(void) {
     ui_manager_show_header("WiFi Connection");
     term_input_string("\r\nConnecting to WiFi, please wait...");
     // render immediately
-    renderer_present_if_dirty(0);
+    term_flush();
 }
 
 void ui_manager_show_ssh_connection_setup(app_state_t* app) {
@@ -89,7 +88,7 @@ void ui_manager_show_help_message(void) {
 void ui_manager_show_connecting_message(void) {
     term_input_string("\r\n\x1b[33mConnecting...\x1b[0m\r\n");
     // render immediately
-    renderer_present_if_dirty(0);
+    term_flush();
 }
 
 void ui_manager_show_connection_error(const char* error) {

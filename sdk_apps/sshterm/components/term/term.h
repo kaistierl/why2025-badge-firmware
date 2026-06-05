@@ -87,4 +87,13 @@ void term_key_input(int keysym, uint16_t mods, const char* text_utf8);
  */
 void term_resize(int cols, int rows);
 
+/**
+ * @brief Flush pending terminal output to the screen immediately
+ *
+ * Forces a render pass outside the normal ~60 fps main-loop cadence.
+ * Use before blocking operations (e.g. WiFi connect, SSH handshake) to
+ * ensure buffered output is visible before the UI thread is held.
+ */
+void term_flush(void);
+
 #endif // TERM_H

@@ -348,3 +348,7 @@ void term_resize(int cols, int rows) {
     // Fixed grid in MVP; keep API for future
     (void)cols; (void)rows;
 }
+
+void term_flush(void) {
+    renderer_present_if_dirty(0);
+}
