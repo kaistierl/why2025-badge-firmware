@@ -109,16 +109,5 @@ void app_controller_handle_escape_key(app_state_t* app);
  */
 void app_controller_handle_terminal_output(app_state_t* app, const uint8_t* data, size_t len);
 
-/**
- * Display current input prompt through UI manager
- * @param app Application state
- */
-void app_controller_display_current_prompt(app_state_t* app);
-
-/**
- * Show startup menu through UI manager
- * @param app Application state
- */
-void app_controller_show_startup_menu(app_state_t* app);
 
 #endif // APP_CONTROLLER_H

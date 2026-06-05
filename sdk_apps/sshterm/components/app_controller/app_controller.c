@@ -419,8 +419,7 @@ void app_controller_return_to_startup(app_state_t* app) {
     // Clear connection state before showing startup menu
     ssh_ui_clear_connection_input(app);
 
-    // Show startup menu through ui_manager
-    app_controller_show_startup_menu(app);
+    ui_manager_show_startup_menu(app);
 }
 
 void app_controller_handle_startup_choice(app_state_t* app, int choice) {
@@ -559,16 +558,3 @@ void app_controller_handle_terminal_output(app_state_t* app, const uint8_t* data
     }
 }
 
-void app_controller_display_current_prompt(app_state_t* app) {
-    if (!app) {
-        return;
-    }
-    ui_manager_display_current_prompt(app);
-}
-
-void app_controller_show_startup_menu(app_state_t* app) {
-    if (!app) {
-        return;
-    }
-    ui_manager_show_startup_menu(app);
-}
