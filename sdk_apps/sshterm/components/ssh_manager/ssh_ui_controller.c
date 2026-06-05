@@ -164,15 +164,9 @@ app_result_t ssh_ui_handle_disconnect_prompt(app_state_t* app, const char* input
         return APP_RESULT_CONTINUE;
     }
 
-    // Handle Enter key - return to main menu or restart SSH sequence.
-    // Invariant: ssh_ui_handle_connection_success() zeroes connection_input on a
-    // successful connect, so a non-empty hostname means the connection never
-    // succeeded (i.e. it failed and we want to let the user retry).
     if (*input == '\r' || *input == '\n') {
         term_input_string("\r\n");
-        if (strlen(app->connection_input.hostname) > 0 ||
-            strlen(app->connection_input.username) > 0 ||
-            strlen(app->connection_input.port_str) > 0) {
+        if (!app->connection_succeeded) {
             // Connection failed — restart SSH input sequence to try again
             ssh_ui_start_connection_sequence(app);
             return APP_RESULT_RETRY;
@@ -192,15 +186,11 @@ void ssh_ui_clear_connection_input(app_state_t* app) {
         return;
     }
 
-    // Clear all connection input data
     memset(&app->connection_input, 0, sizeof(connection_input_t));
-
-    // Clear any auth state
     app->input_mode = INPUT_MODE_NORMAL;
-
-    // Reset connection flags
     app->ssh_connecting = false;
     app->ssh_connected = false;
+    app->connection_succeeded = false;
 }
 
 void ssh_ui_handle_connection_success(app_state_t* app) {
@@ -208,7 +198,7 @@ void ssh_ui_handle_connection_success(app_state_t* app) {
         return;
     }
 
-    // Clear all connection input data but keep connection state intact
+    app->connection_succeeded = true;
     memset(&app->connection_input, 0, sizeof(connection_input_t));
 }
 

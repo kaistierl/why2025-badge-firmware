@@ -22,6 +22,7 @@ struct app_state {
     bool ssh_connected;         /**< Whether SSH connection is active */
     bool ssh_connecting;        /**< Whether SSH connection is in progress */
     bool had_ssh_session;       /**< Whether user has had a successful SSH session */
+    bool connection_succeeded;  /**< Whether the most recent connection attempt fully succeeded */
     input_mode_t input_mode;    /**< Current user input mode */
     connection_input_t connection_input; /**< User-entered connection parameters */
 };

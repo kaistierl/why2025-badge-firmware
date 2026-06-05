@@ -184,16 +184,9 @@ void ui_manager_display_current_prompt(app_state_t* app) {
     }
 
     if (app->input_mode == INPUT_MODE_DISCONNECT_PROMPT) {
-        // Non-empty hostname means the connection never succeeded (see ssh_ui_controller.c
-        // for the invariant explanation). Show a retry prompt in that case.
-        const char* prompt;
-        if (strlen(app->connection_input.hostname) > 0 ||
-            strlen(app->connection_input.username) > 0 ||
-            strlen(app->connection_input.port_str) > 0) {
-            prompt = "Press Enter to try SSH connection again...";
-        } else {
-            prompt = "Press Enter to return to main menu...";
-        }
+        const char* prompt = app->connection_succeeded
+            ? "Press Enter to return to main menu..."
+            : "Press Enter to try SSH connection again...";
         term_input_string("\r\n\r\x1b[K");
         term_input_string(prompt);
         return;
