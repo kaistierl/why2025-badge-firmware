@@ -20,6 +20,7 @@ static bool queue_peek_cmd_type(ssh_thread_manager_t* manager, ssh_cmd_type_t* t
 static bool queue_put_event(ssh_thread_manager_t* manager, const ssh_event_t* event);
 static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event);
 static void ssh_auth_event_callback(ssh_client_t* client, const char* prompt_text, bool echo_input, const char* method_name);
+static bool wait_for_io_threads(ssh_thread_manager_t* manager, Sint32 timeout_ms);
 
 // Global singleton for auth event callback routing.
 // Only one manager can be active at a time (single-connection constraint).
@@ -79,6 +80,7 @@ static void read_input_thread(void* arg) {
     SDL_LockMutex(args->manager->state_mutex);
     args->manager->input_thread_active = false;
     args->manager->input_thread_complete = true;
+    SDL_SignalCondition(args->manager->state_cond);
     SDL_UnlockMutex(args->manager->state_mutex);
 }
 
@@ -152,7 +154,23 @@ static void read_peer_thread(void* arg) {
     SDL_LockMutex(args->manager->state_mutex);
     args->manager->peer_thread_active = false;
     args->manager->peer_thread_complete = true;
+    SDL_SignalCondition(args->manager->state_cond);
     SDL_UnlockMutex(args->manager->state_mutex);
+}
+
+// Wait until both I/O threads have set their _complete flags, or timeout_ms elapses.
+// Must NOT be called while already holding state_mutex.
+static bool wait_for_io_threads(ssh_thread_manager_t* manager, Sint32 timeout_ms) {
+    SDL_LockMutex(manager->state_mutex);
+    Uint64 deadline = SDL_GetTicks() + (Uint64)timeout_ms;
+    while (!(manager->input_thread_complete && manager->peer_thread_complete)) {
+        Uint64 now = SDL_GetTicks();
+        if (now >= deadline) break;
+        SDL_WaitConditionTimeout(manager->state_cond, manager->state_mutex, (Sint32)(deadline - now));
+    }
+    bool complete = manager->input_thread_complete && manager->peer_thread_complete;
+    SDL_UnlockMutex(manager->state_mutex);
+    return complete;
 }
 
 // Modified SSH thread main function to set up the two-thread pattern
@@ -175,6 +193,7 @@ static void ssh_thread_main(void* data) {
         // Signal completion before exit (error case)
         SDL_LockMutex(manager->state_mutex);
         manager->shutdown_complete = true;
+        SDL_SignalCondition(manager->state_cond);
         SDL_UnlockMutex(manager->state_mutex);
         return;
     }
@@ -185,6 +204,7 @@ static void ssh_thread_main(void* data) {
     // Signal that worker thread is ready
     SDL_LockMutex(manager->state_mutex);
     manager->worker_ready = true;
+    SDL_SignalCondition(manager->state_cond);
     SDL_UnlockMutex(manager->state_mutex);
     printf("SSH Thread: Worker thread ready, starting main loop\n");
 
@@ -275,24 +295,7 @@ static void ssh_thread_main(void* data) {
 
                         // Wait for I/O threads to complete using cooperative termination
                         printf("SSH Thread: Waiting for I/O threads to complete...\n");
-                        int timeout_ms = 2000; // 2 second timeout
-                        int poll_interval_ms = 10;
-                        int elapsed_ms = 0;
-
-                        bool threads_complete = false;
-                        while (elapsed_ms < timeout_ms) {
-                            SDL_LockMutex(manager->state_mutex);
-                            threads_complete = manager->input_thread_complete && manager->peer_thread_complete;
-                            SDL_UnlockMutex(manager->state_mutex);
-
-                            if (threads_complete) {
-                                break;
-                            }
-
-                            usleep(poll_interval_ms * 1000);
-                            elapsed_ms += poll_interval_ms;
-                        }
-
+                        bool threads_complete = wait_for_io_threads(manager, 2000);
                         if (!threads_complete) {
                             printf("SSH Thread: Warning - I/O threads did not complete within timeout\n");
                         } else {
@@ -326,26 +329,7 @@ static void ssh_thread_main(void* data) {
                         manager->thread_args.quit = true;
                         SDL_UnlockMutex(manager->state_mutex);
 
-                        // Wait for threads with timeout
-                        int timeout_ms = 2000;
-                        int poll_interval_ms = 10;
-                        int elapsed_ms = 0;
-
-                        bool threads_complete = false;
-                        while (elapsed_ms < timeout_ms) {
-                            SDL_LockMutex(manager->state_mutex);
-                            threads_complete = manager->input_thread_complete && manager->peer_thread_complete;
-                            SDL_UnlockMutex(manager->state_mutex);
-
-                            if (threads_complete) {
-                                break;
-                            }
-
-                            usleep(poll_interval_ms * 1000);
-                            elapsed_ms += poll_interval_ms;
-                        }
-
-                        if (!threads_complete) {
+                        if (!wait_for_io_threads(manager, 2000)) {
                             printf("SSH Thread: Warning - I/O threads did not complete during shutdown\n");
                         }
                     }
@@ -367,26 +351,7 @@ static void ssh_thread_main(void* data) {
         manager->thread_args.quit = true;
         SDL_UnlockMutex(manager->state_mutex);
 
-        // Wait for threads to complete
-        int timeout_ms = 2000;
-        int poll_interval_ms = 10;
-        int elapsed_ms = 0;
-
-        bool threads_complete = false;
-        while (elapsed_ms < timeout_ms) {
-            SDL_LockMutex(manager->state_mutex);
-            threads_complete = manager->input_thread_complete && manager->peer_thread_complete;
-            SDL_UnlockMutex(manager->state_mutex);
-
-            if (threads_complete) {
-                break;
-            }
-
-            usleep(poll_interval_ms * 1000);
-            elapsed_ms += poll_interval_ms;
-        }
-
-        if (!threads_complete) {
+        if (!wait_for_io_threads(manager, 2000)) {
             printf("SSH Thread: Warning - I/O threads did not complete during main thread cleanup\n");
         }
 
@@ -396,6 +361,7 @@ static void ssh_thread_main(void* data) {
     // Signal completion before exit
     SDL_LockMutex(manager->state_mutex);
     manager->shutdown_complete = true;
+    SDL_SignalCondition(manager->state_cond);
     SDL_UnlockMutex(manager->state_mutex);
     printf("SSH Thread: Worker thread signaled completion\n");
 }
@@ -614,6 +580,18 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
+    manager->state_cond = SDL_CreateCondition();
+    if (!manager->state_cond) {
+        printf("SSH Thread Init: Failed to create state condition: %s\n", SDL_GetError());
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        manager->state_mutex = NULL;
+        return false;
+    }
+
     // Set auth manager reference with mutex protection
     if (g_auth_manager_mutex) {
         SDL_LockMutex(g_auth_manager_mutex);
@@ -639,23 +617,15 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     // Wait for worker thread to signal ready (with timeout)
     printf("SSH Thread: Waiting for worker thread to become ready...\n");
-    int timeout_ms = 2000; // 2 seconds timeout
-    int poll_interval_ms = 10; // 10ms polling interval
-    int elapsed_ms = 0;
-
-    bool worker_ready = false;
-    while (elapsed_ms < timeout_ms) {
-        SDL_LockMutex(manager->state_mutex);
-        worker_ready = manager->worker_ready;
-        SDL_UnlockMutex(manager->state_mutex);
-
-        if (worker_ready) {
-            break;
-        }
-
-        usleep(poll_interval_ms * 1000); // Convert ms to microseconds
-        elapsed_ms += poll_interval_ms;
+    SDL_LockMutex(manager->state_mutex);
+    Uint64 deadline = SDL_GetTicks() + 2000;
+    while (!manager->worker_ready) {
+        Uint64 now = SDL_GetTicks();
+        if (now >= deadline) break;
+        SDL_WaitConditionTimeout(manager->state_cond, manager->state_mutex, (Sint32)(deadline - now));
     }
+    bool worker_ready = manager->worker_ready;
+    SDL_UnlockMutex(manager->state_mutex);
 
     if (!worker_ready) {
         printf("SSH Thread Init: Warning - worker thread did not signal ready within timeout\n");
@@ -687,23 +657,15 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
 
     // Wait for worker thread to signal completion (with timeout)
     printf("SSH Thread: Waiting for worker thread to complete...\n");
-    int timeout_ms = 5000; // 5 seconds timeout
-    int poll_interval_ms = 10; // 10ms polling interval
-    int elapsed_ms = 0;
-
-    bool shutdown_complete = false;
-    while (elapsed_ms < timeout_ms) {
-        SDL_LockMutex(manager->state_mutex);
-        shutdown_complete = manager->shutdown_complete;
-        SDL_UnlockMutex(manager->state_mutex);
-
-        if (shutdown_complete) {
-            break;
-        }
-
-        usleep(poll_interval_ms * 1000); // Convert ms to microseconds
-        elapsed_ms += poll_interval_ms;
+    SDL_LockMutex(manager->state_mutex);
+    Uint64 deadline = SDL_GetTicks() + 5000;
+    while (!manager->shutdown_complete) {
+        Uint64 now = SDL_GetTicks();
+        if (now >= deadline) break;
+        SDL_WaitConditionTimeout(manager->state_cond, manager->state_mutex, (Sint32)(deadline - now));
     }
+    bool shutdown_complete = manager->shutdown_complete;
+    SDL_UnlockMutex(manager->state_mutex);
 
     if (!shutdown_complete) {
         printf("SSH Thread: Warning - worker thread did not signal completion within timeout\n");
@@ -731,7 +693,7 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     manager->worker_ready = false;
     SDL_UnlockMutex(manager->state_mutex);
 
-    // Cleanup mutexes
+    // Cleanup mutexes and condition variable
     if (manager->cmd_queue_mutex) {
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         manager->cmd_queue_mutex = NULL;
@@ -739,6 +701,10 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     if (manager->event_queue_mutex) {
         SDL_DestroyMutex(manager->event_queue_mutex);
         manager->event_queue_mutex = NULL;
+    }
+    if (manager->state_cond) {
+        SDL_DestroyCondition(manager->state_cond);
+        manager->state_cond = NULL;
     }
     if (manager->state_mutex) {
         SDL_DestroyMutex(manager->state_mutex);
