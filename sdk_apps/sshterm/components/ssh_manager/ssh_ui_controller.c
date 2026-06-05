@@ -204,15 +204,30 @@ app_result_t ssh_ui_attempt_connection(app_state_t* app) {
         return APP_RESULT_RETRY;
     }
 
+    for (const char* p = app->connection_input.hostname; *p; p++) {
+        if ((unsigned char)*p <= ' ') {
+            ui_manager_show_validation_error("Hostname must not contain spaces.");
+            return APP_RESULT_RETRY;
+        }
+    }
+
     if (strlen(app->connection_input.username) == 0) {
         ui_manager_show_validation_error("Username cannot be empty!");
         return APP_RESULT_RETRY;
     }
 
-    // Parse port with default fallback
+    for (const char* p = app->connection_input.username; *p; p++) {
+        if ((unsigned char)*p <= ' ' || (unsigned char)*p > 126) {
+            ui_manager_show_validation_error("Username must contain only printable non-space characters.");
+            return APP_RESULT_RETRY;
+        }
+    }
+
+    // Parse and validate port — no silent fallback
     int port = atoi(app->connection_input.port_str);
     if (port <= 0 || port > 65535) {
-        port = 22;
+        ui_manager_show_validation_error("Port must be between 1 and 65535.");
+        return APP_RESULT_RETRY;
     }
 
     // Attempt connection via SSH manager (password will be prompted during authentication)
