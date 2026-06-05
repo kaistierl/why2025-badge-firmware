@@ -19,6 +19,9 @@
 #define MAX_PASSWORD_RETRIES 3
 #define AUTH_TIMEOUT_SEC 60
 
+/** Error message buffer size for local formatting in ssh_client.c */
+#define SSH_ERROR_MSG_LEN 256
+
 // Forward declarations for opaque SDL types (to avoid including SDL3 in header)
 typedef struct SDL_Mutex SDL_Mutex;
 

@@ -14,6 +14,12 @@
 /** Maximum hostname length */
 #define SSH_MAX_HOSTNAME_LEN    256
 
+/** Raw terminal input command payload */
+#define SSH_RAW_INPUT_LEN       256
+
+/** Authentication prompt text from server */
+#define SSH_AUTH_PROMPT_LEN     512
+
 /** Maximum username length */
 #define SSH_MAX_USERNAME_LEN    64
 

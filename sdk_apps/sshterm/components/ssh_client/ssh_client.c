@@ -579,7 +579,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 
     int ret = wolfSSH_set_fd((WOLFSSH*)client->ssh, client->socket_fd);
     if (ret != WS_SUCCESS) {
-        char error_msg[256];
+        char error_msg[SSH_ERROR_MSG_LEN];
         snprintf(error_msg, sizeof(error_msg),
                 "Failed to set socket for SSH session (error: %d)", ret);
         ssh_set_error(client, error_msg);
@@ -601,7 +601,7 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 
     ret = wolfSSH_SetChannelType((WOLFSSH*)client->ssh, WOLFSSH_SESSION_TERMINAL, NULL, 0);
     if (ret != WS_SUCCESS) {
-        char error_details[256];
+        char error_details[SSH_ERROR_MSG_LEN];
         snprintf(error_details, sizeof(error_details),
                 "Failed to set terminal channel type (error code: %d)", ret);
         ssh_set_error(client, error_details);
@@ -634,7 +634,7 @@ static bool ssh_run_handshake(ssh_client_t* client) {
     printf("SSH: Connection failed with code %d (%s)\n", ret, error_name ? error_name : "unknown");
     printf("SSH: Additional error info: %d\n", error_code);
 
-    char error_details[512];
+    char error_details[SSH_ERROR_MSG_LEN];
     snprintf(error_details, sizeof(error_details),
             "SSH connection failed (ret=%d, %s)", ret,
             error_name ? error_name : "unknown error");
@@ -748,7 +748,7 @@ int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
             return 0;
         }
 
-        char error_details[512];
+        char error_details[SSH_ERROR_MSG_LEN];
         snprintf(error_details, sizeof(error_details),
                 "Failed to receive data (ret=%d, %s)", bytes_read,
                 error_name ? error_name : "unknown error");

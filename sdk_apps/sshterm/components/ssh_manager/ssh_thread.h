@@ -43,7 +43,7 @@ typedef struct {
             int port;
         } connect;
         struct {
-            char input_data[256];
+            char input_data[SSH_RAW_INPUT_LEN];
             size_t input_len;
         } send_raw_input;
         struct {
@@ -62,7 +62,7 @@ typedef struct {
         } data_received;
         struct {
             char method_name[32];
-            char prompt_text[512];
+            char prompt_text[SSH_AUTH_PROMPT_LEN];
             bool echo_input;
         } auth_prompt;
         struct {
