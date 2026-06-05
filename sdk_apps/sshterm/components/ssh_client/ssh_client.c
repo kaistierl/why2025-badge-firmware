@@ -541,25 +541,31 @@ static void ssh_session_teardown(ssh_client_t* client) {
     client->state = SSH_STATE_ERROR;
 }
 
+// Create and configure the wolfSSH context (auth callbacks, public-key check, custom I/O)
+static bool ssh_create_wolfssh_context(ssh_client_t* client) {
+    client->ctx = wolfSSH_CTX_new(WOLFSSH_ENDPOINT_CLIENT, NULL);
+    if (!client->ctx) {
+        ssh_set_error(client, "Failed to create SSH context");
+        return false;
+    }
+    wolfSSH_SetUserAuth((WOLFSSH_CTX*)client->ctx, ssh_auth_callback);
+    wolfSSH_CTX_SetPublicKeyCheck((WOLFSSH_CTX*)client->ctx, ssh_public_key_check);
+#ifdef WOLFSSH_USER_IO
+    setup_wolfssh_custom_io((WOLFSSH_CTX*)client->ctx);
+#endif
+    return true;
+}
+
 // Internal helper to set up SSH session after socket is connected
 static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const char* username) {
     if (!client || !hostname || !username) {
         return false;
     }
 
-    client->ctx = wolfSSH_CTX_new(WOLFSSH_ENDPOINT_CLIENT, NULL);
-    if (!client->ctx) {
-        ssh_set_error(client, "Failed to create SSH context");
+    if (!ssh_create_wolfssh_context(client)) {
         ssh_session_teardown(client);
         return false;
     }
-
-    wolfSSH_SetUserAuth((WOLFSSH_CTX*)client->ctx, ssh_auth_callback);
-    wolfSSH_CTX_SetPublicKeyCheck((WOLFSSH_CTX*)client->ctx, ssh_public_key_check);
-
-#ifdef WOLFSSH_USER_IO
-    setup_wolfssh_custom_io((WOLFSSH_CTX*)client->ctx);
-#endif
 
     client->ssh = wolfSSH_new((WOLFSSH_CTX*)client->ctx);
     if (!client->ssh) {
@@ -605,6 +611,36 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 
     client->state = SSH_STATE_SSH_HANDSHAKING;
     return true;
+}
+
+// Run the SSH handshake and initial PTY sizing; tears down session on failure
+static bool ssh_run_handshake(ssh_client_t* client) {
+    printf("SSH: Attempting connection handshake...\n");
+    int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
+
+    if (ret == WS_SUCCESS) {
+        client->state = SSH_STATE_CONNECTED;
+        printf("SSH: Connection established successfully\n");
+        int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh,
+                                               TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
+        if (pty_ret != WS_SUCCESS) {
+            printf("SSH: Warning - failed to set terminal size (error: %d)\n", pty_ret);
+        }
+        return true;
+    }
+
+    const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
+    int error_code = wolfSSH_get_error((WOLFSSH*)client->ssh);
+    printf("SSH: Connection failed with code %d (%s)\n", ret, error_name ? error_name : "unknown");
+    printf("SSH: Additional error info: %d\n", error_code);
+
+    char error_details[512];
+    snprintf(error_details, sizeof(error_details),
+            "SSH connection failed (ret=%d, %s)", ret,
+            error_name ? error_name : "unknown error");
+    ssh_set_error(client, error_details);
+    ssh_session_teardown(client);
+    return false;
 }
 
 bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int port,
@@ -668,34 +704,7 @@ bool ssh_client_connect_start(ssh_client_t* client, const char* hostname, int po
         return false;
     }
 
-    // Attempt SSH handshake and authentication (blocking)
-    printf("SSH: Attempting connection handshake...\n");
-    int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
-
-    if (ret == WS_SUCCESS) {
-        client->state = SSH_STATE_CONNECTED;
-        printf("SSH: Connection established successfully\n");
-
-        int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh,
-                                               TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
-        if (pty_ret != WS_SUCCESS) {
-            printf("SSH: Warning - failed to set terminal size (error: %d)\n", pty_ret);
-        }
-        return true;
-    }
-
-    const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
-    int error_code = wolfSSH_get_error((WOLFSSH*)client->ssh);
-    printf("SSH: Connection failed with code %d (%s)\n", ret, error_name ? error_name : "unknown");
-    printf("SSH: Additional error info: %d\n", error_code);
-
-    char error_details[512];
-    snprintf(error_details, sizeof(error_details),
-            "SSH connection failed (ret=%d, %s)", ret,
-            error_name ? error_name : "unknown error");
-    ssh_set_error(client, error_details);
-    ssh_session_teardown(client);
-    return false;
+    return ssh_run_handshake(client);
 }
 
 bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {
