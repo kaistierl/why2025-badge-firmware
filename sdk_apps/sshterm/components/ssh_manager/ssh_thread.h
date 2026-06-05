@@ -145,4 +145,7 @@ void ssh_thread_disconnect(ssh_thread_manager_t* manager);
 // Check if SSH thread is running
 bool ssh_thread_is_running(ssh_thread_manager_t* manager);
 
+// Submit auth response to the SSH client owned by this manager (thread-safe)
+void ssh_thread_submit_auth_response(ssh_thread_manager_t* manager, const char* response);
+
 #endif /* SSH_THREAD_H */

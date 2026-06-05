@@ -157,6 +157,12 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
             case SSH_EVENT_AUTH_PROMPT: {
                 printf("SSH Manager: Authentication prompt received: %s\n", event.auth_prompt.prompt_text);
                 app->input_mode = INPUT_MODE_AUTH_PROMPT;
+                // Store prompt data in app_state so input_system can read it without
+                // calling back into ssh_manager (keeps input_system domain-agnostic).
+                strncpy(app->auth_prompt_text, event.auth_prompt.prompt_text,
+                        sizeof(app->auth_prompt_text) - 1);
+                app->auth_prompt_text[sizeof(app->auth_prompt_text) - 1] = '\0';
+                app->auth_prompt_echo = event.auth_prompt.echo_input;
                 // Clear any previous auth response
                 memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
                 ui_manager_show_auth_prompt(event.auth_prompt.prompt_text,
@@ -187,9 +193,9 @@ bool ssh_manager_submit_auth_response(app_state_t* app, const char* response) {
         return false;
     }
 
-    // Submit response directly to SSH client instance from thread manager instead of app state
-    // This is necessary because the SSH thread is blocked in the auth callback
-    ssh_client_submit_auth_response(&ssh_thread_mgr.ssh_client, response);
+    // The SSH thread is blocked in the auth callback waiting for this response.
+    // Route through ssh_thread to avoid reaching past its public interface.
+    ssh_thread_submit_auth_response(&ssh_thread_mgr, response);
 
     return true;
 }
@@ -244,14 +250,3 @@ void ssh_manager_cleanup(app_state_t* app) {
     app->ssh_connecting = false;
 }
 
-// === AUTHENTICATION PROMPT ACCESS ===
-
-const char* ssh_manager_get_auth_prompt(void) {
-    // Get prompt from the actual SSH client instance used by the thread
-    return ssh_client_get_auth_prompt(&ssh_thread_mgr.ssh_client);
-}
-
-bool ssh_manager_auth_prompt_echo(void) {
-    // Get echo setting from the actual SSH client instance used by the thread
-    return ssh_client_auth_prompt_echo(&ssh_thread_mgr.ssh_client);
-}

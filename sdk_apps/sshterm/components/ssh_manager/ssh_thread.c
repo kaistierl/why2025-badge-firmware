@@ -792,3 +792,10 @@ void ssh_thread_disconnect(ssh_thread_manager_t* manager) {
 bool ssh_thread_is_running(ssh_thread_manager_t* manager) {
     return manager && manager->thread_running;
 }
+
+void ssh_thread_submit_auth_response(ssh_thread_manager_t* manager, const char* response) {
+    if (!manager || !response) {
+        return;
+    }
+    ssh_client_submit_auth_response(&manager->ssh_client, response);
+}

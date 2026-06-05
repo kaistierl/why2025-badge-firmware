@@ -173,7 +173,7 @@ Data Flow:
 **Authentication & Connection:**
 * **Auth methods:** Password and keyboard-interactive authentication with interactive prompting
 * **Connection flow:** Multi-step user input (hostname → username → port → password) with field validation, plus dynamic auth prompt handling
-* **Host key verification:** Basic SSH host key checking (TOFU support planned)
+* **Host key verification:** Not implemented — callback unconditionally accepts all server keys. TOFU (Trust On First Use) support is planned but blocked on NVS storage.
 * **Terminal setup:** Sets terminal size to 80×39 characters via SSH protocol
 * **State management:** Event-driven coordination between blocking I/O threads and main UI thread
 
@@ -241,7 +241,7 @@ The application uses a clean component-based architecture with well-defined inte
 
 ### 7.1 Core Data Structures
 
-* **`app_state_t`:** Central application state containing SSH connection status, input mode, and connection parameters
+* **`app_state_t`:** Central application state containing SSH connection status, input mode, connection parameters, and auth prompt data (`auth_prompt_text`, `auth_prompt_echo`) populated from `SSH_EVENT_AUTH_PROMPT` so that the input system can read them without calling into `ssh_manager`
 * **`connection_input_t`:** User-entered SSH connection parameters (hostname, username, port, password)
 * **`input_field_t`:** Generic input field abstraction for unified field handling
 * **`ssh_client_t`:** SSH connection state and wolfSSH handles
@@ -274,7 +274,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ## 8. Security Implementation
 
-* **Host Key Verification:** SSH host key checking with TOFU (Trust On First Use) storage (planned)
+* **Host Key Verification:** Not implemented — all server keys accepted. TOFU storage planned.
 * **Authentication:** Password and keyboard-interactive authentication
 * **Crypto Configuration:** wolfSSL/wolfSSH optimized for embedded SSH-only environment:
   * **Key exchange:** FFDHE groups (2048, 3072, 4096-bit) for Diffie-Hellman key exchange

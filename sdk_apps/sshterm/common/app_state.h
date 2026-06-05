@@ -25,6 +25,8 @@ struct app_state {
     bool connection_succeeded;  /**< Whether the most recent connection attempt fully succeeded */
     input_mode_t input_mode;    /**< Current user input mode */
     connection_input_t connection_input; /**< User-entered connection parameters */
+    char auth_prompt_text[512]; /**< Current auth prompt text (set from SSH_EVENT_AUTH_PROMPT) */
+    bool auth_prompt_echo;      /**< Whether auth input should be echoed */
 };
 
 #endif // APP_STATE_COMMON_H

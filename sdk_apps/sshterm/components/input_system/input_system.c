@@ -1,5 +1,4 @@
 #include "input_system.h"
-#include "../ssh_manager/ssh_manager.h"
 #include "../ui_manager/ui_manager.h"
 #include "../../common/types.h"
 #include <string.h>
@@ -60,9 +59,9 @@ input_field_t input_system_get_current_field(app_state_t* app) {
                 .buffer = app->connection_input.auth_response,
                 .length = (int)strlen(app->connection_input.auth_response),
                 .max_length = sizeof(app->connection_input.auth_response) - 1,
-                .prompt = ssh_manager_get_auth_prompt(),
+                .prompt = app->auth_prompt_text,
                 .default_value = NULL,
-                .is_password = !ssh_manager_auth_prompt_echo(),
+                .is_password = !app->auth_prompt_echo,
                 .numeric_only = false
             };
             break;

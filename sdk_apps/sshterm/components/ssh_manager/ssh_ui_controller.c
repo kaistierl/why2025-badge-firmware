@@ -178,6 +178,8 @@ void ssh_ui_clear_connection_input(app_state_t* app) {
     }
 
     memset(&app->connection_input, 0, sizeof(connection_input_t));
+    app->auth_prompt_text[0] = '\0';
+    app->auth_prompt_echo = false;
     app->input_mode = INPUT_MODE_NORMAL;
     app->ssh_connecting = false;
     app->ssh_connected = false;
