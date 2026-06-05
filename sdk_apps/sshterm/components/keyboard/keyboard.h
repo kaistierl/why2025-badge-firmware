@@ -12,7 +12,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_events.h>
 #include <stdbool.h>
-#include "../term/term.h"
 
 /**
  * @brief Result of keyboard event processing

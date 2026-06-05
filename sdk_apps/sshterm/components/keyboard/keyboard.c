@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include "../term/term.h"
 #include <stdio.h>
 
 // VT100/xterm escape sequences for special keys
