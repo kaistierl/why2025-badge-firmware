@@ -347,7 +347,7 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
 
 // Startup choice parsing (was handle_startup_choice_submit in input_system)
 static void handle_startup_choice_input(app_state_t* app) {
-    int len = app->connection_input.field_lengths.startup_choice;
+    int len = (int)strlen(app->connection_input.startup_choice);
     char* input = app->connection_input.startup_choice;
     int choice = 0;
 
@@ -377,10 +377,9 @@ void app_controller_route_prompt_char(app_controller_t* controller,
     if (ch == '\r' || ch == '\n') {
         // Apply default value if field is empty
         input_field_t field = input_system_get_current_field(app_state);
-        if (field.length && *field.length == 0 && field.default_value) {
+        if (field.length == 0 && field.default_value) {
             strncpy(field.buffer, field.default_value, field.max_length);
             field.buffer[field.max_length] = '\0';
-            *field.length = strlen(field.buffer);
         }
 
         if (app_state->input_mode == INPUT_MODE_STARTUP_CHOICE) {

@@ -162,7 +162,6 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
                 app->input_mode = INPUT_MODE_AUTH_PROMPT;
                 // Clear any previous auth response
                 memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
-                app->connection_input.field_lengths.auth_response = 0;
                 ui_manager_show_auth_prompt(event.auth_prompt.prompt_text,
                                             event.auth_prompt.echo_input,
                                             !ssh_auth_header_shown);

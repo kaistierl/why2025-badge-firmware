@@ -52,6 +52,7 @@ typedef struct {
  * @brief Connection input data structure
  *
  * Contains all SSH connection parameters entered by the user.
+ * Field lengths are computed via strlen() rather than maintained separately.
  */
 typedef struct {
     char hostname[256];         /**< SSH server hostname or IP address */
@@ -59,17 +60,6 @@ typedef struct {
     char port_str[16];          /**< SSH port as string (default: "22") */
     char startup_choice[16];    /**< User's startup menu choice */
     char auth_response[512];    /**< Dynamic authentication response */
-
-    /**
-     * @brief Field length tracking for input validation
-     */
-    struct {
-        int hostname;           /**< Current length of hostname field */
-        int username;           /**< Current length of username field */
-        int port;               /**< Current length of port field */
-        int startup_choice;     /**< Current length of startup choice field */
-        int auth_response;      /**< Current length of auth response field */
-    } field_lengths;
 } connection_input_t;
 
 /**
@@ -80,7 +70,7 @@ typedef struct {
  */
 typedef struct {
     char* buffer;               /**< Pointer to the field's data buffer */
-    int* length;                /**< Pointer to the field's current length */
+    int length;                 /**< Current length (strlen of buffer) */
     size_t max_length;          /**< Maximum allowed length for this field */
     const char* prompt;         /**< Prompt text to display for this field */
     const char* default_value;  /**< Default value to use if field is empty */

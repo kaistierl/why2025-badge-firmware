@@ -166,8 +166,8 @@ void ui_manager_display_field_prompt(input_field_t field) {
     // Show field content (masked if password)
     if (field.is_password) {
         char password_display[256];
-        int safe_len = (*field.length < (int)sizeof(password_display) - 1) ?
-                      *field.length : (int)sizeof(password_display) - 1;
+        int safe_len = (field.length < (int)sizeof(password_display) - 1) ?
+                      field.length : (int)sizeof(password_display) - 1;
         for (int i = 0; i < safe_len; i++) {
             password_display[i] = '*';
         }

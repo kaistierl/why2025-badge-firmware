@@ -44,14 +44,10 @@ void ssh_ui_progress_to_next_field(app_state_t* app) {
     switch (app->input_mode) {
         case INPUT_MODE_HOSTNAME:
             app->input_mode = INPUT_MODE_PORT;
-            // Initialize port field length from existing content
-            app->connection_input.field_lengths.port = strlen(app->connection_input.port_str);
             break;
 
         case INPUT_MODE_PORT:
             app->input_mode = INPUT_MODE_USERNAME;
-            // Initialize username field length from existing content
-            app->connection_input.field_lengths.username = strlen(app->connection_input.username);
             break;
 
         case INPUT_MODE_USERNAME:
@@ -84,11 +80,10 @@ void ssh_ui_apply_field_defaults(app_state_t* app, input_mode_t field_mode) {
 
     switch (field_mode) {
         case INPUT_MODE_PORT:
-            if (app->connection_input.field_lengths.port == 0) {
+            if (strlen(app->connection_input.port_str) == 0) {
                 strncpy(app->connection_input.port_str, "22",
                        sizeof(app->connection_input.port_str) - 1);
                 app->connection_input.port_str[sizeof(app->connection_input.port_str) - 1] = '\0';
-                app->connection_input.field_lengths.port = strlen(app->connection_input.port_str);
             }
             break;
 
@@ -140,7 +135,6 @@ app_result_t ssh_ui_handle_auth_submit(app_state_t* app) {
     if (success) {
         // Clear the auth response buffer for security
         memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
-        app->connection_input.field_lengths.auth_response = 0;
 
         // Show feedback that response was submitted
         term_input_string("\r\n\x1b[90mResponse submitted...\x1b[0m\r\n");
@@ -208,12 +202,12 @@ app_result_t ssh_ui_attempt_connection(app_state_t* app) {
     }
 
     // Validate required fields (hostname, username, port)
-    if (app->connection_input.field_lengths.hostname == 0) {
+    if (strlen(app->connection_input.hostname) == 0) {
         ui_manager_show_validation_error("Hostname cannot be empty!");
         return APP_RESULT_RETRY;
     }
 
-    if (app->connection_input.field_lengths.username == 0) {
+    if (strlen(app->connection_input.username) == 0) {
         ui_manager_show_validation_error("Username cannot be empty!");
         return APP_RESULT_RETRY;
     }
