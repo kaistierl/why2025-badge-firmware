@@ -14,9 +14,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-// Forward declaration for internal helper
-static void ssh_ui_display_disconnect_prompt_internal(app_state_t* app);
-
 void ssh_ui_start_connection_sequence(app_state_t* app) {
     if (!app) {
         return;
@@ -228,18 +225,10 @@ app_result_t ssh_ui_attempt_connection(app_state_t* app) {
 }
 
 void ssh_ui_display_disconnect_prompt(app_state_t* app) {
-    ssh_ui_display_disconnect_prompt_internal(app);
-}
-
-// Internal helper function
-static void ssh_ui_display_disconnect_prompt_internal(app_state_t* app) {
     if (!app) {
         return;
     }
 
-    // Switch to disconnect prompt mode
     app->input_mode = INPUT_MODE_DISCONNECT_PROMPT;
-
-    // Show the prompt
     ui_manager_display_current_prompt(app);
 }
