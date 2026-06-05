@@ -29,6 +29,7 @@ static void app_controller_cleanup_system(app_controller_t* controller);
 static bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app_state);
 static bool app_controller_handle_sdl_event(app_controller_t* controller, app_state_t* app_state, const SDL_Event* event, bool* should_quit);
 static void app_controller_route_prompt_char(app_controller_t* controller, app_state_t* app_state, char ch);
+static void handle_startup_choice_input(app_state_t* app);
 
 // Application controller lifecycle
 bool app_controller_init(app_controller_t** controller) {
@@ -282,7 +283,7 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                     // Connected to SSH - fall through to pass ESC to terminal
                 } else {
                     // In prompt modes - handle ESC to cancel/go back
-                    input_system_handle_escape_key(app_state);
+                    app_controller_handle_escape_key(app_state);
                     break;
                 }
             }
@@ -344,7 +345,28 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
     return true;
 }
 
-// Input routing - simplified to delegate everything to input system
+// Startup choice parsing (was handle_startup_choice_submit in input_system)
+static void handle_startup_choice_input(app_state_t* app) {
+    int len = app->connection_input.field_lengths.startup_choice;
+    char* input = app->connection_input.startup_choice;
+    int choice = 0;
+
+    if (len == 1 && input[0] >= '1' && input[0] <= '2') {
+        choice = input[0] - '0';
+    } else if (len >= 3) {
+        if (strncmp(input, "test", 4) == 0) {
+            choice = 2;
+        } else if (strncmp(input, "ssh", 3) == 0) {
+            choice = 1;
+        }
+    }
+
+    if (choice > 0) {
+        app_controller_handle_startup_choice(app, choice);
+    }
+}
+
+// Input routing
 void app_controller_route_prompt_char(app_controller_t* controller,
                                      app_state_t* app_state,
                                      char ch) {
@@ -352,13 +374,23 @@ void app_controller_route_prompt_char(app_controller_t* controller,
         return;
     }
 
-    // Handle Enter key
     if (ch == '\r' || ch == '\n') {
-        input_system_handle_enter(app_state);
+        // Apply default value if field is empty
+        input_field_t field = input_system_get_current_field(app_state);
+        if (field.length && *field.length == 0 && field.default_value) {
+            strncpy(field.buffer, field.default_value, field.max_length);
+            field.buffer[field.max_length] = '\0';
+            *field.length = strlen(field.buffer);
+        }
+
+        if (app_state->input_mode == INPUT_MODE_STARTUP_CHOICE) {
+            handle_startup_choice_input(app_state);
+        } else {
+            app_controller_handle_field_submit(app_state, app_state->input_mode);
+        }
         return;
     }
 
-    // Handle other input
     input_system_handle_char(app_state, ch);
 }
 
@@ -371,8 +403,13 @@ static void term_write_callback(const uint8_t* data, size_t len, void* user) {
         return;
     }
 
-    // Delegate all terminal output handling to input_system
-    input_system_handle_terminal_output(app, data, len);
+    // Only forward keyboard output to SSH in normal (connected) mode;
+    // prompt modes handle their own input via SDL events.
+    if (app->input_mode != INPUT_MODE_NORMAL) {
+        return;
+    }
+
+    app_controller_handle_terminal_output(app, data, len);
 }
 
 void app_controller_return_to_startup(app_state_t* app) {
