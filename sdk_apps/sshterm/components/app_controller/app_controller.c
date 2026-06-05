@@ -416,10 +416,9 @@ void app_controller_return_to_startup(app_state_t* app) {
         return;
     }
 
-    // Clear connection state before showing startup menu
     ssh_ui_clear_connection_input(app);
-
-    ui_manager_show_startup_menu(app);
+    app->input_mode = INPUT_MODE_STARTUP_CHOICE;
+    ui_manager_show_startup_menu();
 }
 
 void app_controller_handle_startup_choice(app_state_t* app, int choice) {

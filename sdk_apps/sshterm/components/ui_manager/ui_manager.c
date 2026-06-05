@@ -40,33 +40,15 @@ void ui_manager_show_header(const char* title) {
 #define SSHTERM_GIT_COMMIT "unknown"
 #endif
 
-void ui_manager_show_startup_menu(app_state_t* app) {
-    if (!app) {
-        return;
-    }
-
-    // Clear screen and show startup menu
+void ui_manager_show_startup_menu(void) {
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Terminal Application");
 
     term_input_string("\x1b[90mVersion: " SSHTERM_GIT_COMMIT "\x1b[0m\r\n\r\n");
-
-    const char* options = "Choose mode:\r\n";
-    term_input_string(options);
-
-    const char* test_option = "  \x1b[33mtest\x1b[0m - Terminal test mode (colors, features)\r\n";
-    term_input_string(test_option);
-
-    const char* ssh_option = "  \x1b[33mssh\x1b[0m  - SSH connection mode\r\n\r\n";
-    term_input_string(ssh_option);
-
-    const char* quit_info = "Press Ctrl+Q to quit the application\r\n\r\n";
-    term_input_string(quit_info);
-
-    // Set input mode and display prompt
-    app->input_mode = INPUT_MODE_STARTUP_CHOICE;
-
-    // Show startup prompt
+    term_input_string("Choose mode:\r\n");
+    term_input_string("  \x1b[33mtest\x1b[0m - Terminal test mode (colors, features)\r\n");
+    term_input_string("  \x1b[33mssh\x1b[0m  - SSH connection mode\r\n\r\n");
+    term_input_string("Press Ctrl+Q to quit the application\r\n\r\n");
     term_input_string("\r\nChoice: ");
 }
 
@@ -84,12 +66,9 @@ void ui_manager_show_ssh_connection_setup(app_state_t* app) {
         return;
     }
 
-    // Clear screen and show SSH setup
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Connection Setup");
 
-    // Set initial input mode and display prompt
-    app->input_mode = INPUT_MODE_HOSTNAME;
     input_field_t field = input_system_get_current_field(app);
     ui_manager_display_field_prompt(field);
 }

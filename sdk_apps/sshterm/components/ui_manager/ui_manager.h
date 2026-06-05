@@ -35,10 +35,8 @@ void ui_manager_shutdown(void);
  * @brief Display the application startup menu
  *
  * Shows the main menu allowing user to choose between SSH mode and test mode.
- *
- * @param app Application state
  */
-void ui_manager_show_startup_menu(app_state_t* app);
+void ui_manager_show_startup_menu(void);
 
 /**
  * @brief Display WiFi connection screen
