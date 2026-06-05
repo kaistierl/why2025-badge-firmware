@@ -137,13 +137,8 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
                 printf("SSH Manager: Connection failed: %s\n", event.error.message);
                 ui_manager_show_connection_error(event.error.message);
                 app->ssh_connecting = false;
-
-                // Clear any auth prompt state that might be lingering
                 app->input_mode = INPUT_MODE_DISCONNECT_PROMPT;
-
-                // Show disconnect prompt after error
-                const char* retry_prompt = "Press Enter to try connecting again...";
-                term_input_string(retry_prompt);
+                ui_manager_show_retry_prompt();
                 break;
             }
 
@@ -215,13 +210,8 @@ static void ssh_manager_handle_disconnect(app_state_t* app, const char* message,
     // Output to console
     printf("%s\n", message);
 
-    // Show in terminal if requested
     if (show_in_terminal) {
-        term_input_string("\r\n");
-        term_input_string(message);
-        if (message[strlen(message) - 1] != '\n') {
-            term_input_string("\r\n");
-        }
+        ui_manager_show_disconnect_message(message);
     }
 
     // Cleanup

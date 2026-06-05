@@ -80,6 +80,26 @@ void ui_manager_show_test_mode_message(void);
  */
 void ui_manager_show_help_message(void);
 
+// === SSH SESSION STATUS MESSAGES ===
+
+/**
+ * @brief Show session disconnection message
+ *
+ * Displays the reason for disconnection. Adds surrounding newlines for
+ * consistent formatting.
+ *
+ * @param message Disconnection reason (must not be NULL)
+ */
+void ui_manager_show_disconnect_message(const char* message);
+
+/**
+ * @brief Show prompt to retry a failed connection attempt
+ *
+ * Displayed after a connection failure to invite the user to press Enter
+ * and try again.
+ */
+void ui_manager_show_retry_prompt(void);
+
 // === SSH CONNECTION STATUS MESSAGES ===
 
 /**

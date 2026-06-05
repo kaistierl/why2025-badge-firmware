@@ -85,6 +85,21 @@ void ui_manager_show_help_message(void) {
     term_input_string("\r\n\x1b[33mPlease choose 'test' or 'ssh' to continue.\x1b[0m\r\n");
 }
 
+void ui_manager_show_disconnect_message(const char* message) {
+    if (!message) {
+        return;
+    }
+    term_input_string("\r\n");
+    term_input_string(message);
+    if (message[strlen(message) - 1] != '\n') {
+        term_input_string("\r\n");
+    }
+}
+
+void ui_manager_show_retry_prompt(void) {
+    term_input_string("Press Enter to try connecting again...");
+}
+
 void ui_manager_show_connecting_message(void) {
     term_input_string("\r\n\x1b[33mConnecting...\x1b[0m\r\n");
     // render immediately
