@@ -270,6 +270,23 @@ static void ssh_thread_main(void* data) {
                                    sizeof(event.connected.username) - 1);
                         } else {
                             printf("SSH Main Thread: Failed to start I/O threads\n");
+
+                            // A thread that was never created will never set its _complete flag.
+                            // Mark it done preemptively so wait_for_io_threads doesn't block on it.
+                            SDL_LockMutex(manager->state_mutex);
+                            manager->thread_args.quit = true;
+                            if (manager->read_input_thread_id <= 0)
+                                manager->input_thread_complete = true;
+                            if (manager->read_peer_thread_id <= 0)
+                                manager->peer_thread_complete = true;
+                            SDL_UnlockMutex(manager->state_mutex);
+
+                            wait_for_io_threads(manager, 2000);
+                            ssh_client_cleanup(&manager->ssh_client);
+                            ssh_connected = false;
+                            manager->read_input_thread_id = 0;
+                            manager->read_peer_thread_id = 0;
+
                             event.type = SSH_EVENT_ERROR;
                             snprintf(event.error.message, sizeof(event.error.message),
                                     "Failed to start I/O threads");
