@@ -111,8 +111,8 @@ idf.py build flash monitor
 | Connection management | Done |
 | Local + hardware builds | Done |
 | BadgeVMS integration | Done |
-| SSH keyboard-interactive auth | In progress |
-| UI/UX improvements | In progress |
+| SSH keyboard-interactive auth | Done |
+| UI/UX improvements | Done |
 | Hardware RNG (needs BadgeVMS update) | Blocked |
 | Host key verification / TOFU | Not started |
 | Public key auth | Not started |
