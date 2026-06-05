@@ -17,7 +17,7 @@ Read `ARCHITECTURE.md` before making any non-trivial change. It is the authorita
 ```
 sdk_apps/sshterm/
 ├── badgevms_stubs/     # BadgeVMS API stubs for local (host) builds
-├── common/             # Central app state: app_state.h
+├── common/             # Central app state: app_state.h, types.h
 ├── components/
 │   ├── app_controller/ # Application lifecycle, main event loop
 │   ├── common/         # Shared config (terminal_config.h) and data structures
@@ -26,12 +26,18 @@ sdk_apps/sshterm/
 │   ├── renderer/       # Low-level SDL3 rendering (80×39 grid, Leggie 9×18 font)
 │   ├── ssh_client/     # wolfSSH/wolfSSL low-level SSH protocol wrapper
 │   ├── ssh_manager/    # High-level SSH connection lifecycle
+│   │   ├── ssh_manager.c/.h        # Connection state management
+│   │   ├── ssh_thread.c/.h         # Worker thread coordination
+│   │   ├── ssh_ui_controller.c/.h  # SSH UI flow logic
+│   │   └── ssh_config.h            # Centralized SSH constants
 │   ├── term/           # VT100/xterm emulation via libvterm
 │   ├── test_mode/      # Terminal testing without a live SSH connection
 │   └── ui_manager/     # Pure presentation layer
-├── sys/                # BadgeVMS System API wrappers
+├── sys/                # POSIX compatibility stubs (socket.h, ioctl.h) for BadgeVMS
+├── storage_skel/       # Placeholder for future NVS/flash storage (host key store etc.)
 ├── thirdparty/         # Vendored: libvterm, wolfSSH, wolfSSL (with full source)
 ├── main.c              # Entry point and BadgeVMS integration
+├── manifest.json       # BadgeVMS app manifest
 ├── CMakeLists.txt      # Local (host) build configuration
 └── ARCHITECTURE.md
 ```
