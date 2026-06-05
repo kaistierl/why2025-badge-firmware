@@ -12,7 +12,81 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include "../../common/types.h"
+#include <stdint.h>
+
+// === SSH-SPECIFIC TYPE DEFINITIONS ===
+// These types are private to the SSH subsystem (ssh_client/ and ssh_manager/).
+// They live here rather than common/types.h so they do not pollute the
+// compilation units of unrelated components.
+
+typedef enum {
+    AUTH_METHOD_PASSWORD,
+    AUTH_METHOD_KEYBOARD_INTERACTIVE
+} auth_method_t;
+
+typedef struct {
+    auth_method_t method;
+    char prompt_text[512];
+    bool echo_input;
+    bool response_ready;
+    char current_response[512];
+} auth_prompt_t;
+
+typedef enum {
+    SSH_ERR_NONE = 0,
+    SSH_ERR_INVALID_PARAM,
+    SSH_ERR_MUTEX_FAILED,
+    SSH_ERR_WOLFSSL_INIT,
+    SSH_ERR_RNG_FAILED,
+    SSH_ERR_WOLFSSH_INIT,
+    SSH_ERR_CONTEXT_FAILED,
+    SSH_ERR_SESSION_FAILED,
+    SSH_ERR_SOCKET_FAILED,
+    SSH_ERR_HANDSHAKE_FAILED,
+    SSH_ERR_SEND_FAILED,
+    SSH_ERR_RECV_FAILED,
+} ssh_error_code_t;
+
+typedef enum {
+    SSH_STATE_DISCONNECTED,
+    SSH_STATE_SOCKET_CONNECTING,
+    SSH_STATE_SSH_HANDSHAKING,
+    SSH_STATE_AUTHENTICATING,
+    SSH_STATE_CONNECTED,
+    SSH_STATE_ERROR
+} ssh_state_t;
+
+// Forward declaration for SDL mutex (avoids pulling SDL3 headers into this interface)
+typedef struct SDL_Mutex SDL_Mutex;
+
+typedef struct ssh_client {
+    char hostname[256];
+    int port;
+    const char* username;
+    ssh_state_t state;
+    char error_msg[256];
+    ssh_error_code_t last_error_code;
+    auth_prompt_t auth_prompt;
+
+    void* ctx;           /**< WOLFSSH_CTX* (opaque) */
+    void* ssh;           /**< WOLFSSH*     (opaque) */
+    int socket_fd;
+
+    struct {
+        char stored_password[512];
+        char stored_username[256];
+        char auth_response_buffer[512];
+        volatile bool auth_response_ready;
+        volatile bool auth_input_needed;
+        volatile bool auth_in_progress;
+        int password_retry_count;
+        void* auth_event_callback;  /**< auth_event_callback_t function pointer */
+        void* auth_state_mutex;     /**< SDL_Mutex* */
+    } auth_state;
+
+    bool is_initialized;
+    uint32_t magic_number;  /**< 0xDEADBEEF when valid */
+} ssh_client_t;
 
 // Memory safety constants
 #define SSH_CLIENT_MAGIC_NUMBER 0xDEADBEEF
@@ -21,9 +95,6 @@
 
 /** Error message buffer size for local formatting in ssh_client.c */
 #define SSH_ERROR_MSG_LEN 256
-
-// Forward declarations for opaque SDL types (to avoid including SDL3 in header)
-typedef struct SDL_Mutex SDL_Mutex;
 
 /**
  * Initialize SSH client

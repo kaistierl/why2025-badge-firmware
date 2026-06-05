@@ -244,7 +244,7 @@ The application uses a clean component-based architecture with well-defined inte
 * **`app_state_t`:** Central application state containing SSH connection status, input mode, connection parameters, and auth prompt data (`auth_prompt_text`, `auth_prompt_echo`) populated from `SSH_EVENT_AUTH_PROMPT` so that the input system can read them without calling into `ssh_manager`
 * **`connection_input_t`:** User-entered SSH connection parameters (hostname, username, port, password)
 * **`input_field_t`:** Generic input field abstraction for unified field handling
-* **`ssh_client_t`:** SSH connection state and wolfSSH handles
+* **`ssh_client_t`, `ssh_state_t`, `ssh_error_code_t`, `auth_prompt_t`, `auth_method_t`:** SSH subsystem types defined in `components/ssh_client/ssh_client.h`. They are private to `ssh_client/` and `ssh_manager/`; `common/types.h` deliberately does not expose them.
 
 ### 7.2 Interface Contracts
 
