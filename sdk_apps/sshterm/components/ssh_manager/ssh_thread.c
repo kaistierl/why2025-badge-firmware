@@ -70,10 +70,15 @@ static void read_input_thread(void* arg) {
                     queue_put_event(args->manager, &event);
                 }
             }
+        } else {
+            // Block until a command is enqueued or the quit-check timeout fires.
+            SDL_LockMutex(args->manager->cmd_queue_mutex);
+            if (args->manager->cmd_queue_count == 0) {
+                SDL_WaitConditionTimeout(args->manager->cmd_cond,
+                                         args->manager->cmd_queue_mutex, 100);
+            }
+            SDL_UnlockMutex(args->manager->cmd_queue_mutex);
         }
-
-        // Small delay to prevent busy waiting
-        usleep(SSH_THREAD_POLL_INTERVAL); // 50ms
     }
 
     // Signal thread completion
@@ -355,8 +360,13 @@ static void ssh_thread_main(void* data) {
             }
         }
 
-        // Small delay to prevent busy loop
-        usleep(SSH_THREAD_POLL_INTERVAL); // 50ms
+        // Block until a command arrives or the quit-check timeout fires.
+        SDL_LockMutex(manager->cmd_queue_mutex);
+        if (manager->cmd_queue_count == 0) {
+            SDL_WaitConditionTimeout(manager->cmd_cond,
+                                     manager->cmd_queue_mutex, 100);
+        }
+        SDL_UnlockMutex(manager->cmd_queue_mutex);
     }
 
     printf("SSH Thread: Main thread exiting\n");
@@ -407,6 +417,7 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
     manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_QUEUE_SIZE;
     manager->cmd_queue_count++;
 
+    SDL_SignalCondition(manager->cmd_cond);
     SDL_UnlockMutex(manager->cmd_queue_mutex);
     return true;
 }
@@ -609,6 +620,20 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
+    manager->cmd_cond = SDL_CreateCondition();
+    if (!manager->cmd_cond) {
+        printf("SSH Thread Init: Failed to create command condition: %s\n", SDL_GetError());
+        SDL_DestroyCondition(manager->state_cond);
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->state_cond = NULL;
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        manager->state_mutex = NULL;
+        return false;
+    }
+
     // Set auth manager reference with mutex protection
     if (g_auth_manager_mutex) {
         SDL_LockMutex(g_auth_manager_mutex);
@@ -620,10 +645,13 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     if (manager->ssh_thread_id <= 0) {
         printf("SSH Thread Init: Failed to create thread (invalid pid)\n");
-        // Cleanup mutexes on thread creation failure
+        SDL_DestroyCondition(manager->cmd_cond);
+        SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         SDL_DestroyMutex(manager->event_queue_mutex);
         SDL_DestroyMutex(manager->state_mutex);
+        manager->cmd_cond = NULL;
+        manager->state_cond = NULL;
         manager->cmd_queue_mutex = NULL;
         manager->event_queue_mutex = NULL;
         manager->state_mutex = NULL;
@@ -710,7 +738,11 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     manager->worker_ready = false;
     SDL_UnlockMutex(manager->state_mutex);
 
-    // Cleanup mutexes and condition variable
+    // Cleanup mutexes and condition variables
+    if (manager->cmd_cond) {
+        SDL_DestroyCondition(manager->cmd_cond);
+        manager->cmd_cond = NULL;
+    }
     if (manager->cmd_queue_mutex) {
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         manager->cmd_queue_mutex = NULL;

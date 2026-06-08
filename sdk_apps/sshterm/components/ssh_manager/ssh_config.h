@@ -56,13 +56,5 @@
 /** SSH I/O thread stack size */
 #define SSH_IO_THREAD_STACK     16384
 
-/** Thread startup delay in microseconds */
-#define SSH_THREAD_STARTUP_DELAY 50000
-
-/** Thread shutdown wait time in microseconds */
-#define SSH_THREAD_SHUTDOWN_WAIT 100000
-
-/** Thread polling interval in microseconds */
-#define SSH_THREAD_POLL_INTERVAL 50000
 
 #endif // SSH_CONFIG_H
