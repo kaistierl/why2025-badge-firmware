@@ -1,13 +1,23 @@
-/* sys/ioctl.h wrapper for badge environment */
+/* sys/ioctl.h wrapper for badge environment
+ *
+ * wolfSSH's io.c includes <sys/ioctl.h> for the FIONBIO symbol at compile
+ * time. This header satisfies that include on BadgeVMS where no system
+ * ioctl.h exists.
+ *
+ * At runtime the stub is never called: WOLFSSH_USER_IO (set in
+ * user_settings.h) makes wolfSSH use the custom I/O callbacks in
+ * custom_io.c instead of its default socket I/O, so the code path that
+ * would call ioctl(fd, FIONBIO, ...) to set non-blocking mode is never
+ * compiled into the active build. The stub exists purely to prevent a
+ * missing-symbol link error if that assumption ever changes.
+ */
 #ifndef _SYS_IOCTL_H
 #define _SYS_IOCTL_H
 
-/* Badge environment doesn't support ioctl, but wolfSSH expects these */
 #define FIONBIO 0x5421
 
-/* Minimal ioctl function stub */
 static inline int ioctl(int fd, unsigned long request, ...) {
-    /* Always return success for FIONBIO (non-blocking IO), fail for others */
+    (void)fd;
     if (request == FIONBIO) {
         return 0;
     }
