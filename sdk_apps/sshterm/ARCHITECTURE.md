@@ -75,7 +75,7 @@ Data Flow:
 • UI Manager → Terminal → Renderer (menus, prompts, status messages)
 ```
 
-**Concurrency model:** **Hybrid threading with blocking I/O:** Main UI thread + SSH thread + dedicated I/O worker threads using traditional blocking sockets. Initially a Single-threaded event loop (SDL events + non-blocking SSH I/O) was planned, but this never worked well with BadgeVMS.
+**Concurrency model:** **Hybrid threading with blocking I/O:** Main UI thread + SSH thread + dedicated I/O worker threads using traditional blocking sockets. Initially a Single-threaded event loop (SDL events + non-blocking SSH I/O) was planned and attempted, but it cannot work on BadgeVMS: the platform's lwIP socket layer does not support non-blocking mode — `ioctl(fd, FIONBIO, ...)` is silently a no-op (see `sys/ioctl.h`), so sockets always block regardless of what the caller requests. Any future attempt to introduce `select()`/`poll()` or `O_NONBLOCK` will hit the same wall until BadgeVMS exposes these primitives. The three-thread design (SSH coordination + inbound I/O + outbound I/O) is the minimal correct solution given this constraint.
 
 **Component Architecture:** Clean separation with well-defined interfaces:
 - **App Controller:** Main application lifecycle and component coordination
@@ -157,11 +157,12 @@ Data Flow:
 * **Configuration:** Centralized SSH configuration constants in `ssh_config.h`
 
 **Socket & I/O Architecture:**
-* **Socket mode:** Traditional blocking TCP sockets (no select/poll for BadgeVMS compatibility)
-* **Threading strategy:** Main SSH thread + separate input/output worker threads for concurrent I/O
+* **Socket mode:** Traditional blocking TCP sockets (no select/poll — BadgeVMS/lwIP does not support non-blocking sockets; see concurrency model note in §2)
+* **Threading strategy:** Main SSH thread + separate input/output worker threads for concurrent I/O; threads communicate via SDL-mutex-protected circular queues with a condition variable (`cmd_cond`) for zero-latency wake-up on new commands
 * **Custom I/O:** wolfSSH configured with `WOLFSSH_USER_IO` using blocking read/write system calls
 * **I/O callbacks:** `custom_io.c` provides `wolfssh_io_recv()`/`wolfssh_io_send()` with direct read/write
 * **Error handling:** Socket errors and connection drops handled through blocking I/O return codes
+* **Critical invariant:** `WOLFSSH_USER_IO` **must remain set** in `user_settings.h`. wolfSSH's default I/O path calls `ioctl(fd, FIONBIO, ...)` to set non-blocking mode; on BadgeVMS that call is a no-op stub (`sys/ioctl.h`). While harmless when the custom I/O path is active, removing `WOLFSSH_USER_IO` would re-enable the default path, causing wolfSSH to believe the socket is non-blocking while it is actually blocking — resulting in silent hangs.
 
 **wolfSSL/wolfSSH Integration:**
 * **Build config:** Custom `user_settings.h` optimized for SSH-only, single-threaded BadgeVMS environment
@@ -225,7 +226,37 @@ Data Flow:
 
 ---
 
-## 6. Storage & Configuration
+## 6. BadgeVMS Integration Boundary
+
+The application's coupling to BadgeVMS is intentionally narrow. All
+BadgeVMS-specific calls are isolated to individual components, making the
+integration surface easy to audit and update when the upstream API changes.
+
+### 6.1 Active BadgeVMS API calls
+
+| API | Header | Call site | Local stub |
+|---|---|---|---|
+| `wifi_connect()` | `<badgevms/wifi.h>` | `app_controller.c` — called once at startup | Always returns `true` |
+| `thread_create(entry, data, stack)` | `<badgevms/process.h>` | `ssh_thread.c` — spawns SSH main thread and two I/O workers | Wraps `pthread_create` (detached) |
+
+Everything else runs through **SDL3**, which BadgeVMS provides as its hardware abstraction layer (display, events, mutexes, conditions). On local builds the host SDL3 library is used directly; on hardware BadgeVMS supplies it.
+
+The app is registered with BadgeVMS via `manifest.json` (`unique_identifier`, `binary_path`, etc.).
+
+### 6.2 POSIX compatibility shims (`sys/`)
+
+BadgeVMS's SDK headers (picolibc/newlib) have two gaps that require thin wrappers injected earlier in the include path:
+
+* **`sys/socket.h`** — the SDK's `sys/socket.h` does not pull in `<netinet/in.h>` on its own, leaving `struct sockaddr_in` and `AF_*` undefined. The wrapper includes `<netinet/in.h>` first, then chains to the real header via `#include_next`.
+* **`sys/ioctl.h`** — provides the `FIONBIO` symbol and a stub `ioctl()` function so that wolfSSH's `io.c` compiles without errors. At runtime the stub is never called because `WOLFSSH_USER_IO` keeps wolfSSH on the custom I/O path (see §5.4 invariant note).
+
+### 6.3 Planned future integration
+
+When NVS/flash storage is implemented (TODO items #3, #8, #10), it will add a third BadgeVMS API surface. That integration should follow the same isolation pattern: one new component (`storage/`) with `#ifndef SSHTERM_LOCAL_BUILD` guards around all flash calls and a POSIX-file-backed stub for local builds.
+
+---
+
+## 8. Storage & Configuration
 
 * **Current implementation:** No persistent storage implemented yet
 * **Planned storage:** `known_hosts` file in OpenSSH format for host key verification
@@ -235,7 +266,7 @@ Data Flow:
 
 ---
 
-## 7. Component Interfaces & Data Flow
+## 9. Component Interfaces & Data Flow
 
 The application uses a clean component-based architecture with well-defined interfaces:
 
@@ -272,7 +303,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ---
 
-## 8. Security Implementation
+## 10. Security Implementation
 
 * **Host Key Verification:** Not implemented — all server keys accepted. TOFU storage planned.
 * **Authentication:** Password and keyboard-interactive authentication
@@ -291,7 +322,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ---
 
-## 9. Build Structure & Dependencies
+## 11. Build Structure & Dependencies
 
 ```
 /sdk_apps/sshterm/
@@ -335,7 +366,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ---
 
-## 10. Error Handling & Recovery
+## 12. Error Handling & Recovery
 
 * **Connection Errors:** Comprehensive error reporting through threaded event system with specific failure reasons
 * **Network Issues:** Graceful handling of blocking socket errors and connection drops via thread communication
@@ -348,7 +379,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ---
 
-## 11. Current Implementation Status
+## 13. Current Implementation Status
 
 ### ✅ **Fully Implemented and Working**
 
@@ -386,7 +417,7 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ---
 
-## 12. Performance Characteristics
+## 14. Performance Characteristics
 
 * **Rendering Performance:** Dirty-flag optimization ensures only changed areas are redrawn
 * **Memory Usage:** Fixed 80×39 character grid (~12KB for screen buffer)
@@ -399,6 +430,6 @@ All interfaces are documented in their respective header files (`*.h`) with comp
 
 ---
 
-## 13. Licensing
+## 15. Licensing
 
 This application is licensed under GPLv3. See `LICENSE` in this directory for the summary and the repository root `COPYING` for the full license text. Third-party components and required attributions (including the Leggie font, libvterm, wolfSSH, wolfSSL, and SDL3) are listed in `THIRD_PARTY_NOTICES.md`.

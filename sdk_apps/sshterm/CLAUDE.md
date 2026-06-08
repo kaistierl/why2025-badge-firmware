@@ -33,7 +33,7 @@ sdk_apps/sshterm/
 │   ├── term/           # VT100/xterm emulation via libvterm
 │   ├── test_mode/      # Terminal testing without a live SSH connection
 │   └── ui_manager/     # Pure presentation layer
-├── sys/                # POSIX compatibility stubs (socket.h, ioctl.h) for BadgeVMS
+├── sys/                # Header shims injected before the SDK headers (see below)
 ├── storage_skel/       # Placeholder for future NVS/flash storage (host key store etc.)
 ├── thirdparty/         # Vendored: libvterm, wolfSSH, wolfSSL (with full source)
 ├── main.c              # Entry point and BadgeVMS integration
@@ -44,7 +44,9 @@ sdk_apps/sshterm/
 
 ### Key Design Decisions
 
-- **Blocking I/O + threads**: async I/O did not work reliably on BadgeVMS; the SSH worker thread system must not be bypassed.
+- **Blocking I/O + threads**: BadgeVMS/lwIP does not support non-blocking sockets — `ioctl(FIONBIO)` is a no-op. Async I/O is therefore impossible on hardware. The three-thread design (SSH coordinator + inbound I/O + outbound I/O) is the correct solution. Do not attempt to replace it with select/poll/epoll.
+- **`WOLFSSH_USER_IO` must stay set** in `user_settings.h`. It routes wolfSSH through `custom_io.c` and away from the default I/O path that calls `ioctl(FIONBIO)`. Removing it would cause silent hangs on hardware.
+- **`sys/` shims**: `sys/socket.h` patches a missing `#include <netinet/in.h>` in the SDK's socket header; `sys/ioctl.h` provides the `FIONBIO` symbol and a stub `ioctl()` so wolfSSH compiles. Both are injected early in the include path — do not reorder include directories.
 - **libvterm** for VT100 emulation with a custom renderer.
 - **Component isolation**: each component owns a single responsibility; cross-component calls go through public header interfaces only.
 - **Dual build**: code must compile both for host (macOS/Linux + SDL3, `SSHTERM_LOCAL_BUILD` defined) and for the ESP32-P4 hardware via ESP-IDF.
@@ -96,9 +98,9 @@ idf.py build flash monitor
 - Keep component interfaces (public headers) minimal and well-defined.
 - Update `ARCHITECTURE.md` for any architectural change.
 
-### Working files — never commit
+### Working files
 
-- `TODO.md` — living log of open issues and implementation status. Read it at the start of a session; update it as work lands. **Never stage or commit it.**
+- `TODO.md` — living log of open issues and implementation status. Read it at the start of a session; update it as work lands.
 
 ### Testing
 
