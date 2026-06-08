@@ -182,8 +182,11 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
 
     // Show WiFi connection screen and connect
     ui_manager_show_wifi_connecting();
-    wifi_connect();
-    printf("Connected to WiFi\n");
+    if (!wifi_connect()) {
+        fprintf(stderr, "WiFi connection failed\n");
+        ui_manager_show_connection_error("WiFi connection failed - SSH will not work");
+        SDL_Delay(2000);
+    }
 
     // Display startup mode selection prompt
     app_controller_return_to_startup(app_state);
