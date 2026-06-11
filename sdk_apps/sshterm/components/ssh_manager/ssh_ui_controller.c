@@ -48,25 +48,22 @@ void ssh_ui_progress_to_next_field(app_state_t* app) {
             break;
 
         case INPUT_MODE_USERNAME:
-            // Skip password input and attempt connection directly
-            // Authentication will be handled dynamically during connection
-
-            // Change mode to normal before attempting connection to prevent
-            // the username prompt from reappearing
             app->input_mode = INPUT_MODE_NORMAL;
-
-            ssh_ui_attempt_connection(app);
-            break;
+            if (ssh_ui_attempt_connection(app) != APP_RESULT_SUCCESS && !app->ssh_connecting) {
+                // Thread-level failure starting the connection — show disconnect/retry prompt
+                // so the user isn't stranded in INPUT_MODE_NORMAL with no way forward.
+                app->connection_succeeded = false;
+                ssh_ui_display_disconnect_prompt(app);
+            }
+            // Return early: the connection attempt or disconnect prompt already owns the display.
+            return;
 
         default:
-            // No progression for other modes
-            break;
+            return;
     }
 
-    // Add newline before displaying the prompt for the new field
+    // Advance display to the next field's prompt
     term_input_string("\r\n");
-
-    // Display the prompt for the new field
     ui_manager_display_current_prompt(app);
 }
 
@@ -98,16 +95,43 @@ app_result_t ssh_ui_handle_field_submit(app_state_t* app, input_mode_t field_mod
     switch (field_mode) {
         case INPUT_MODE_HOSTNAME:
             ssh_ui_apply_field_defaults(app, INPUT_MODE_HOSTNAME);
+            if (strlen(app->connection_input.hostname) == 0) {
+                ui_manager_show_validation_error("Hostname cannot be empty. Press ESC to cancel.");
+                return APP_RESULT_RETRY;
+            }
+            for (const char* p = app->connection_input.hostname; *p; p++) {
+                if ((unsigned char)*p <= ' ') {
+                    ui_manager_show_validation_error("Hostname must not contain spaces. Press ESC to cancel.");
+                    return APP_RESULT_RETRY;
+                }
+            }
             ssh_ui_progress_to_next_field(app);
             return APP_RESULT_CONTINUE;
 
         case INPUT_MODE_PORT:
             ssh_ui_apply_field_defaults(app, INPUT_MODE_PORT);
+            {
+                int port = atoi(app->connection_input.port_str);
+                if (port <= 0 || port > 65535) {
+                    ui_manager_show_validation_error("Port must be between 1 and 65535. Press ESC to cancel.");
+                    return APP_RESULT_RETRY;
+                }
+            }
             ssh_ui_progress_to_next_field(app);
             return APP_RESULT_CONTINUE;
 
         case INPUT_MODE_USERNAME:
             ssh_ui_apply_field_defaults(app, INPUT_MODE_USERNAME);
+            if (strlen(app->connection_input.username) == 0) {
+                ui_manager_show_validation_error("Username cannot be empty. Press ESC to cancel.");
+                return APP_RESULT_RETRY;
+            }
+            for (const char* p = app->connection_input.username; *p; p++) {
+                if ((unsigned char)*p <= ' ' || (unsigned char)*p > 126) {
+                    ui_manager_show_validation_error("Username must contain only printable non-space ASCII. Press ESC to cancel.");
+                    return APP_RESULT_RETRY;
+                }
+            }
             ssh_ui_progress_to_next_field(app);
             return APP_RESULT_CONTINUE;
 
@@ -134,7 +158,7 @@ app_result_t ssh_ui_handle_auth_submit(app_state_t* app) {
         memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
 
         // Show feedback that response was submitted
-        term_input_string("\r\n\x1b[90mResponse submitted...\x1b[0m\r\n");
+        term_input_string("\r\n\x1b[33mResponse submitted...\x1b[0m\r\n");
 
         // Return to normal mode - SSH thread will generate new events
         app->input_mode = INPUT_MODE_NORMAL;

@@ -43,7 +43,7 @@ void ui_manager_show_startup_menu(void) {
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Terminal Application");
 
-    term_input_string("\x1b[90mVersion: " SSHTERM_GIT_COMMIT "\x1b[0m\r\n\r\n");
+    term_input_string("Version: " SSHTERM_GIT_COMMIT "\r\n\r\n");
     term_input_string("Choose mode:\r\n");
     term_input_string("  \x1b[33mtest\x1b[0m - Terminal test mode (colors, features)\r\n");
     term_input_string("  \x1b[33mssh\x1b[0m  - SSH connection mode\r\n\r\n");
@@ -67,6 +67,8 @@ void ui_manager_show_ssh_connection_setup(app_state_t* app) {
 
     ui_manager_clear_screen();
     ui_manager_show_header("SSH Connection Setup");
+
+    term_input_string("\x1b[33mPress ESC at any time to cancel and return to the main menu.\x1b[0m\r\n\r\n");
 
     input_field_t field = input_system_get_current_field(app);
     ui_manager_display_field_prompt(field);
@@ -148,7 +150,7 @@ void ui_manager_show_auth_prompt(const char* prompt_text, bool echo_input) {
     }
 
     if (!echo_input) {
-        term_input_string("\x1b[90m(input will be hidden)\x1b[0m\r\n");
+        term_input_string("\x1b[33m(input will be hidden)\x1b[0m\r\n");
     }
 
     term_input_string(prompt_text);
