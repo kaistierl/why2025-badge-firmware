@@ -55,6 +55,11 @@ typedef struct {
 // Event sent from SSH thread to main thread
 typedef struct {
     ssh_event_type_t type;
+    // Connection generation at the time this event was posted.
+    // Main thread discards events whose gen != ssh_thread_manager_t.connect_gen.
+    // Zero (default) means the event does not participate in gen-checking
+    // (e.g. data/disconnect events from active I/O threads).
+    uint32_t gen;
     union {
         struct {
             char data[SSH_DATA_BUFFER_SIZE];
@@ -87,6 +92,16 @@ typedef struct ssh_thread_manager {
     pid_t ssh_thread_id;
     bool thread_running;
     bool shutdown_requested;
+
+    // Connection generation counter.
+    // Incremented by the main thread on every new connect AND on every cancel/cleanup.
+    // The SSH thread snapshots this at the start of SSH_CMD_CONNECT and tags all events
+    // from that attempt with it. Events with gen != connect_gen are stale and discarded.
+    uint32_t connect_gen;
+    // Written by the SSH thread just before starting ssh_client_connect_start() so that
+    // the auth callback (which runs synchronously on the SSH thread) can tag auth-prompt
+    // events with the correct generation.
+    uint32_t event_tag_gen;
 
     // Thread coordination flags (protected by state_mutex)
     bool shutdown_complete;   // Set by worker thread before exit

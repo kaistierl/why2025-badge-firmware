@@ -235,11 +235,18 @@ static void ssh_thread_main(void* data) {
                     break;
 
                 case SSH_CMD_CONNECT: {
+                    // Snapshot the generation at the start of this attempt. All events
+                    // posted below are tagged with my_gen so the main thread can discard
+                    // events from a connection that was cancelled before it completed.
+                    uint32_t my_gen = manager->connect_gen;
+                    manager->event_tag_gen = my_gen;
+
                     // ssh_client_cleanup() clears is_initialized; re-init for each connection.
                     if (!manager->ssh_client.is_initialized) {
                         if (!ssh_client_init(&manager->ssh_client)) {
                             printf("SSH Main Thread: Failed to re-initialize SSH client\n");
                             event.type = SSH_EVENT_CONNECTION_FAILED;
+                            event.gen = my_gen;
                             snprintf(event.error.message, sizeof(event.error.message),
                                     "Failed to re-initialize SSH client");
                             queue_put_event(manager, &event);
@@ -269,6 +276,7 @@ static void ssh_thread_main(void* data) {
 
                         if (manager->read_input_thread_id > 0 && manager->read_peer_thread_id > 0) {
                             event.type = SSH_EVENT_CONNECTED;
+                            event.gen = my_gen;
                             strncpy(event.connected.hostname, cmd.connect.hostname,
                                    sizeof(event.connected.hostname) - 1);
                             strncpy(event.connected.username, cmd.connect.username,
@@ -293,11 +301,13 @@ static void ssh_thread_main(void* data) {
                             manager->read_peer_thread_id = 0;
 
                             event.type = SSH_EVENT_ERROR;
+                            event.gen = my_gen;
                             snprintf(event.error.message, sizeof(event.error.message),
                                     "Failed to start I/O threads");
                         }
                     } else {
                         event.type = SSH_EVENT_CONNECTION_FAILED;
+                        event.gen = my_gen;
                         strncpy(event.error.message, ssh_client_get_error(&manager->ssh_client),
                                sizeof(event.error.message) - 1);
                         printf("SSH Main Thread: Connection failed: %s\n", event.error.message);
@@ -334,6 +344,12 @@ static void ssh_thread_main(void* data) {
                         // Do NOT post SSH_EVENT_DISCONNECTED here: the peer thread already
                         // posted it when it detected the remote close, which is what
                         // triggered this SSH_CMD_DISCONNECT in the first place.
+                    } else if (manager->ssh_client.is_initialized) {
+                        // The connect attempt finished (or failed) but never fully
+                        // established. Clean up the ssh_client so the next SSH_CMD_CONNECT
+                        // gets a fresh, known-good client rather than a dirty one.
+                        printf("SSH Thread: Cleaning up ssh_client after aborted/failed connect\n");
+                        ssh_client_cleanup(&manager->ssh_client);
                     }
                     break;
                 }
@@ -534,6 +550,7 @@ static void ssh_auth_event_callback(ssh_client_t* client, const char* prompt_tex
 
     ssh_event_t auth_event;
     auth_event.type = SSH_EVENT_AUTH_PROMPT;
+    auth_event.gen = manager->event_tag_gen;
 
     strncpy(auth_event.auth_prompt.prompt_text, prompt_text,
            sizeof(auth_event.auth_prompt.prompt_text) - 1);

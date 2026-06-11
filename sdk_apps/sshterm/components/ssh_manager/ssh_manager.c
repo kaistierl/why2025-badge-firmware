@@ -43,6 +43,9 @@ bool ssh_manager_connect(app_state_t* app, const char* hostname, int port,
     // Validate and set default port if needed
     int safe_port = (port > 0 && port <= 65535) ? port : 22;
 
+    // Advance the generation so events from any previous (aborted) attempt are discarded.
+    ssh_thread_mgr.connect_gen++;
+
     // Send connect command to SSH thread (non-blocking)
     if (!ssh_thread_connect(&ssh_thread_mgr, hostname, safe_port, username, password)) {
         ui_manager_show_connection_error("Failed to send connection request to SSH thread");
@@ -65,6 +68,9 @@ bool ssh_manager_connect_negotiate(app_state_t* app, const char* hostname, int p
 
     // Validate and set default port if needed
     int safe_port = (port > 0 && port <= 65535) ? port : 22;
+
+    // Advance the generation so events from any previous (aborted) attempt are discarded.
+    ssh_thread_mgr.connect_gen++;
 
     // Send connect command to SSH thread with empty password (auth will be negotiated)
     if (!ssh_thread_connect(&ssh_thread_mgr, hostname, safe_port, username, "")) {
@@ -118,6 +124,15 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
     bool data_received = false;
 
     while (ssh_thread_poll_event(&ssh_thread_mgr, &event)) {
+        // Discard events from a previous (cancelled/superseded) connection attempt.
+        // gen == 0 means the event is not generation-tagged (e.g. data/disconnect
+        // events from active I/O threads) and should always be processed.
+        if (event.gen != 0 && event.gen != ssh_thread_mgr.connect_gen) {
+            printf("SSH Manager: Discarding stale event type=%d (gen %u != current %u)\n",
+                   event.type, event.gen, ssh_thread_mgr.connect_gen);
+            continue;
+        }
+
         switch (event.type) {
             case SSH_EVENT_CONNECTED: {
                 printf("SSH Manager: Connection established\n");
@@ -232,7 +247,9 @@ void ssh_manager_cleanup(app_state_t* app) {
     }
 
     if (app->ssh_connected || app->ssh_connecting) {
-        // Send disconnect command to SSH thread
+        // Advance the generation BEFORE sending the disconnect command so that
+        // any events the SSH thread posts after this point are immediately stale.
+        ssh_thread_mgr.connect_gen++;
         ssh_thread_disconnect(&ssh_thread_mgr);
     }
 
