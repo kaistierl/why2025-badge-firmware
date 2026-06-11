@@ -109,6 +109,10 @@ app_result_t ssh_ui_handle_field_submit(app_state_t* app, input_mode_t field_mod
             return APP_RESULT_CONTINUE;
 
         case INPUT_MODE_PORT:
+            if (strlen(app->connection_input.port_str) == 0) {
+                ui_manager_show_validation_error("Port cannot be empty. Press ESC to cancel.");
+                return APP_RESULT_RETRY;
+            }
             ssh_ui_apply_field_defaults(app, INPUT_MODE_PORT);
             {
                 int port = atoi(app->connection_input.port_str);

@@ -391,13 +391,6 @@ void app_controller_route_prompt_char(app_controller_t* controller,
     }
 
     if (ch == '\r' || ch == '\n') {
-        // Apply default value if field is empty
-        input_field_t field = input_system_get_current_field(app_state);
-        if (field.length == 0 && field.default_value) {
-            strncpy(field.buffer, field.default_value, field.max_length);
-            field.buffer[field.max_length] = '\0';
-        }
-
         if (app_state->input_mode == INPUT_MODE_STARTUP_CHOICE) {
             handle_startup_choice_input(app_state);
         } else {
