@@ -76,8 +76,11 @@ static void read_input_thread(void* arg) {
             // so the main SSH thread's control-command signals don't cause spurious
             // wakeups here, and this thread never interferes with the main thread's
             // cmd_cond waits.
+            // Also wait when a control command is at the head: that belongs to the
+            // main thread, not this one, so spinning on it would be a busy-loop.
             SDL_LockMutex(args->manager->cmd_queue_mutex);
-            if (args->manager->cmd_queue_count == 0) {
+            if (args->manager->cmd_queue_count == 0 ||
+                args->manager->cmd_queue[args->manager->cmd_queue_head].type != SSH_CMD_SEND_RAW_INPUT) {
                 SDL_WaitConditionTimeout(args->manager->raw_input_cond,
                                          args->manager->cmd_queue_mutex, 100);
             }
