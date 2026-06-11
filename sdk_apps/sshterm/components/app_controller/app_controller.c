@@ -274,12 +274,22 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                 break;
             }
 
+            // Block keyboard input while waiting on the network (connecting but not yet
+            // prompting the user for credentials). Auth prompts switch to
+            // INPUT_MODE_AUTH_PROMPT, so password entry is not affected.
+            // ESC is intentionally blocked here: the SSH thread cannot be interrupted
+            // mid-connect (blocking socket), so "aborting" would be an illusion — the
+            // user would be back at the menu but the thread still hung until TCP timeout.
+            // The disconnect/retry prompt handles the "go back" flow after completion.
+            if (app_state->ssh_connecting && app_state->input_mode == INPUT_MODE_NORMAL) {
+                break;
+            }
+
             // Handle Escape key context-sensitively
             if (event->key.key == SDLK_ESCAPE) {
                 if (app_state->input_mode == INPUT_MODE_NORMAL) {
                     // In normal mode: only handle ESC if not connected to SSH
                     if (!ssh_manager_is_connected(app_state)) {
-                        // Not connected - return to startup menu
                         app_controller_return_to_startup(app_state);
                         break;
                     }
@@ -327,6 +337,9 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
 
         case SDL_EVENT_TEXT_INPUT:
             if (event->text.text && *event->text.text) {
+                if (app_state->ssh_connecting && app_state->input_mode == INPUT_MODE_NORMAL) {
+                    break;
+                }
                 // Handle startup choice and SSH input mode characters
                 if (app_state->input_mode != INPUT_MODE_NORMAL) {
                     // Send each character to appropriate handler
