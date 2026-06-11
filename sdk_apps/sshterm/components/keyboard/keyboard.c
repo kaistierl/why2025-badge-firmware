@@ -139,16 +139,16 @@ keyboard_result_t keyboard_process_key_event(const SDL_KeyboardEvent* key) {
         case SDLK_ESCAPE:
             handle_special_key('\x1b', NULL, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_RETURN:
         case SDLK_KP_ENTER:
             handle_special_key('\r', NULL, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_BACKSPACE:
             handle_special_key('\b', NULL, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_DELETE:
             handle_special_key(0, DELETE_KEY, &modifiers);
             return KEYBOARD_HANDLED;
@@ -156,40 +156,40 @@ keyboard_result_t keyboard_process_key_event(const SDL_KeyboardEvent* key) {
         case SDLK_TAB:
             handle_special_key('\t', NULL, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         // Arrow keys with modifier support (e.g., Alt+arrow for word navigation)
         case SDLK_UP:
             handle_special_key(0, ARROW_UP, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_DOWN:
             handle_special_key(0, ARROW_DOWN, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_LEFT:
             handle_special_key(0, ARROW_LEFT, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_RIGHT:
             handle_special_key(0, ARROW_RIGHT, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_HOME:
             handle_special_key(0, HOME_KEY, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_END:
             handle_special_key(0, END_KEY, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_INSERT:
             handle_special_key(0, INSERT_KEY, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_PAGEUP:
             handle_special_key(0, PAGE_UP, &modifiers);
             return KEYBOARD_HANDLED;
-            
+
         case SDLK_PAGEDOWN:
             handle_special_key(0, PAGE_DOWN, &modifiers);
             return KEYBOARD_HANDLED;

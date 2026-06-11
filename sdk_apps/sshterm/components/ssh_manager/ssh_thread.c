@@ -71,10 +71,14 @@ static void read_input_thread(void* arg) {
                 }
             }
         } else {
-            // Block until a command is enqueued or the quit-check timeout fires.
+            // Block until raw input arrives or the quit-check timeout fires.
+            // Uses raw_input_cond (signalled exclusively for SSH_CMD_SEND_RAW_INPUT)
+            // so the main SSH thread's control-command signals don't cause spurious
+            // wakeups here, and this thread never interferes with the main thread's
+            // cmd_cond waits.
             SDL_LockMutex(args->manager->cmd_queue_mutex);
             if (args->manager->cmd_queue_count == 0) {
-                SDL_WaitConditionTimeout(args->manager->cmd_cond,
+                SDL_WaitConditionTimeout(args->manager->raw_input_cond,
                                          args->manager->cmd_queue_mutex, 100);
             }
             SDL_UnlockMutex(args->manager->cmd_queue_mutex);
@@ -223,15 +227,18 @@ static void ssh_thread_main(void* data) {
             break;
         }
 
-        // Process connection commands only (data I/O handled by separate threads)
-        if (queue_get_cmd(manager, &cmd)) {
+        // Process control commands only; SSH_CMD_SEND_RAW_INPUT belongs to read_input_thread.
+        // Peek first so we never dequeue a raw-input command — doing so and re-enqueuing it
+        // creates a tight re-enqueue loop on multi-core hardware that starves the input
+        // thread and floods the condition variable with signals, corrupting wolfSSH state.
+        ssh_cmd_type_t peek_type;
+        if (queue_peek_cmd_type(manager, &peek_type) &&
+            peek_type != SSH_CMD_SEND_RAW_INPUT &&
+            queue_get_cmd(manager, &cmd)) {
+
             switch (cmd.type) {
                 case SSH_CMD_SEND_RAW_INPUT:
-                    // Handled by read_input_thread; main thread should not see these
-                    // but re-enqueue if it does to avoid dropping data.
-                    if (!queue_put_cmd(manager, &cmd)) {
-                        printf("SSH Main Thread: Could not requeue raw input command\n");
-                    }
+                    // Unreachable: filtered out by the peek above.
                     break;
 
                 case SSH_CMD_CONNECT: {
@@ -376,9 +383,12 @@ static void ssh_thread_main(void* data) {
             }
         }
 
-        // Block until a command arrives or the quit-check timeout fires.
+        // Block until a control command arrives or the quit-check timeout fires.
+        // Also wait when SSH_CMD_SEND_RAW_INPUT is at the head (the input thread
+        // owns those; waking here only wastes cycles and adds mutex contention).
         SDL_LockMutex(manager->cmd_queue_mutex);
-        if (manager->cmd_queue_count == 0) {
+        if (manager->cmd_queue_count == 0 ||
+            manager->cmd_queue[manager->cmd_queue_head].type == SSH_CMD_SEND_RAW_INPUT) {
             SDL_WaitConditionTimeout(manager->cmd_cond,
                                      manager->cmd_queue_mutex, 100);
         }
@@ -433,7 +443,15 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
     manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_QUEUE_SIZE;
     manager->cmd_queue_count++;
 
-    SDL_SignalCondition(manager->cmd_cond);
+    // Route the wakeup to the right consumer: raw-input commands wake the I/O
+    // thread exclusively; control commands wake the SSH main thread exclusively.
+    // Keeping these separate prevents the tight re-enqueue busy-loop that was
+    // flooding both threads with signals whenever a keystroke was queued.
+    if (cmd->type == SSH_CMD_SEND_RAW_INPUT) {
+        SDL_SignalCondition(manager->raw_input_cond);
+    } else {
+        SDL_SignalCondition(manager->cmd_cond);
+    }
     SDL_UnlockMutex(manager->cmd_queue_mutex);
     return true;
 }
@@ -474,6 +492,9 @@ static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd) {
     manager->cmd_queue_head = (manager->cmd_queue_head + 1) % SSH_QUEUE_SIZE;
     manager->cmd_queue_count--;
 
+    // After removing an item the next item at the head may be a control command
+    // that the main SSH thread is waiting for. Signal cmd_cond so it can check.
+    SDL_SignalCondition(manager->cmd_cond);
     SDL_UnlockMutex(manager->cmd_queue_mutex);
     return true;
 }
@@ -651,6 +672,22 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
+    manager->raw_input_cond = SDL_CreateCondition();
+    if (!manager->raw_input_cond) {
+        printf("SSH Thread Init: Failed to create raw-input condition: %s\n", SDL_GetError());
+        SDL_DestroyCondition(manager->cmd_cond);
+        SDL_DestroyCondition(manager->state_cond);
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->cmd_cond = NULL;
+        manager->state_cond = NULL;
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        manager->state_mutex = NULL;
+        return false;
+    }
+
     // Set auth manager reference with mutex protection
     if (g_auth_manager_mutex) {
         SDL_LockMutex(g_auth_manager_mutex);
@@ -662,11 +699,13 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     if (manager->ssh_thread_id <= 0) {
         printf("SSH Thread Init: Failed to create thread (invalid pid)\n");
+        SDL_DestroyCondition(manager->raw_input_cond);
         SDL_DestroyCondition(manager->cmd_cond);
         SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         SDL_DestroyMutex(manager->event_queue_mutex);
         SDL_DestroyMutex(manager->state_mutex);
+        manager->raw_input_cond = NULL;
         manager->cmd_cond = NULL;
         manager->state_cond = NULL;
         manager->cmd_queue_mutex = NULL;
@@ -756,6 +795,10 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     SDL_UnlockMutex(manager->state_mutex);
 
     // Cleanup mutexes and condition variables
+    if (manager->raw_input_cond) {
+        SDL_DestroyCondition(manager->raw_input_cond);
+        manager->raw_input_cond = NULL;
+    }
     if (manager->cmd_cond) {
         SDL_DestroyCondition(manager->cmd_cond);
         manager->cmd_cond = NULL;
