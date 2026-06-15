@@ -7,18 +7,19 @@ been removed.
 
 ## 🔴 Critical Security Issues (Must Fix Before Production)
 
-### 1. **Weak Random Number Generation** - CRITICAL
+### 1. **Hardware TRNG Not Yet Used** - HIGH
 **File:** `components/ssh_client/badge_crypto_port.c`
-**Issue:** `badge_generate_seed` falls back to three LCGs seeded from stack
-addresses and `gettimeofday` when `CONFIG_IDF_TARGET_ESP32P4` is not set.
-The hardware path (`esp_fill_random`) exists but is gated behind
-`CONFIG_IDF_TARGET_ESP32P4` with a comment "Does not work with BadgeVMS yet".
+**Issue:** The ESP32-P4 hardware TRNG is not accessible through BadgeVMS APIs yet.
+The software fallback now uses a SHA-256 entropy pool seeded from WiFi RSSI,
+BME690 sensor readings (temperature, humidity, pressure, gas resistance),
+wall-clock time, and device MAC. Local builds use `/dev/urandom`.
 
-**Security Impact:** SSH session keys are predictable; MitM attacks possible.
+**Remaining risk:** Software entropy sources have lower bit-rate than the TRNG.
+Session keys are significantly harder to predict than with the old LCG fallback,
+but not as strong as hardware RNG.
 
-**Blocked on:** BadgeVMS exposing the ESP32-P4 TRNG. Until then, consider
-mixing in ADC noise / WiFi RSSI and a SHA-256–based entropy pool as a
-stronger software fallback.
+**Blocked on:** BadgeVMS exposing the ESP32-P4 TRNG. Once available, replace
+`reseed_pool()` in `badge_crypto_port.c` with the BadgeVMS TRNG API call.
 
 ---
 
@@ -117,15 +118,12 @@ is more convenient and eliminates password exposure.
 
 ---
 
-### 9. **Software Entropy Pool Improvement**
-**File:** `components/ssh_client/badge_crypto_port.c`
-**Issue:** The non-hardware RNG fallback (item #1) can be strengthened even before
-the BadgeVMS TRNG is exposed, reducing session-key predictability risk.
+### 9. ~~**Software Entropy Pool Improvement**~~ — **DONE**
 
-**Work:**
-1. Mix ADC noise samples and Wi-Fi RSSI readings into the seed at startup.
-2. Feed the mix through SHA-256 to whiten the output.
-3. Reseed periodically from the same sources during long sessions.
+Replaced three-LCG fallback with a SHA-256 entropy pool seeded from WiFi RSSI,
+BME690 sensor readings, wall-clock time, and device MAC. Local builds use
+`/dev/urandom`. Output is expanded via counter-mode SHA-256. See item #1 for the
+remaining hardware TRNG TODO.
 
 ---
 

@@ -1,99 +1,157 @@
-/* badge_crypto_port.c 
+/* badge_crypto_port.c
  * Badge-specific crypto implementations for wolfSSL/wolfSSH
  */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <sys/time.h>
 #include "user_settings.h"
 
-/* Try to include ESP-IDF hardware RNG if available
-TODO: Does not work with BadgeVMS yet */
-#ifdef CONFIG_IDF_TARGET_ESP32P4
-#include "esp_random.h"
-#endif
+#ifdef SSHTERM_LOCAL_BUILD
 
-/* Badge-specific random seed function 
- * This function is called by wolfSSL via the CUSTOM_RAND_GENERATE_SEED macro
- * Uses multiple entropy sources for better randomness
+#include <fcntl.h>
+#include <unistd.h>
+
+/* Badge-specific random seed function
+ * This function is called by wolfSSL via the CUSTOM_RAND_GENERATE_SEED macro.
  * Signature must match wolfSSL expectations: int func(byte* output, word32 sz)
  */
-int badge_generate_seed(unsigned char* output, unsigned int sz)
+int badge_generate_seed(unsigned char *output, unsigned int sz)
 {
-    if (!output) {
-        printf("BADGE_RNG: ERROR - output pointer is NULL\n");
+    if (!output || sz == 0) {
+        printf("BADGE_RNG: ERROR - invalid parameters\n");
         return 1;
     }
-    
-    if (sz == 0) {
-        printf("BADGE_RNG: ERROR - size is 0\n");
-        return 2;
+
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        printf("BADGE_RNG: ERROR - cannot open /dev/urandom\n");
+        return 1;
     }
-    
-    if (sz > 1024) {
-        printf("BADGE_RNG: ERROR - size too large: %u\n", sz);
-        return 3;
+    ssize_t n = read(fd, output, (size_t)sz);
+    close(fd);
+    if (n != (ssize_t)sz) {
+        printf("BADGE_RNG: ERROR - short read from /dev/urandom (%zd of %u)\n", n, sz);
+        return 1;
     }
-    
-#ifdef CONFIG_IDF_TARGET_ESP32P4
-    /* Use ESP32-P4 hardware RNG if available
-    TODO: Does not work with BadgeVMS yet */
-    esp_fill_random(output, sz);
-    printf("BADGE_RNG: Used ESP32-P4 hardware RNG\n");
     return 0;
-#else
-    /* Fallback to software entropy sources */
-    printf("BADGE_RNG: Using software entropy sources\n");
-    
-    /* Use multiple entropy sources available on badge:
-     * - Current time/tick count
-     * - Stack pointer address variation  
-     * - Multiple LCGs with different parameters
-     * - Memory addresses for additional entropy
-     */
-    static unsigned int seed1 = 0, seed2 = 0, seed3 = 0;
-    unsigned int i;
-    volatile char stack_var;
-    struct timeval tv;
-    
-    // Get microsecond precision time if available
-    if (gettimeofday(&tv, NULL) == 0) {
-        seed1 ^= (unsigned int)tv.tv_sec;
-        seed2 ^= (unsigned int)tv.tv_usec;
-    } else {
-        // Fallback to basic time
-        time_t t = time(NULL);
-        seed1 ^= (unsigned int)t;
-    }
-    
-    // Initialize seeds if not done yet, using multiple entropy sources
-    if (seed1 == 0) {
-        seed1 = (unsigned int)((uintptr_t)&stack_var) ^ 0xAAAAAAAA;
-    }
-    if (seed2 == 0) {
-        seed2 = (unsigned int)((uintptr_t)&tv) ^ 0x55555555;
-    }
-    if (seed3 == 0) {
-        seed3 = (unsigned int)((uintptr_t)&output) ^ 0x33333333;
-    }
-    
-    for (i = 0; i < sz; i++) {
-        // Mix in stack pointer variation for each byte
-        seed1 ^= (unsigned int)((uintptr_t)&stack_var);
-        seed2 ^= (unsigned int)((uintptr_t)&i);
-        seed3 ^= (unsigned int)((uintptr_t)&output);
-        
-        // Use multiple LCGs with different parameters
-        seed1 = seed1 * 1103515245 + 12345;
-        seed2 = seed2 * 1664525 + 1013904223;
-        seed3 = seed3 * 69069 + 1;
-        
-        // Combine outputs from all three generators
-        output[i] = (unsigned char)((seed1 >> 16) ^ (seed2 >> 8) ^ seed3);
-    }
-    
-    return 0; /* Success */
-#endif
 }
+
+#else /* Hardware / BadgeVMS build */
+
+#include <wolfssl/wolfcrypt/sha256.h>
+#include <badgevms/wifi.h>
+#include <badgevms/device.h>
+#include <badgevms/misc_funcs.h>
+
+/* 32-byte entropy pool, updated on every seed call (SHA-256 output size) */
+static byte g_entropy_pool[WC_SHA256_DIGEST_SIZE];
+
+static void pool_secure_wipe(void *ptr, size_t n)
+{
+    memset(ptr, 0, n);
+    __asm__ __volatile__("" ::: "memory");
+}
+
+/* Collect entropy from hardware sources and update the pool:
+ *   new_pool = SHA256(old_pool || time || mac || rssi || sensor_readings)
+ *
+ * Chaining the old pool value provides forward security: an attacker who
+ * observes one seed output cannot predict future outputs without knowing all
+ * subsequent entropy inputs.
+ */
+static void reseed_pool(void)
+{
+    wc_Sha256 sha;
+    wc_InitSha256(&sha);
+
+    /* Chain previous pool state */
+    wc_Sha256Update(&sha, g_entropy_pool, WC_SHA256_DIGEST_SIZE);
+
+    /* Wall-clock time — provides good variation after NTP sync, and some
+     * variation even without it (ESP32 timer increments continuously) */
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    wc_Sha256Update(&sha, (byte *)&tv, (word32)sizeof(tv));
+
+    /* Device MAC address — not secret, but unique per badge, preventing
+     * an attacker who knows approximate boot time from applying one pre-computed
+     * key reconstruction to all badges simultaneously */
+    const char *mac = get_mac_address();
+    if (mac) {
+        wc_Sha256Update(&sha, (byte *)mac, (word32)strlen(mac));
+    }
+
+    /* WiFi RSSI of the associated AP — fluctuates with RF environment and
+     * multipath, providing a few bits of physical-layer randomness */
+    wifi_station_handle station = wifi_get_connection_station();
+    if (station) {
+        int rssi = wifi_station_get_rssi(station);
+        wc_Sha256Update(&sha, (byte *)&rssi, (word32)sizeof(rssi));
+    }
+
+    /* BME690 environmental sensor — temperature, humidity, pressure, and gas
+     * resistance each contribute device- and environment-specific variation.
+     * These change slowly but are unpredictable to a remote attacker. */
+    gas_device_t *gas = (gas_device_t *)device_get("GAS0");
+    if (gas) {
+        float vals[4] = {
+            gas->_get_temperature(gas),
+            gas->_get_humidity(gas),
+            gas->_get_pressure(gas),
+            gas->_get_gas_resistance(gas),
+        };
+        wc_Sha256Update(&sha, (byte *)vals, (word32)sizeof(vals));
+    }
+
+    wc_Sha256Final(&sha, g_entropy_pool);
+    wc_Sha256Free(&sha);
+}
+
+/* Badge-specific random seed function
+ * This function is called by wolfSSL via the CUSTOM_RAND_GENERATE_SEED macro.
+ * Signature must match wolfSSL expectations: int func(byte* output, word32 sz)
+ *
+ * Entropy model: reseed_pool() gathers fresh hardware observations on every
+ * call.  Output bytes are produced by counter-mode SHA-256:
+ *   output_block_i = SHA256(pool || i)
+ * which whitens any remaining bias in the collected entropy and provides
+ * uniform output even when individual sources have low bit-rate randomness.
+ */
+int badge_generate_seed(unsigned char *output, unsigned int sz)
+{
+    if (!output || sz == 0) {
+        printf("BADGE_RNG: ERROR - invalid parameters\n");
+        return 1;
+    }
+
+    reseed_pool();
+
+    wc_Sha256 sha;
+    byte block[WC_SHA256_DIGEST_SIZE];
+    unsigned int offset  = 0;
+    unsigned int counter = 0;
+
+    while (offset < sz) {
+        wc_InitSha256(&sha);
+        wc_Sha256Update(&sha, g_entropy_pool, WC_SHA256_DIGEST_SIZE);
+        wc_Sha256Update(&sha, (byte *)&counter, (word32)sizeof(counter));
+        wc_Sha256Final(&sha, block);
+        wc_Sha256Free(&sha);
+
+        unsigned int n = sz - offset;
+        if (n > WC_SHA256_DIGEST_SIZE) n = WC_SHA256_DIGEST_SIZE;
+        memcpy(output + offset, block, n);
+        offset += n;
+        counter++;
+    }
+
+    pool_secure_wipe(block, sizeof(block));
+    printf("BADGE_RNG: seeded %u bytes from SHA-256 entropy pool\n", sz);
+    return 0;
+}
+
+#endif /* SSHTERM_LOCAL_BUILD */
