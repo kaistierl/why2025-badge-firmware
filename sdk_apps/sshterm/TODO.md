@@ -53,15 +53,23 @@ wrapper before host keys, connection history, or any config can survive reboots.
 
 ### 4. **Rendering Bugs (ncurses/full-screen apps)** — affects daily usability
 **Files:** `components/term/`, `components/renderer/`
-**Issue:** Apps like `htop`, `cmatrix`, and others using alternate screen or complex
-cursor/erase sequences do not render correctly. Specific escape sequences not yet
-diagnosed.
 
-**Work:**
-1. Identify broken sequences by running suspect apps with `script(1)` capture and
-   replaying through `test_mode`.
-2. Fix libvterm callback coverage or renderer cell-update logic as needed.
-3. Extend `test_mode` with replay-from-file capability to prevent regressions.
+**Fixed (two bugs landed):**
+- `vterm_screen_enable_altscreen` was never called → alt screen buffer was never
+  allocated → `less`/`htop` wrote into the primary buffer; exiting left their
+  content on screen. Fixed in `term_init`.
+- `cb_moverect` only handled scroll-up (content moving up); scroll-down
+  (reverse-index / insert-line, e.g. pressing Up in `less`) returned 1 without
+  updating the renderer, causing libvterm to skip full-screen damage and only
+  repaint the newly exposed top strip. Added `renderer_scroll_down()` and the
+  matching branch. Also fixed `bottom` to use the actual scroll-region boundary
+  from the rect parameters instead of the hardcoded `g.rows - 1`.
+
+**Remaining:**
+- Apps using box-drawing / extended Unicode (cmatrix etc.) render broken because
+  the renderer only handles printable ASCII 32–126 (see item #12).
+- Other complex cursor/erase sequences not yet diagnosed — use `script(1)` capture
+  + `test_mode` replay to isolate.
 
 ---
 

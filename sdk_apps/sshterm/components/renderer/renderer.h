@@ -73,15 +73,27 @@ void renderer_set_cell(int x, int y, uint32_t codepoint,
 
 /**
  * @brief Scroll a region of the terminal up
- * 
+ *
  * Moves content in the specified row range up by the given number of lines.
  * Used for implementing terminal scrolling behavior.
- * 
+ *
  * @param top Top row of scroll region (inclusive)
  * @param bottom Bottom row of scroll region (inclusive)
  * @param lines Number of lines to scroll up
  */
 void renderer_scroll_up(int top, int bottom, int lines);
+
+/**
+ * @brief Scroll a region of the terminal down
+ *
+ * Moves content in the specified row range down by the given number of lines.
+ * Used for implementing reverse-index and insert-line terminal sequences.
+ *
+ * @param top Top row of scroll region (inclusive)
+ * @param bottom Bottom row of scroll region (inclusive)
+ * @param lines Number of lines to scroll down
+ */
+void renderer_scroll_down(int top, int bottom, int lines);
 
 /**
  * @brief Set cursor position and visibility

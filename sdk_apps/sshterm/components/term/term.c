@@ -145,26 +145,32 @@ static int cb_damage(VTermRect rect, void *user) {
 
 static int cb_moverect(VTermRect dest, VTermRect src, void *user) {
     (void)user;
-    
-    // When libvterm scrolls, it typically moves a rectangle of text up or down
-    // For scrolling up (most common case), src will be below dest
-    if (src.start_row > dest.start_row && 
-        dest.start_col == 0 && src.start_col == 0 &&
-        dest.end_col == g.cols && src.end_col == g.cols) {
-        
-        // This is a full-width scroll operation
-        int scroll_lines = src.start_row - dest.start_row;
-        int top = dest.start_row;
-        int bottom = g.rows - 1;  // Use full terminal height
-        
-        // Validate bounds
-        if (top >= 0 && bottom < g.rows && scroll_lines > 0) {
-            renderer_scroll_up(top, bottom, scroll_lines);
-        }
+
+    // Only handle full-width vertical scrolls; let damage handle everything else.
+    if (dest.start_col != 0 || src.start_col != 0 ||
+        dest.end_col != g.cols || src.end_col != g.cols) {
+        return 0;
     }
-    // For other move operations, let damage callback handle it
-    
-    return 1;
+
+    if (src.start_row > dest.start_row) {
+        // Content moves up (new lines appear at bottom).
+        int lines = src.start_row - dest.start_row;
+        int top   = dest.start_row;
+        int bot   = src.end_row - 1;  // actual scroll-region bottom from libvterm
+        renderer_scroll_up(top, bot, lines);
+        return 1;
+    }
+
+    if (src.start_row < dest.start_row) {
+        // Content moves down (new lines appear at top, e.g. reverse-index / insert-line).
+        int lines = dest.start_row - src.start_row;
+        int top   = src.start_row;
+        int bot   = dest.end_row - 1;  // actual scroll-region bottom from libvterm
+        renderer_scroll_down(top, bot, lines);
+        return 1;
+    }
+
+    return 0;
 }
 
 static int cb_movecursor(VTermPos pos, VTermPos oldpos, int visible, void *user) {
@@ -252,6 +258,7 @@ bool term_init(int cols, int rows, term_write_cb write_cb, void* user) {
     vterm_output_set_callback(g.vt, vterm_output_callback, NULL);
 
     g.screen = vterm_obtain_screen(g.vt);
+    vterm_screen_enable_altscreen(g.screen, 1);
     vterm_screen_set_callbacks(g.screen, &screen_cbs, NULL);
     vterm_screen_reset(g.screen, 1 /* hard */);
 

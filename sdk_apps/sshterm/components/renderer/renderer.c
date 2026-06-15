@@ -156,6 +156,31 @@ void renderer_scroll_up(int top, int bottom, int lines) {
     g.dirty = true;
 }
 
+void renderer_scroll_down(int top, int bottom, int lines) {
+    if (top < 0) top = 0;
+    if (bottom >= TERMINAL_ROWS) bottom = TERMINAL_ROWS - 1;
+    if (lines <= 0 || top > bottom) return;
+
+    int width = TERMINAL_COLS;
+    int rows  = bottom - top + 1;
+    if (lines > rows) lines = rows;
+
+    // Move screen content down
+    memmove(&g.screen[idx(0, top + lines)],
+            &g.screen[idx(0, top)],
+            (size_t)(width * (rows - lines) * sizeof(render_cell_t)));
+
+    // Clear the top lines
+    render_cell_t blank = { .cp = ' ', .fg = g.default_fg, .bg = g.default_bg };
+    for (int y = top; y < top + lines; y++) {
+        for (int x = 0; x < width; x++) {
+            int i = idx(x, y);
+            if (i >= 0) g.screen[i] = blank;
+        }
+    }
+    g.dirty = true;
+}
+
 void renderer_set_cursor(int x, int y, bool visible) {
     bool changed = false;
     if ((unsigned)x < TERMINAL_COLS && g.cx != x) {
