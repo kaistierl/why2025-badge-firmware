@@ -23,10 +23,11 @@ typedef enum {
 } ssh_cmd_type_t;
 
 // SSH thread event types (from SSH thread to main thread)
+// Terminal data is NOT carried as an event — it flows through the ring buffer
+// in ssh_thread_manager_t and is drained by ssh_thread_drain_terminal_data().
 typedef enum {
     SSH_EVENT_CONNECTED,
     SSH_EVENT_CONNECTION_FAILED,
-    SSH_EVENT_DATA_RECEIVED,
     SSH_EVENT_AUTH_PROMPT,
     SSH_EVENT_DISCONNECTED,
     SSH_EVENT_ERROR
@@ -61,10 +62,6 @@ typedef struct {
     // (e.g. data/disconnect events from active I/O threads).
     uint32_t gen;
     union {
-        struct {
-            char data[SSH_DATA_BUFFER_SIZE];
-            size_t len;
-        } data_received;
         struct {
             char method_name[32];
             char prompt_text[SSH_AUTH_PROMPT_LEN];
@@ -138,6 +135,17 @@ typedef struct ssh_thread_manager {
     int event_queue_tail;
     int event_queue_count;
 
+    // Terminal data ring buffer.
+    // read_peer_thread writes received SSH channel bytes here without blocking.
+    // The main thread drains it via ssh_thread_drain_terminal_data() each frame.
+    // If full, incoming bytes are dropped (some visual artifacts) rather than
+    // stalling wolfSSH and breaking keyboard input.
+    uint8_t  term_buf[SSH_TERMINAL_RING_BUF_SIZE];
+    uint32_t term_buf_head;   // consumer read position
+    uint32_t term_buf_tail;   // producer write position
+    uint32_t term_buf_count;  // bytes available to read
+    SDL_Mutex* term_buf_mutex;
+
     // SSH client instance (used by SSH thread)
     ssh_client_t ssh_client;
 } ssh_thread_manager_t;
@@ -162,6 +170,11 @@ void ssh_thread_disconnect(ssh_thread_manager_t* manager);
 
 // Check if SSH thread is running
 bool ssh_thread_is_running(ssh_thread_manager_t* manager);
+
+// Drain pending terminal data from the ring buffer into buf (up to buf_size bytes).
+// Returns the number of bytes written. Call in a loop until it returns 0.
+// Thread-safe; called from the main thread each frame.
+size_t ssh_thread_drain_terminal_data(ssh_thread_manager_t* manager, uint8_t* buf, size_t buf_size);
 
 // Submit auth response to the SSH client owned by this manager (thread-safe)
 void ssh_thread_submit_auth_response(ssh_thread_manager_t* manager, const char* response);

@@ -119,13 +119,23 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
         return false;
     }
 
-    // Poll for events from SSH thread (non-blocking)
-    ssh_event_t event;
     bool data_received = false;
+
+    // Drain terminal data ring buffer into libvterm. read_peer_thread writes here
+    // without blocking, so wolfSSH is never stalled waiting for the render pipeline.
+    static uint8_t term_drain[SSH_DATA_BUFFER_SIZE];
+    size_t n;
+    while ((n = ssh_thread_drain_terminal_data(&ssh_thread_mgr, term_drain, sizeof(term_drain))) > 0) {
+        term_input_bytes(term_drain, n);
+        data_received = true;
+    }
+
+    // Poll control events (connected / disconnected / auth / error)
+    ssh_event_t event;
 
     while (ssh_thread_poll_event(&ssh_thread_mgr, &event)) {
         // Discard events from a previous (cancelled/superseded) connection attempt.
-        // gen == 0 means the event is not generation-tagged (e.g. data/disconnect
+        // gen == 0 means the event is not generation-tagged (e.g. disconnect/error
         // events from active I/O threads) and should always be processed.
         if (event.gen != 0 && event.gen != ssh_thread_mgr.connect_gen) {
             printf("SSH Manager: Discarding stale event type=%d (gen %u != current %u)\n",
@@ -154,13 +164,6 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
                 app->ssh_connecting = false;
                 app->input_mode = INPUT_MODE_DISCONNECT_PROMPT;
                 ui_manager_show_retry_prompt();
-                break;
-            }
-
-            case SSH_EVENT_DATA_RECEIVED: {
-                // Forward data to terminal
-                term_input_bytes((const uint8_t*)event.data_received.data, event.data_received.len);
-                data_received = true;
                 break;
             }
 

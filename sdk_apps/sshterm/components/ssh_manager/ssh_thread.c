@@ -98,10 +98,34 @@ static void read_input_thread(void* arg) {
 
 // Read peer thread - handles SSH data reception with PURE BLOCKING I/O
 // Read peer thread - handles SSH server responses
+// Write bytes into the terminal ring buffer. Drops data if full (logs once per burst).
+// Returns true if all bytes were written, false if some were dropped.
+static bool term_buf_write(ssh_thread_manager_t* manager, const uint8_t* data, size_t len) {
+    SDL_LockMutex(manager->term_buf_mutex);
+
+    size_t space = SSH_TERMINAL_RING_BUF_SIZE - manager->term_buf_count;
+    if (len > space) {
+        SDL_UnlockMutex(manager->term_buf_mutex);
+        return false; // caller logs the drop
+    }
+
+    size_t first = SSH_TERMINAL_RING_BUF_SIZE - manager->term_buf_tail;
+    if (len <= first) {
+        memcpy(manager->term_buf + manager->term_buf_tail, data, len);
+    } else {
+        memcpy(manager->term_buf + manager->term_buf_tail, data, first);
+        memcpy(manager->term_buf, data + first, len - first);
+    }
+    manager->term_buf_tail  = (manager->term_buf_tail + len) % SSH_TERMINAL_RING_BUF_SIZE;
+    manager->term_buf_count += len;
+
+    SDL_UnlockMutex(manager->term_buf_mutex);
+    return true;
+}
+
 static void read_peer_thread(void* arg) {
     ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
-    // Single event struct reused each iteration — avoids a separate 4 KB buffer
-    // and the memcpy that would follow. Stack cost: ~4 KB instead of ~8 KB.
+    char recv_buf[SSH_DATA_BUFFER_SIZE];
     ssh_event_t event;
     memset(&event, 0, sizeof(event));
 
@@ -121,38 +145,19 @@ static void read_peer_thread(void* arg) {
             break;
         }
 
-        // Read directly into the event data field — no intermediate buffer needed.
-        // ssh_client_receive already has internal locking - no external lock needed
-        int received = ssh_client_receive(args->ssh_client,
-                                          event.data_received.data,
-                                          sizeof(event.data_received.data) - 1);
+        int received = ssh_client_receive(args->ssh_client, recv_buf, sizeof(recv_buf) - 1);
 
         if (received > 0) {
-            event.type = SSH_EVENT_DATA_RECEIVED;
-            event.data_received.len = received;
-            // Block until a slot is free rather than dropping data.
-            // The 5ms timeout lets the quit flag be checked promptly.
-            bool logged_backpressure = false;
-            while (!queue_put_event(args->manager, &event)) {
-                if (!logged_backpressure) {
-                    printf("SSH Peer Thread: event queue full, applying backpressure\n");
-                    logged_backpressure = true;
-                }
-                SDL_LockMutex(args->manager->state_mutex);
-                bool quit_now = args->quit || !args->manager->thread_running;
-                SDL_UnlockMutex(args->manager->state_mutex);
-                if (quit_now) break;
-                SDL_LockMutex(args->manager->event_queue_mutex);
-                SDL_WaitConditionTimeout(args->manager->event_queue_not_full_cond,
-                                         args->manager->event_queue_mutex, 5);
-                SDL_UnlockMutex(args->manager->event_queue_mutex);
+            // Write bytes to ring buffer. Never blocks — drops if full so wolfSSH
+            // keeps running and keyboard input stays responsive.
+            if (!term_buf_write(args->manager, (const uint8_t*)recv_buf, received)) {
+                printf("SSH Peer Thread: terminal ring buffer full, dropping %d bytes\n", received);
             }
 
         } else if (received == -2) {
             // Clean disconnect
             printf("SSH Peer Thread: Connection closed by remote\n");
 
-            // Set quit flag with mutex protection
             SDL_LockMutex(args->manager->state_mutex);
             args->quit = true;
             SDL_UnlockMutex(args->manager->state_mutex);
@@ -165,7 +170,6 @@ static void read_peer_thread(void* arg) {
             printf("SSH Peer Thread: Receive error: %s\n",
                    ssh_client_get_error(args->ssh_client));
 
-            // Set quit flag with mutex protection
             SDL_LockMutex(args->manager->state_mutex);
             args->quit = true;
             SDL_UnlockMutex(args->manager->state_mutex);
@@ -176,9 +180,8 @@ static void read_peer_thread(void* arg) {
             queue_put_event(args->manager, &event);
             break;
         } else {
-            // received == 0, no data available - should not happen in pure blocking mode
-            // If it does happen, add a small delay to prevent busy waiting
-            usleep(10000); // 10ms
+            // received == 0 should not happen in blocking mode; small delay to be safe
+            usleep(10000);
         }
     }
 
@@ -729,6 +732,26 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
+    manager->term_buf_mutex = SDL_CreateMutex();
+    if (!manager->term_buf_mutex) {
+        printf("SSH Thread Init: Failed to create terminal ring buffer mutex: %s\n", SDL_GetError());
+        SDL_DestroyCondition(manager->event_queue_not_full_cond);
+        SDL_DestroyCondition(manager->raw_input_cond);
+        SDL_DestroyCondition(manager->cmd_cond);
+        SDL_DestroyCondition(manager->state_cond);
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->event_queue_not_full_cond = NULL;
+        manager->raw_input_cond = NULL;
+        manager->cmd_cond = NULL;
+        manager->state_cond = NULL;
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        manager->state_mutex = NULL;
+        return false;
+    }
+
     // Set auth manager reference with mutex protection
     if (g_auth_manager_mutex) {
         SDL_LockMutex(g_auth_manager_mutex);
@@ -740,6 +763,7 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     if (manager->ssh_thread_id <= 0) {
         printf("SSH Thread Init: Failed to create thread (invalid pid)\n");
+        SDL_DestroyMutex(manager->term_buf_mutex);
         SDL_DestroyCondition(manager->event_queue_not_full_cond);
         SDL_DestroyCondition(manager->raw_input_cond);
         SDL_DestroyCondition(manager->cmd_cond);
@@ -747,6 +771,7 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         SDL_DestroyMutex(manager->event_queue_mutex);
         SDL_DestroyMutex(manager->state_mutex);
+        manager->term_buf_mutex = NULL;
         manager->event_queue_not_full_cond = NULL;
         manager->raw_input_cond = NULL;
         manager->cmd_cond = NULL;
@@ -838,6 +863,10 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     SDL_UnlockMutex(manager->state_mutex);
 
     // Cleanup mutexes and condition variables
+    if (manager->term_buf_mutex) {
+        SDL_DestroyMutex(manager->term_buf_mutex);
+        manager->term_buf_mutex = NULL;
+    }
     if (manager->event_queue_not_full_cond) {
         SDL_DestroyCondition(manager->event_queue_not_full_cond);
         manager->event_queue_not_full_cond = NULL;
@@ -890,6 +919,33 @@ bool ssh_thread_poll_event(ssh_thread_manager_t* manager, ssh_event_t* event) {
     }
 
     return queue_get_event(manager, event);
+}
+
+size_t ssh_thread_drain_terminal_data(ssh_thread_manager_t* manager, uint8_t* buf, size_t buf_size) {
+    if (!manager || !buf || buf_size == 0 || !manager->term_buf_mutex) {
+        return 0;
+    }
+
+    SDL_LockMutex(manager->term_buf_mutex);
+
+    size_t to_read = manager->term_buf_count < buf_size ? manager->term_buf_count : buf_size;
+    if (to_read == 0) {
+        SDL_UnlockMutex(manager->term_buf_mutex);
+        return 0;
+    }
+
+    size_t first = SSH_TERMINAL_RING_BUF_SIZE - manager->term_buf_head;
+    if (to_read <= first) {
+        memcpy(buf, manager->term_buf + manager->term_buf_head, to_read);
+    } else {
+        memcpy(buf, manager->term_buf + manager->term_buf_head, first);
+        memcpy(buf + first, manager->term_buf, to_read - first);
+    }
+    manager->term_buf_head  = (manager->term_buf_head + to_read) % SSH_TERMINAL_RING_BUF_SIZE;
+    manager->term_buf_count -= to_read;
+
+    SDL_UnlockMutex(manager->term_buf_mutex);
+    return to_read;
 }
 
 bool ssh_thread_connect(ssh_thread_manager_t* manager, const char* hostname, int port,
