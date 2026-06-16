@@ -100,7 +100,10 @@ static void read_input_thread(void* arg) {
 // Read peer thread - handles SSH server responses
 static void read_peer_thread(void* arg) {
     ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
-    char buffer[1024];
+    // Single event struct reused each iteration — avoids a separate 4 KB buffer
+    // and the memcpy that would follow. Stack cost: ~4 KB instead of ~8 KB.
+    ssh_event_t event;
+    memset(&event, 0, sizeof(event));
 
     // Signal thread is active
     SDL_LockMutex(args->manager->state_mutex);
@@ -118,13 +121,14 @@ static void read_peer_thread(void* arg) {
             break;
         }
 
+        // Read directly into the event data field — no intermediate buffer needed.
         // ssh_client_receive already has internal locking - no external lock needed
-        int received = ssh_client_receive(args->ssh_client, buffer, sizeof(buffer) - 1);
+        int received = ssh_client_receive(args->ssh_client,
+                                          event.data_received.data,
+                                          sizeof(event.data_received.data) - 1);
 
         if (received > 0) {
-            // Create data event for manager
-            ssh_event_t event = {.type = SSH_EVENT_DATA_RECEIVED};
-            memcpy(event.data_received.data, buffer, received);
+            event.type = SSH_EVENT_DATA_RECEIVED;
             event.data_received.len = received;
             queue_put_event(args->manager, &event);
 
@@ -137,7 +141,7 @@ static void read_peer_thread(void* arg) {
             args->quit = true;
             SDL_UnlockMutex(args->manager->state_mutex);
 
-            ssh_event_t event = {.type = SSH_EVENT_DISCONNECTED};
+            event.type = SSH_EVENT_DISCONNECTED;
             queue_put_event(args->manager, &event);
             break;
         } else if (received < 0) {
@@ -150,7 +154,7 @@ static void read_peer_thread(void* arg) {
             args->quit = true;
             SDL_UnlockMutex(args->manager->state_mutex);
 
-            ssh_event_t event = {.type = SSH_EVENT_ERROR};
+            event.type = SSH_EVENT_ERROR;
             strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
                     sizeof(event.error.message) - 1);
             queue_put_event(args->manager, &event);
