@@ -7,6 +7,7 @@
 #include <wolfssh/ssh.h>
 
 int wolfssh_io_recv(WOLFSSH* ssh, void* buf, word32 sz, void* ctx);
+int wolfssh_io_recv_streaming(WOLFSSH* ssh, void* buf, word32 sz, void* ctx);
 int wolfssh_io_send(WOLFSSH* ssh, void* buf, word32 sz, void* ctx);
 void setup_wolfssh_custom_io(WOLFSSH_CTX* ctx);
 

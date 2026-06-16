@@ -471,15 +471,11 @@ bool ssh_client_init(ssh_client_t* client) {
         return false;
     }
 
-    // Serialises all wolfSSH calls across read_peer_thread and read_input_thread.
-    // wolfSSH is built SINGLE_THREADED (no internal locking); concurrent send+recv
-    // corrupts shared channel state and causes unhandled exceptions on the badge.
-    // NOTE: ssh_client_receive holds this mutex for the duration of wolfSSH_stream_read,
-    // which blocks until data arrives. This means ssh_client_send will queue behind an
-    // in-progress receive. In practice this resolves within one server round-trip.
+    // Serialises wolfSSH_stream_send across the two I/O threads (recv thread does
+    // NOT hold this mutex — doing so would deadlock sends when the server is quiet).
     client->wolfssh_mutex = SDL_CreateMutex();
     if (!client->wolfssh_mutex) {
-        printf("SSH: Failed to create wolfSSH serialisation mutex\n");
+        printf("SSH: Failed to create wolfSSH send mutex\n");
         ssh_set_error(client, SSH_ERR_MUTEX_FAILED, "Failed to create wolfSSH mutex");
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
         client->auth_state.auth_state_mutex = NULL;
@@ -640,11 +636,21 @@ static bool ssh_setup_session(ssh_client_t* client, const char* hostname, const 
 // Run the SSH handshake and initial PTY sizing; tears down session on failure
 static bool ssh_run_handshake(ssh_client_t* client) {
     printf("SSH: Attempting connection handshake...\n");
+    // wolfSSH_connect drives the full handshake+auth state machine with blocking
+    // I/O (wolfssh_io_recv). The handshake state machine cannot be re-entered
+    // iteratively across the auth phase, so a single blocking call is correct.
     int ret = wolfSSH_connect((WOLFSSH*)client->ssh);
 
     if (ret == WS_SUCCESS) {
         client->state = SSH_STATE_CONNECTED;
         printf("SSH: Connection established successfully\n");
+
+        // Switch to the streaming recv. On local builds, wolfssh_io_recv_streaming
+        // uses select(10ms)+read() so ssh_io_thread can service sends each cycle.
+        // On hardware, it falls back to blocking read(); sends are handled by the
+        // separate read_input_thread (restored under #ifndef SSHTERM_LOCAL_BUILD).
+        wolfSSH_SetIORecv((WOLFSSH_CTX*)client->ctx, wolfssh_io_recv_streaming);
+
         int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh,
                                                TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
         if (pty_ret != WS_SUCCESS) {
@@ -757,12 +763,7 @@ int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
         return -1;
     }
 
-    // wolfssh_mutex is intentionally NOT held here. wolfSSH_stream_read blocks
-    // inside recv() waiting for server data; holding the mutex would deadlock
-    // read_input_thread (which needs the mutex to call wolfSSH_stream_send).
-    // The remaining concurrent-access window — wolfSSH_stream_send racing with
-    // the brief moment wolfSSH_stream_read wakes and processes a packet — is
-    // narrow under normal interactive use and far preferable to a deadlock.
+    // All wolfSSH calls are made from ssh_io_thread; no concurrent access is possible.
     int bytes_read = wolfSSH_stream_read((WOLFSSH*)client->ssh, (byte*)buffer, (word32)buffer_size);
 
     if (bytes_read == WS_EOF) {
@@ -771,13 +772,12 @@ int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
         client->state = SSH_STATE_DISCONNECTED;
         return -2; // Special return code for clean disconnect
     } else if (bytes_read < 0) {
-        // Check if it's a non-fatal error
-        const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
-        if (error_name && (strstr(error_name, "WANT_READ") || strstr(error_name, "AGAIN"))) {
-            // No data available - this shouldn't happen in blocking mode
+        // WS_WANT_READ means the select() timed out with no data — not an error.
+        if (wolfSSH_get_error((WOLFSSH*)client->ssh) == WS_WANT_READ) {
             return 0;
         }
 
+        const char* error_name = wolfSSH_get_error_name((WOLFSSH*)client->ssh);
         char error_details[SSH_ERROR_MSG_LEN];
         snprintf(error_details, sizeof(error_details),
                 "Failed to receive data (ret=%d, %s)", bytes_read,
@@ -872,7 +872,6 @@ void ssh_client_cleanup(ssh_client_t* client) {
         client->socket_fd = -1;
     }
 
-    // Destroy wolfSSH serialisation mutex (I/O threads must be stopped before cleanup)
     if (client->wolfssh_mutex) {
         SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
         client->wolfssh_mutex = NULL;

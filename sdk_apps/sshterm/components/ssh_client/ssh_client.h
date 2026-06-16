@@ -70,7 +70,7 @@ typedef struct ssh_client {
 
     void* ctx;           /**< WOLFSSH_CTX* (opaque) */
     void* ssh;           /**< WOLFSSH*     (opaque) */
-    void* wolfssh_mutex; /**< SDL_Mutex* — serialises all wolfSSH calls across threads */
+    void* wolfssh_mutex; /**< SDL_Mutex* — serialises wolfSSH_stream_send across threads */
     int socket_fd;
 
     struct {
