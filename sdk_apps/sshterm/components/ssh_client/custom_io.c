@@ -59,6 +59,19 @@ int wolfssh_io_send(WOLFSSH* ssh, void* data, word32 size, void* ctx) {
     return bytes_written;
 }
 
+#ifndef SSHTERM_LOCAL_BUILD
+/* setsockopt is not in the BadgeVMS shared symbol table — the ELF loader fails
+ * with "Can't find common setsockopt". Provide a local no-op so the symbol is
+ * resolved from the ELF's own .text rather than from the shared table.
+ * Consequence: SO_RCVTIMEO cannot be configured; wolfSSH_stream_read therefore
+ * continues to block indefinitely, and wolfssh_mutex must NOT be held across
+ * it (would deadlock read_input_thread). See ssh_client_receive in ssh_client.c. */
+int setsockopt(int sockfd, int level, int optname, const void* optval, unsigned int optlen) {
+    (void)sockfd; (void)level; (void)optname; (void)optval; (void)optlen;
+    return 0;
+}
+#endif
+
 /* Setup wolfSSH custom I/O */
 void setup_wolfssh_custom_io(WOLFSSH_CTX* ctx) {
     if (ctx == NULL) {
