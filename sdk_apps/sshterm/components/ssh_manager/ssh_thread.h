@@ -122,17 +122,18 @@ typedef struct ssh_thread_manager {
     SDL_Mutex* cmd_queue_mutex;    // Protects command queue operations
     SDL_Mutex* event_queue_mutex;  // Protects event queue operations
     SDL_Mutex* state_mutex;        // Protects thread state variables
-    SDL_Condition* state_cond;      // Signaled on any state flag change
-    SDL_Condition* cmd_cond;        // Signaled when a control command is enqueued (CONNECT/DISCONNECT/SHUTDOWN)
-    SDL_Condition* raw_input_cond;  // Signaled when SSH_CMD_SEND_RAW_INPUT is enqueued
+    SDL_Condition* state_cond;                 // Signaled on any state flag change
+    SDL_Condition* cmd_cond;                   // Signaled when a control command is enqueued (CONNECT/DISCONNECT/SHUTDOWN)
+    SDL_Condition* raw_input_cond;             // Signaled when SSH_CMD_SEND_RAW_INPUT is enqueued
+    SDL_Condition* event_queue_not_full_cond;  // Signaled when a slot is freed from the event queue
 
     // Thread communication queues — access protected by cmd_queue_mutex/event_queue_mutex
-    ssh_cmd_t cmd_queue[SSH_QUEUE_SIZE];
+    ssh_cmd_t cmd_queue[SSH_CMD_QUEUE_SIZE];
     int cmd_queue_head;
     int cmd_queue_tail;
     int cmd_queue_count;
 
-    ssh_event_t event_queue[SSH_QUEUE_SIZE];
+    ssh_event_t event_queue[SSH_EVENT_QUEUE_SIZE];
     int event_queue_head;
     int event_queue_tail;
     int event_queue_count;

@@ -34,8 +34,11 @@
 
 // === QUEUE CONFIGURATION ===
 
-/** Size of command/event queues for thread communication */
-#define SSH_QUEUE_SIZE          16
+/** Command queue depth (lifecycle + keyboard; never accumulates) */
+#define SSH_CMD_QUEUE_SIZE      4
+
+/** Event queue depth (SSH data burst buffer before backpressure kicks in) */
+#define SSH_EVENT_QUEUE_SIZE    8
 
 // === CONNECTION CONFIGURATION ===
 

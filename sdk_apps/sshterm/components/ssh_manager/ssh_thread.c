@@ -130,7 +130,23 @@ static void read_peer_thread(void* arg) {
         if (received > 0) {
             event.type = SSH_EVENT_DATA_RECEIVED;
             event.data_received.len = received;
-            queue_put_event(args->manager, &event);
+            // Block until a slot is free rather than dropping data.
+            // The 5ms timeout lets the quit flag be checked promptly.
+            bool logged_backpressure = false;
+            while (!queue_put_event(args->manager, &event)) {
+                if (!logged_backpressure) {
+                    printf("SSH Peer Thread: event queue full, applying backpressure\n");
+                    logged_backpressure = true;
+                }
+                SDL_LockMutex(args->manager->state_mutex);
+                bool quit_now = args->quit || !args->manager->thread_running;
+                SDL_UnlockMutex(args->manager->state_mutex);
+                if (quit_now) break;
+                SDL_LockMutex(args->manager->event_queue_mutex);
+                SDL_WaitConditionTimeout(args->manager->event_queue_not_full_cond,
+                                         args->manager->event_queue_mutex, 5);
+                SDL_UnlockMutex(args->manager->event_queue_mutex);
+            }
 
         } else if (received == -2) {
             // Clean disconnect
@@ -440,14 +456,14 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
 
     SDL_LockMutex(manager->cmd_queue_mutex);
 
-    if (manager->cmd_queue_count >= SSH_QUEUE_SIZE) {
+    if (manager->cmd_queue_count >= SSH_CMD_QUEUE_SIZE) {
         printf("SSH Thread: Command queue full!\n");
         SDL_UnlockMutex(manager->cmd_queue_mutex);
         return false; // Queue full
     }
 
     manager->cmd_queue[manager->cmd_queue_tail] = *cmd;
-    manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_QUEUE_SIZE;
+    manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_CMD_QUEUE_SIZE;
     manager->cmd_queue_count++;
 
     // Route the wakeup to the right consumer: raw-input commands wake the I/O
@@ -496,7 +512,7 @@ static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd) {
     }
 
     *cmd = manager->cmd_queue[manager->cmd_queue_head];
-    manager->cmd_queue_head = (manager->cmd_queue_head + 1) % SSH_QUEUE_SIZE;
+    manager->cmd_queue_head = (manager->cmd_queue_head + 1) % SSH_CMD_QUEUE_SIZE;
     manager->cmd_queue_count--;
 
     // After removing an item the next item at the head may be a control command
@@ -519,14 +535,13 @@ static bool queue_put_event(ssh_thread_manager_t* manager, const ssh_event_t* ev
 
     SDL_LockMutex(manager->event_queue_mutex);
 
-    if (manager->event_queue_count >= SSH_QUEUE_SIZE) {
-        printf("SSH Thread: Event queue full!\n");
+    if (manager->event_queue_count >= SSH_EVENT_QUEUE_SIZE) {
         SDL_UnlockMutex(manager->event_queue_mutex);
-        return false; // Queue full
+        return false; // Queue full — caller retries with backpressure
     }
 
     manager->event_queue[manager->event_queue_tail] = *event;
-    manager->event_queue_tail = (manager->event_queue_tail + 1) % SSH_QUEUE_SIZE;
+    manager->event_queue_tail = (manager->event_queue_tail + 1) % SSH_EVENT_QUEUE_SIZE;
     manager->event_queue_count++;
 
     SDL_UnlockMutex(manager->event_queue_mutex);
@@ -552,9 +567,10 @@ static bool queue_get_event(ssh_thread_manager_t* manager, ssh_event_t* event) {
     }
 
     *event = manager->event_queue[manager->event_queue_head];
-    manager->event_queue_head = (manager->event_queue_head + 1) % SSH_QUEUE_SIZE;
+    manager->event_queue_head = (manager->event_queue_head + 1) % SSH_EVENT_QUEUE_SIZE;
     manager->event_queue_count--;
 
+    SDL_SignalCondition(manager->event_queue_not_full_cond);
     SDL_UnlockMutex(manager->event_queue_mutex);
     return true;
 }
@@ -695,6 +711,24 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
+    manager->event_queue_not_full_cond = SDL_CreateCondition();
+    if (!manager->event_queue_not_full_cond) {
+        printf("SSH Thread Init: Failed to create event-queue-not-full condition: %s\n", SDL_GetError());
+        SDL_DestroyCondition(manager->raw_input_cond);
+        SDL_DestroyCondition(manager->cmd_cond);
+        SDL_DestroyCondition(manager->state_cond);
+        SDL_DestroyMutex(manager->cmd_queue_mutex);
+        SDL_DestroyMutex(manager->event_queue_mutex);
+        SDL_DestroyMutex(manager->state_mutex);
+        manager->raw_input_cond = NULL;
+        manager->cmd_cond = NULL;
+        manager->state_cond = NULL;
+        manager->cmd_queue_mutex = NULL;
+        manager->event_queue_mutex = NULL;
+        manager->state_mutex = NULL;
+        return false;
+    }
+
     // Set auth manager reference with mutex protection
     if (g_auth_manager_mutex) {
         SDL_LockMutex(g_auth_manager_mutex);
@@ -706,12 +740,14 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
 
     if (manager->ssh_thread_id <= 0) {
         printf("SSH Thread Init: Failed to create thread (invalid pid)\n");
+        SDL_DestroyCondition(manager->event_queue_not_full_cond);
         SDL_DestroyCondition(manager->raw_input_cond);
         SDL_DestroyCondition(manager->cmd_cond);
         SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         SDL_DestroyMutex(manager->event_queue_mutex);
         SDL_DestroyMutex(manager->state_mutex);
+        manager->event_queue_not_full_cond = NULL;
         manager->raw_input_cond = NULL;
         manager->cmd_cond = NULL;
         manager->state_cond = NULL;
@@ -802,6 +838,10 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
     SDL_UnlockMutex(manager->state_mutex);
 
     // Cleanup mutexes and condition variables
+    if (manager->event_queue_not_full_cond) {
+        SDL_DestroyCondition(manager->event_queue_not_full_cond);
+        manager->event_queue_not_full_cond = NULL;
+    }
     if (manager->raw_input_cond) {
         SDL_DestroyCondition(manager->raw_input_cond);
         manager->raw_input_cond = NULL;
