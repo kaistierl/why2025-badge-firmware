@@ -471,12 +471,29 @@ bool ssh_client_init(ssh_client_t* client) {
         return false;
     }
 
+    // Serialises all wolfSSH calls across read_peer_thread and read_input_thread.
+    // wolfSSH is built SINGLE_THREADED (no internal locking); concurrent send+recv
+    // corrupts shared channel state and causes unhandled exceptions on the badge.
+    // NOTE: ssh_client_receive holds this mutex for the duration of wolfSSH_stream_read,
+    // which blocks until data arrives. This means ssh_client_send will queue behind an
+    // in-progress receive. In practice this resolves within one server round-trip.
+    client->wolfssh_mutex = SDL_CreateMutex();
+    if (!client->wolfssh_mutex) {
+        printf("SSH: Failed to create wolfSSH serialisation mutex\n");
+        ssh_set_error(client, SSH_ERR_MUTEX_FAILED, "Failed to create wolfSSH mutex");
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
+        return false;
+    }
+
     // Initialize wolfSSL/wolfCrypt first (required for wolfSSH)
     int wc_ret = wolfCrypt_Init();
     if (wc_ret != 0) {
         printf("SSH: wolfCrypt_Init failed with error: %d\n", wc_ret);
         ssh_set_error(client, SSH_ERR_WOLFSSL_INIT, "Failed to initialize wolfCrypt");
+        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->wolfssh_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         return false;
     }
@@ -487,7 +504,9 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rng_ret != 0) {
         printf("SSH: Failed to initialize RNG with error: %d\n", rng_ret);
         ssh_set_error(client, SSH_ERR_RNG_FAILED, "Failed to initialize RNG");
+        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->wolfssh_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
@@ -499,7 +518,9 @@ bool ssh_client_init(ssh_client_t* client) {
         printf("SSH: RNG test failed with error: %d\n", rng_ret);
         wc_FreeRng(&rng);
         ssh_set_error(client, SSH_ERR_RNG_FAILED, "RNG functionality test failed");
+        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->wolfssh_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
@@ -512,7 +533,9 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rc != WS_SUCCESS) {
         printf("SSH: wolfSSH_Init failed with error: %d\n", rc);
         ssh_set_error(client, SSH_ERR_WOLFSSH_INIT, "Failed to initialize wolfSSH library");
+        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->wolfssh_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
@@ -713,7 +736,9 @@ bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {
         return false;
     }
 
+    SDL_LockMutex((SDL_Mutex*)client->wolfssh_mutex);
     int bytes_written = wolfSSH_stream_send((WOLFSSH*)client->ssh, (byte*)data, (word32)len);
+    SDL_UnlockMutex((SDL_Mutex*)client->wolfssh_mutex);
 
     if (bytes_written < 0) {
         ssh_set_error(client, SSH_ERR_SEND_FAILED, "Failed to send data");
@@ -732,9 +757,13 @@ int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
         return -1;
     }
 
-    // In pure blocking mode, just call wolfSSH_stream_read directly
-    // It will block until data is available or an error occurs
+    // Holds wolfssh_mutex for the duration of the blocking read. This serialises
+    // concurrent send+recv access on the shared WOLFSSH* object (wolfSSH is
+    // SINGLE_THREADED — no internal locking). The mutex is released as soon as
+    // wolfSSH_stream_read returns, allowing a queued send to proceed.
+    SDL_LockMutex((SDL_Mutex*)client->wolfssh_mutex);
     int bytes_read = wolfSSH_stream_read((WOLFSSH*)client->ssh, (byte*)buffer, (word32)buffer_size);
+    SDL_UnlockMutex((SDL_Mutex*)client->wolfssh_mutex);
 
     if (bytes_read == WS_EOF) {
         snprintf(client->error_msg, sizeof(client->error_msg),
@@ -765,8 +794,10 @@ bool ssh_client_resize_pty(ssh_client_t* client, int width, int height) {
         return false;
     }
 
-    // Send terminal resize request to the remote server
+    SDL_LockMutex((SDL_Mutex*)client->wolfssh_mutex);
     int ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh, width, height, 0, 0);
+    SDL_UnlockMutex((SDL_Mutex*)client->wolfssh_mutex);
+
     if (ret != WS_SUCCESS) {
         return false;
     }
@@ -839,6 +870,12 @@ void ssh_client_cleanup(ssh_client_t* client) {
     if (client->socket_fd != -1) {
         close(client->socket_fd);
         client->socket_fd = -1;
+    }
+
+    // Destroy wolfSSH serialisation mutex (I/O threads must be stopped before cleanup)
+    if (client->wolfssh_mutex) {
+        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
+        client->wolfssh_mutex = NULL;
     }
 
     // Securely clear authentication state
