@@ -757,13 +757,13 @@ int ssh_client_receive(ssh_client_t* client, char* buffer, int buffer_size) {
         return -1;
     }
 
-    // Holds wolfssh_mutex for the duration of the blocking read. This serialises
-    // concurrent send+recv access on the shared WOLFSSH* object (wolfSSH is
-    // SINGLE_THREADED — no internal locking). The mutex is released as soon as
-    // wolfSSH_stream_read returns, allowing a queued send to proceed.
-    SDL_LockMutex((SDL_Mutex*)client->wolfssh_mutex);
+    // wolfssh_mutex is intentionally NOT held here. wolfSSH_stream_read blocks
+    // inside recv() waiting for server data; holding the mutex would deadlock
+    // read_input_thread (which needs the mutex to call wolfSSH_stream_send).
+    // The remaining concurrent-access window — wolfSSH_stream_send racing with
+    // the brief moment wolfSSH_stream_read wakes and processes a packet — is
+    // narrow under normal interactive use and far preferable to a deadlock.
     int bytes_read = wolfSSH_stream_read((WOLFSSH*)client->ssh, (byte*)buffer, (word32)buffer_size);
-    SDL_UnlockMutex((SDL_Mutex*)client->wolfssh_mutex);
 
     if (bytes_read == WS_EOF) {
         snprintf(client->error_msg, sizeof(client->error_msg),
