@@ -13,6 +13,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+// Key auto-repeat timing
+#define KEY_REPEAT_INITIAL_MS   400   // delay before first repeat fires
+#define KEY_REPEAT_INTERVAL_MS   40   // interval between subsequent repeats (~25/sec)
+
 // Application controller implementation structure
 struct app_controller {
     SDL_Window* window;
@@ -20,6 +24,15 @@ struct app_controller {
     bool system_initialized;
     app_state_t* current_app_state;  // Application state
     bool shutdown_requested;         // For graceful shutdown
+
+    struct {
+        SDL_Keycode       keycode;       // physical key being held (0 = nothing)
+        SDL_KeyboardEvent key_event;     // copy of KEY_DOWN event for terminal replay
+        char              text[32];      // last TEXT_INPUT text (empty = key-only repeat)
+        input_mode_t      mode;          // mode at press time (guard against transitions)
+        Uint64            press_time_ms; // when key was first pressed
+        Uint64            last_fire_ms;  // when repeat last fired
+    } key_repeat;
 };
 
 // Forward declarations
@@ -30,6 +43,7 @@ static bool app_controller_run_main_loop(app_controller_t* controller, app_state
 static bool app_controller_handle_sdl_event(app_controller_t* controller, app_state_t* app_state, const SDL_Event* event, bool* should_quit);
 static void app_controller_route_prompt_char(app_controller_t* controller, app_state_t* app_state, char ch);
 static void handle_startup_choice_input(app_state_t* app);
+static void app_controller_fire_key_repeat(app_controller_t* controller, app_state_t* app_state);
 
 // Application controller lifecycle
 bool app_controller_init(app_controller_t** controller) {
@@ -225,6 +239,17 @@ bool app_controller_run_main_loop(app_controller_t* controller, app_state_t* app
             ssh_ui_handle_connection_success(app_state);
         }
 
+        // Software key auto-repeat
+        if (controller->key_repeat.keycode != 0) {
+            Uint64 now = SDL_GetTicks();
+            Uint64 held  = now - controller->key_repeat.press_time_ms;
+            Uint64 since = now - controller->key_repeat.last_fire_ms;
+            if (held >= KEY_REPEAT_INITIAL_MS && since >= KEY_REPEAT_INTERVAL_MS) {
+                app_controller_fire_key_repeat(controller, app_state);
+                controller->key_repeat.last_fire_ms = now;
+            }
+        }
+
         // Update screen if needed (handles cursor blinking internally)
         renderer_present_if_dirty(SDL_GetTicks());
 
@@ -285,6 +310,23 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                 break;
             }
 
+            // Track fresh key presses for software auto-repeat.
+            // Ignore OS-generated repeats (event.key.repeat != 0) — we do our own.
+            // Enter and Escape are excluded: repeating them would cause double-submits
+            // or double-cancels which would be destructive.
+            if (!event->key.repeat) {
+                SDL_Keycode k = event->key.key;
+                if (k != SDLK_RETURN && k != SDLK_KP_ENTER && k != SDLK_ESCAPE) {
+                    Uint64 now = SDL_GetTicks();
+                    controller->key_repeat.keycode      = k;
+                    controller->key_repeat.key_event    = event->key;
+                    controller->key_repeat.text[0]      = '\0';
+                    controller->key_repeat.mode         = app_state->input_mode;
+                    controller->key_repeat.press_time_ms = now;
+                    controller->key_repeat.last_fire_ms  = now;
+                }
+            }
+
             // Handle Escape key context-sensitively
             if (event->key.key == SDLK_ESCAPE) {
                 if (app_state->input_mode == INPUT_MODE_NORMAL) {
@@ -340,6 +382,14 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
             break;
         }
 
+        case SDL_EVENT_KEY_UP:
+            // Release the repeat tracker when the held key is lifted
+            if (event->key.key == controller->key_repeat.keycode) {
+                controller->key_repeat.keycode = 0;
+                controller->key_repeat.text[0] = '\0';
+            }
+            break;
+
         case SDL_EVENT_TEXT_INPUT:
             if (event->text.text && *event->text.text) {
                 if (app_state->ssh_connecting && app_state->input_mode == INPUT_MODE_NORMAL) {
@@ -347,6 +397,13 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                 }
                 // Handle startup choice and SSH input mode characters
                 if (app_state->input_mode != INPUT_MODE_NORMAL) {
+                    // Store text for repeat replay (printable chars in prompt mode)
+                    if (controller->key_repeat.keycode != 0 &&
+                        app_state->input_mode == controller->key_repeat.mode) {
+                        strncpy(controller->key_repeat.text, event->text.text,
+                                sizeof(controller->key_repeat.text) - 1);
+                        controller->key_repeat.text[sizeof(controller->key_repeat.text) - 1] = '\0';
+                    }
                     // Send each character to appropriate handler
                     for (int i = 0; event->text.text[i]; i++) {
                         app_controller_route_prompt_char(controller, app_state, event->text.text[i]);
@@ -355,7 +412,14 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                 }
 
                 // Use enhanced keyboard processing for normal terminal operation
-                keyboard_process_text_input(&event->text);
+                bool processed = keyboard_process_text_input(&event->text);
+                // Store text for repeat replay only when it was actually sent to terminal
+                if (processed && controller->key_repeat.keycode != 0 &&
+                    app_state->input_mode == controller->key_repeat.mode) {
+                    strncpy(controller->key_repeat.text, event->text.text,
+                            sizeof(controller->key_repeat.text) - 1);
+                    controller->key_repeat.text[sizeof(controller->key_repeat.text) - 1] = '\0';
+                }
             }
             break;
 
@@ -384,6 +448,48 @@ static void handle_startup_choice_input(app_state_t* app) {
 
     if (choice > 0) {
         app_controller_handle_startup_choice(app, choice);
+    }
+}
+
+// Fire one repeat tick for the currently held key
+static void app_controller_fire_key_repeat(app_controller_t* controller, app_state_t* app_state) {
+    if (!controller || !app_state) {
+        return;
+    }
+
+    // Bail if the mode changed since the key was pressed (e.g. Enter was also held)
+    if (app_state->input_mode != controller->key_repeat.mode) {
+        controller->key_repeat.keycode = 0;
+        return;
+    }
+
+    if (app_state->input_mode != INPUT_MODE_NORMAL) {
+        // Prompt mode: replay text or key action
+        if (controller->key_repeat.text[0]) {
+            for (int i = 0; controller->key_repeat.text[i]; i++) {
+                app_controller_route_prompt_char(controller, app_state,
+                                                 controller->key_repeat.text[i]);
+            }
+        } else {
+            switch (controller->key_repeat.keycode) {
+                case SDLK_BACKSPACE:
+                    app_controller_route_prompt_char(controller, app_state, '\b');
+                    break;
+                case SDLK_LEFT: case SDLK_RIGHT: case SDLK_HOME: case SDLK_END:
+                    input_system_handle_nav_key(app_state, controller->key_repeat.keycode);
+                    ui_manager_display_current_prompt(app_state);
+                    break;
+                default:
+                    break;
+            }
+        }
+    } else {
+        // Terminal mode: replay text or key event
+        if (controller->key_repeat.text[0]) {
+            term_key_input(0, 0, controller->key_repeat.text);
+        } else {
+            keyboard_process_key_event(&controller->key_repeat.key_event);
+        }
     }
 }
 
