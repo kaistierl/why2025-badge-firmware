@@ -62,6 +62,19 @@ void ssh_ui_progress_to_next_field(app_state_t* app) {
             return;
     }
 
+    // Place cursor at end of any pre-populated content in the new field
+    switch (app->input_mode) {
+        case INPUT_MODE_PORT:
+            app->input_cursor_pos = (int)strlen(app->connection_input.port_str);
+            break;
+        case INPUT_MODE_USERNAME:
+            app->input_cursor_pos = (int)strlen(app->connection_input.username);
+            break;
+        default:
+            app->input_cursor_pos = 0;
+            break;
+    }
+
     // Advance display to the next field's prompt
     term_input_string("\r\n");
     ui_manager_display_current_prompt(app);
@@ -160,6 +173,7 @@ app_result_t ssh_ui_handle_auth_submit(app_state_t* app) {
     if (success) {
         // Clear the auth response buffer for security
         memset(app->connection_input.auth_response, 0, sizeof(app->connection_input.auth_response));
+        app->input_cursor_pos = 0;
 
         // Show feedback that response was submitted
         term_input_string("\r\n\x1b[33mResponse submitted...\x1b[0m\r\n");
@@ -212,6 +226,7 @@ void ssh_ui_clear_connection_input(app_state_t* app) {
     app->ssh_connecting = false;
     app->ssh_connected = false;
     app->connection_succeeded = false;
+    app->input_cursor_pos = 0;
 }
 
 void ssh_ui_handle_connection_success(app_state_t* app) {

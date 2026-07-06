@@ -37,4 +37,15 @@ input_field_t input_system_get_current_field(app_state_t* app);
  */
 void input_system_handle_char(app_state_t* app, char ch);
 
+/**
+ * @brief Handle cursor navigation key in an input field
+ *
+ * Moves app->input_cursor_pos in response to Left/Right/Home/End.
+ * Caller is responsible for refreshing the prompt display afterwards.
+ *
+ * @param app Application state
+ * @param keycode SDL_Keycode value (SDLK_LEFT / SDLK_RIGHT / SDLK_HOME / SDLK_END)
+ */
+void input_system_handle_nav_key(app_state_t* app, int keycode);
+
 #endif // INPUT_SYSTEM_H

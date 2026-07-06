@@ -53,6 +53,7 @@ typedef struct {
     const char* default_value;  /**< Default value to use if field is empty */
     bool is_password;           /**< Whether field should be masked during display */
     bool numeric_only;          /**< Whether field accepts only numeric input */
+    int cursor_pos;             /**< Cursor byte offset within buffer (0 = before first char) */
 } input_field_t;
 
 /**

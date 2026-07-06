@@ -27,6 +27,7 @@ struct app_state {
     connection_input_t connection_input; /**< User-entered connection parameters */
     char auth_prompt_text[512]; /**< Current auth prompt text (set from SSH_EVENT_AUTH_PROMPT) */
     bool auth_prompt_echo;      /**< Whether auth input should be echoed */
+    int input_cursor_pos;       /**< Cursor byte offset within the active input field */
 };
 
 #endif // APP_STATE_COMMON_H

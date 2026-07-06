@@ -1,6 +1,7 @@
 #include "ui_manager.h"
 #include "../term/term.h"
 #include "../input_system/input_system.h"
+#include "../common/terminal_config.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -161,22 +162,55 @@ void ui_manager_display_field_prompt(input_field_t field) {
         return;
     }
 
-    // Clear line and show prompt (no newline, just update current line)
+    int prompt_len = (int)strlen(field.prompt);
+    // Visible content columns after the prompt (leave 1 guard column for safety)
+    int visible_width = TERMINAL_COLS - prompt_len - 1;
+    if (visible_width < 4) visible_width = 4;
+
+    int cursor_pos = field.cursor_pos;
+    int length = field.length;
+
+    // Compute view_offset so the cursor is always within the visible window.
+    // The '<' scroll indicator costs 1 column when scrolled.
+    int view_offset = 0;
+    if (cursor_pos >= visible_width) {
+        view_offset = cursor_pos - visible_width + 1;
+    }
+
+    // When scrolled the '<' indicator takes 1 column, shrinking content by 1
+    int content_width = (view_offset > 0) ? visible_width - 1 : visible_width;
+    int show_len = length - view_offset;
+    if (show_len > content_width) show_len = content_width;
+    if (show_len < 0) show_len = 0;
+
+    // Clear line and show prompt
     term_input_string("\r\x1b[K");
     term_input_string(field.prompt);
 
-    // Show field content (masked if password)
-    if (field.is_password) {
-        char password_display[256];
-        int safe_len = (field.length < (int)sizeof(password_display) - 1) ?
-                      field.length : (int)sizeof(password_display) - 1;
-        for (int i = 0; i < safe_len; i++) {
-            password_display[i] = '*';
+    // Dim '<' indicator when content is scrolled off to the left
+    if (view_offset > 0) {
+        term_input_string("\x1b[2m<\x1b[0m");
+    }
+
+    // Show field content (masked or plain) using a fixed-size local buffer
+    if (show_len > 0) {
+        char display[TERMINAL_COLS + 1];
+        if (field.is_password) {
+            for (int i = 0; i < show_len; i++) display[i] = '*';
+        } else {
+            memcpy(display, field.buffer + view_offset, (size_t)show_len);
         }
-        password_display[safe_len] = '\0';
-        term_input_string(password_display);
-    } else {
-        term_input_string(field.buffer);
+        display[show_len] = '\0';
+        term_input_string(display);
+    }
+
+    // Reposition terminal cursor from end-of-content to actual cursor_pos.
+    // chars_after_cursor is always >= 0 (cursor_pos <= length, view_offset <= cursor_pos).
+    int chars_after_cursor = show_len - (cursor_pos - view_offset);
+    if (chars_after_cursor > 0) {
+        char move_back[16];
+        snprintf(move_back, sizeof(move_back), "\x1b[%dD", chars_after_cursor);
+        term_input_string(move_back);
     }
 }
 

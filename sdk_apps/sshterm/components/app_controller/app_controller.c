@@ -315,9 +315,14 @@ bool app_controller_handle_sdl_event(app_controller_t* controller,
                     case SDLK_KP_ENTER:
                         app_controller_route_prompt_char(controller, app_state, '\r');
                         break;
-                    // Ignore arrows and other navigation keys in prompts
-                    case SDLK_UP: case SDLK_DOWN: case SDLK_LEFT: case SDLK_RIGHT:
-                    case SDLK_HOME: case SDLK_END: case SDLK_PAGEUP: case SDLK_PAGEDOWN:
+                    // Cursor navigation within the current field
+                    case SDLK_LEFT: case SDLK_RIGHT: case SDLK_HOME: case SDLK_END:
+                        input_system_handle_nav_key(app_state, event->key.key);
+                        ui_manager_display_current_prompt(app_state);
+                        break;
+                    // Ignore vertical navigation and other non-editing keys in prompts
+                    case SDLK_UP: case SDLK_DOWN:
+                    case SDLK_PAGEUP: case SDLK_PAGEDOWN:
                     case SDLK_INSERT: case SDLK_TAB:
                         break;
                     default:
