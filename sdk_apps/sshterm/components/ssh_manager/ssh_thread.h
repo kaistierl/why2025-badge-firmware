@@ -105,15 +105,15 @@ typedef struct ssh_thread_manager {
     bool worker_ready;        // Set when worker thread finishes initialization
 
     // Thread handles and state for I/O threads
-    pid_t read_input_thread_id;
-    pid_t read_peer_thread_id;
+    pid_t io_thread_id;            // ssh_io_thread: sole wolfSSH caller (recv + send)
+    pid_t sock_reader_thread_id;   // sock_reader_thread: blocking read() → cipher_rb
     ssh_thread_args_t thread_args;
 
     // Thread state tracking for cooperative termination (protected by state_mutex)
-    bool input_thread_active;
-    bool peer_thread_active;
-    bool input_thread_complete;
-    bool peer_thread_complete;
+    bool io_thread_active;
+    bool sock_reader_active;
+    bool io_thread_complete;
+    bool sock_reader_complete;
 
     // Thread synchronization
     SDL_Mutex* cmd_queue_mutex;    // Protects command queue operations
@@ -121,7 +121,7 @@ typedef struct ssh_thread_manager {
     SDL_Mutex* state_mutex;        // Protects thread state variables
     SDL_Condition* state_cond;                 // Signaled on any state flag change
     SDL_Condition* cmd_cond;                   // Signaled when a control command is enqueued (CONNECT/DISCONNECT/SHUTDOWN)
-    SDL_Condition* raw_input_cond;             // Signaled when SSH_CMD_SEND_RAW_INPUT is enqueued
+    SDL_Condition* io_work_cond;               // Signaled when ssh_io_thread has work (cipher data or send); uses cmd_queue_mutex
     SDL_Condition* event_queue_not_full_cond;  // Signaled when a slot is freed from the event queue
 
     // Thread communication queues — access protected by cmd_queue_mutex/event_queue_mutex
@@ -136,7 +136,7 @@ typedef struct ssh_thread_manager {
     int event_queue_count;
 
     // Terminal data ring buffer.
-    // read_peer_thread writes received SSH channel bytes here without blocking.
+    // ssh_io_thread writes received SSH channel bytes here without blocking.
     // The main thread drains it via ssh_thread_drain_terminal_data() each frame.
     // If full, incoming bytes are dropped (some visual artifacts) rather than
     // stalling wolfSSH and breaking keyboard input.

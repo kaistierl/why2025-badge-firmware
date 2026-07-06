@@ -121,7 +121,7 @@ bool ssh_manager_poll_and_read(app_state_t* app) {
 
     bool data_received = false;
 
-    // Drain terminal data ring buffer into libvterm. read_peer_thread writes here
+    // Drain terminal data ring buffer into libvterm. ssh_io_thread writes here
     // without blocking, so wolfSSH is never stalled waiting for the render pipeline.
     static uint8_t term_drain[SSH_DATA_BUFFER_SIZE];
     size_t n;
