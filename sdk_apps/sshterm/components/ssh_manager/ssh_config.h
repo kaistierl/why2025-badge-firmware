@@ -42,8 +42,13 @@
 #define SSH_EVENT_QUEUE_SIZE    8
 
 /** Terminal data ring buffer — absorbs SSH server output bursts without blocking wolfSSH.
- *  read_peer_thread writes here; main thread drains to libvterm at rendering speed. */
+ *  ssh_io_thread writes here; main thread drains to libvterm at rendering speed. */
 #define SSH_TERMINAL_RING_BUF_SIZE  65536
+
+/** Cipher ring buffer — raw encrypted bytes from sock_reader_thread, before wolfSSH decryption.
+ *  ssh_client_cipher_rb_write feeds it; wolfssh_io_recv_streaming drains it non-blockingly.
+ *  Must be lossless: write blocks (TCP backpressure) rather than dropping. */
+#define SSH_CIPHER_RING_BUF_SIZE    (64 * 1024)
 
 // === CONNECTION CONFIGURATION ===
 

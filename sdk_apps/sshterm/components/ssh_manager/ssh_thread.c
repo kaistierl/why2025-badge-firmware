@@ -1,5 +1,17 @@
 /* ssh_thread.c - Threaded SSH I/O manager implementation
- * Pure blocking I/O version without select() for BadgeVMS compatibility
+ *
+ * Three-thread model (Option A — cipher ring buffer):
+ *
+ *   ssh_thread_main      — control commands only (CONNECT/DISCONNECT/SHUTDOWN)
+ *   sock_reader_thread   — sole caller of read(socket_fd); writes raw cipher bytes
+ *                          into ssh_client_t::cipher_rb. No wolfSSH calls.
+ *   ssh_io_thread        — sole wolfSSH caller. Drains cipher_rb via
+ *                          wolfSSH_stream_read (non-blocking, WS_CBIO_ERR_WANT_READ
+ *                          when empty) and writes to term_buf. Also processes
+ *                          SSH_CMD_SEND_RAW_INPUT via wolfSSH_stream_send.
+ *
+ * Eliminating concurrent wolfSSH access removes the send+receive race that caused
+ * crashes under sustained input against high-throughput servers (htop).
  */
 
 #include "ssh_thread.h"
@@ -7,12 +19,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_mutex.h>
 
 // Forward declarations
-static void read_input_thread(void* arg);
-static void read_peer_thread(void* arg);
+static void sock_reader_thread(void* arg);
+static void ssh_io_thread(void* arg);
 static void ssh_thread_main(void* data);
 static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd);
 static bool queue_get_cmd(ssh_thread_manager_t* manager, ssh_cmd_t* cmd);
@@ -31,73 +44,6 @@ static bool wait_for_io_threads(ssh_thread_manager_t* manager, Sint32 timeout_ms
 static ssh_thread_manager_t* g_current_auth_manager = NULL;
 static SDL_Mutex* g_auth_manager_mutex = NULL;
 
-// Read input thread - handles keyboard input and sends to SSH
-static void read_input_thread(void* arg) {
-    ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
-
-    // Signal thread is active
-    SDL_LockMutex(args->manager->state_mutex);
-    args->manager->input_thread_active = true;
-    SDL_UnlockMutex(args->manager->state_mutex);
-
-    while (true) {
-        // Check quit flag with mutex protection
-        SDL_LockMutex(args->manager->state_mutex);
-        bool should_quit = args->quit;
-        bool manager_running = args->manager->thread_running;
-        SDL_UnlockMutex(args->manager->state_mutex);
-
-        if (should_quit || !manager_running) {
-            break;
-        }
-
-        // Only dequeue SSH_CMD_SEND_RAW_INPUT; leave control commands for the main thread.
-        ssh_cmd_type_t next_type;
-        if (queue_peek_cmd_type(args->manager, &next_type) &&
-            next_type == SSH_CMD_SEND_RAW_INPUT) {
-
-            ssh_cmd_t cmd;
-            if (queue_get_cmd(args->manager, &cmd)) {
-                bool sent = ssh_client_send(args->ssh_client,
-                                            cmd.send_raw_input.input_data,
-                                            cmd.send_raw_input.input_len);
-                if (!sent) {
-                    printf("SSH Input Thread: Failed to send input: %s\n",
-                           ssh_client_get_error(args->ssh_client));
-                    ssh_event_t event = {.type = SSH_EVENT_ERROR};
-                    strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
-                            sizeof(event.error.message) - 1);
-                    queue_put_event(args->manager, &event);
-                }
-            }
-        } else {
-            // Block until raw input arrives or the quit-check timeout fires.
-            // Uses raw_input_cond (signalled exclusively for SSH_CMD_SEND_RAW_INPUT)
-            // so the main SSH thread's control-command signals don't cause spurious
-            // wakeups here, and this thread never interferes with the main thread's
-            // cmd_cond waits.
-            // Also wait when a control command is at the head: that belongs to the
-            // main thread, not this one, so spinning on it would be a busy-loop.
-            SDL_LockMutex(args->manager->cmd_queue_mutex);
-            if (args->manager->cmd_queue_count == 0 ||
-                args->manager->cmd_queue[args->manager->cmd_queue_head].type != SSH_CMD_SEND_RAW_INPUT) {
-                SDL_WaitConditionTimeout(args->manager->raw_input_cond,
-                                         args->manager->cmd_queue_mutex, 100);
-            }
-            SDL_UnlockMutex(args->manager->cmd_queue_mutex);
-        }
-    }
-
-    // Signal thread completion
-    SDL_LockMutex(args->manager->state_mutex);
-    args->manager->input_thread_active = false;
-    args->manager->input_thread_complete = true;
-    SDL_SignalCondition(args->manager->state_cond);
-    SDL_UnlockMutex(args->manager->state_mutex);
-}
-
-// Read peer thread - handles SSH data reception with PURE BLOCKING I/O
-// Read peer thread - handles SSH server responses
 // Write bytes into the terminal ring buffer. Drops data if full (logs once per burst).
 // Returns true if all bytes were written, false if some were dropped.
 static bool term_buf_write(ssh_thread_manager_t* manager, const uint8_t* data, size_t len) {
@@ -123,72 +69,150 @@ static bool term_buf_write(ssh_thread_manager_t* manager, const uint8_t* data, s
     return true;
 }
 
-static void read_peer_thread(void* arg) {
+// sock_reader_thread — the ONLY thread that calls read() on the socket.
+// Writes raw cipher bytes into ssh_client_t::cipher_rb and signals ssh_io_thread.
+// No wolfSSH calls; no shared SSH state accessed.
+static void sock_reader_thread(void* arg) {
+    ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
+    uint8_t buf[SSH_DATA_BUFFER_SIZE];
+
+    SDL_LockMutex(args->manager->state_mutex);
+    args->manager->sock_reader_active = true;
+    SDL_UnlockMutex(args->manager->state_mutex);
+
+    int sock_fd = ssh_client_get_fd(args->ssh_client);
+
+    while (true) {
+        SDL_LockMutex(args->manager->state_mutex);
+        bool should_quit = args->quit;
+        SDL_UnlockMutex(args->manager->state_mutex);
+        if (should_quit) break;
+
+        int n = (int)read(sock_fd, buf, sizeof(buf));
+
+        if (n > 0) {
+            // Blocking write — applies TCP backpressure rather than dropping bytes.
+            // cipher_rb must be lossless: dropping cipher bytes corrupts the wolfSSH stream.
+            ssh_client_cipher_rb_write(args->ssh_client, buf, n);
+        } else {
+            // n == 0: clean TCP close; n < 0: read error (includes disconnect during cleanup).
+            if (n < 0 && !args->quit) {
+                printf("SSH Sock Reader: read() error: %s (errno=%d)\n", strerror(errno), errno);
+            }
+            // Mark socket closed so cipher_rb_write unblocks and wolfssh_io_recv_streaming
+            // returns WS_CBIO_ERR_CONN_CLOSE on the next drain attempt.
+            args->ssh_client->socket_closed = true;
+            // Unblock any thread waiting in cipher_rb_write (which checks socket_closed).
+            SDL_LockMutex((SDL_Mutex*)args->ssh_client->cipher_rb_mutex);
+            SDL_SignalCondition((SDL_Condition*)args->ssh_client->cipher_rb_space_cond);
+            SDL_UnlockMutex((SDL_Mutex*)args->ssh_client->cipher_rb_mutex);
+        }
+
+        // Wake ssh_io_thread: new cipher data available, or socket closed.
+        SDL_LockMutex(args->manager->cmd_queue_mutex);
+        SDL_SignalCondition(args->manager->io_work_cond);
+        SDL_UnlockMutex(args->manager->cmd_queue_mutex);
+
+        if (n <= 0) break;
+    }
+
+    SDL_LockMutex(args->manager->state_mutex);
+    args->manager->sock_reader_active = false;
+    args->manager->sock_reader_complete = true;
+    SDL_SignalCondition(args->manager->state_cond);
+    SDL_UnlockMutex(args->manager->state_mutex);
+}
+
+// ssh_io_thread — the SOLE wolfSSH caller after the handshake.
+// Drains cipher_rb through wolfSSH_stream_read → term_buf, and processes sends.
+// No concurrent access to WOLFSSH* is possible; no wolfssh_mutex needed.
+static void ssh_io_thread(void* arg) {
     ssh_thread_args_t* args = (ssh_thread_args_t*)arg;
     char recv_buf[SSH_DATA_BUFFER_SIZE];
     ssh_event_t event;
     memset(&event, 0, sizeof(event));
 
-    // Signal thread is active
     SDL_LockMutex(args->manager->state_mutex);
-    args->manager->peer_thread_active = true;
+    args->manager->io_thread_active = true;
     SDL_UnlockMutex(args->manager->state_mutex);
 
     while (true) {
-        // Check quit flag with mutex protection
         SDL_LockMutex(args->manager->state_mutex);
         bool should_quit = args->quit;
-        bool manager_running = args->manager->thread_running;
         SDL_UnlockMutex(args->manager->state_mutex);
+        if (should_quit) break;
 
-        if (should_quit || !manager_running) {
-            break;
-        }
+        bool did_work = false;
 
-        int received = ssh_client_receive(args->ssh_client, recv_buf, sizeof(recv_buf) - 1);
-
-        if (received > 0) {
-            // Write bytes to ring buffer. Never blocks — drops if full so wolfSSH
-            // keeps running and keyboard input stays responsive.
-            if (!term_buf_write(args->manager, (const uint8_t*)recv_buf, received)) {
-                printf("SSH Peer Thread: terminal ring buffer full, dropping %d bytes\n", received);
+        // Drain all available cipher data through wolfSSH (non-blocking).
+        // wolfssh_io_recv_streaming returns WS_CBIO_ERR_WANT_READ when cipher_rb is
+        // empty, causing wolfSSH_stream_read → WS_WANT_READ → receive returns 0.
+        int received;
+        do {
+            received = ssh_client_receive(args->ssh_client, recv_buf, sizeof(recv_buf) - 1);
+            if (received > 0) {
+                if (!term_buf_write(args->manager, (const uint8_t*)recv_buf, received)) {
+                    printf("SSH IO Thread: terminal ring buffer full, dropping %d bytes\n", received);
+                }
+                did_work = true;
             }
+        } while (received > 0);
 
-        } else if (received == -2) {
-            // Clean disconnect
-            printf("SSH Peer Thread: Connection closed by remote\n");
-
+        if (received == -2) {
+            printf("SSH IO Thread: Connection closed by remote\n");
             SDL_LockMutex(args->manager->state_mutex);
             args->quit = true;
             SDL_UnlockMutex(args->manager->state_mutex);
-
             event.type = SSH_EVENT_DISCONNECTED;
             queue_put_event(args->manager, &event);
             break;
         } else if (received < 0) {
-            // Error
-            printf("SSH Peer Thread: Receive error: %s\n",
-                   ssh_client_get_error(args->ssh_client));
-
+            printf("SSH IO Thread: Receive error: %s\n", ssh_client_get_error(args->ssh_client));
             SDL_LockMutex(args->manager->state_mutex);
             args->quit = true;
             SDL_UnlockMutex(args->manager->state_mutex);
-
             event.type = SSH_EVENT_ERROR;
             strncpy(event.error.message, ssh_client_get_error(args->ssh_client),
                     sizeof(event.error.message) - 1);
             queue_put_event(args->manager, &event);
             break;
-        } else {
-            // received == 0 should not happen in blocking mode; small delay to be safe
-            usleep(10000);
+        }
+
+        // Process all pending sends (sole wolfSSH caller — no mutex needed).
+        ssh_cmd_type_t next_type;
+        while (queue_peek_cmd_type(args->manager, &next_type) &&
+               next_type == SSH_CMD_SEND_RAW_INPUT) {
+            ssh_cmd_t cmd;
+            if (queue_get_cmd(args->manager, &cmd)) {
+                bool sent = ssh_client_send(args->ssh_client,
+                                            cmd.send_raw_input.input_data,
+                                            cmd.send_raw_input.input_len);
+                if (!sent) {
+                    printf("SSH IO Thread: Failed to send input: %s\n",
+                           ssh_client_get_error(args->ssh_client));
+                    ssh_event_t err = {.type = SSH_EVENT_ERROR};
+                    strncpy(err.error.message, ssh_client_get_error(args->ssh_client),
+                            sizeof(err.error.message) - 1);
+                    queue_put_event(args->manager, &err);
+                }
+                did_work = true;
+            }
+        }
+
+        // If nothing happened this cycle, wait for cipher data or a send command.
+        // io_work_cond is signalled by sock_reader_thread (new bytes) and queue_put_cmd
+        // (new SSH_CMD_SEND_RAW_INPUT). Uses cmd_queue_mutex as the associated mutex.
+        if (!did_work) {
+            SDL_LockMutex(args->manager->cmd_queue_mutex);
+            SDL_WaitConditionTimeout(args->manager->io_work_cond,
+                                     args->manager->cmd_queue_mutex, 5);
+            SDL_UnlockMutex(args->manager->cmd_queue_mutex);
         }
     }
 
-    // Signal thread completion
     SDL_LockMutex(args->manager->state_mutex);
-    args->manager->peer_thread_active = false;
-    args->manager->peer_thread_complete = true;
+    args->manager->io_thread_active = false;
+    args->manager->io_thread_complete = true;
     SDL_SignalCondition(args->manager->state_cond);
     SDL_UnlockMutex(args->manager->state_mutex);
 }
@@ -198,12 +222,12 @@ static void read_peer_thread(void* arg) {
 static bool wait_for_io_threads(ssh_thread_manager_t* manager, Sint32 timeout_ms) {
     SDL_LockMutex(manager->state_mutex);
     Uint64 deadline = SDL_GetTicks() + (Uint64)timeout_ms;
-    while (!(manager->input_thread_complete && manager->peer_thread_complete)) {
+    while (!(manager->io_thread_complete && manager->sock_reader_complete)) {
         Uint64 now = SDL_GetTicks();
         if (now >= deadline) break;
         SDL_WaitConditionTimeout(manager->state_cond, manager->state_mutex, (Sint32)(deadline - now));
     }
-    bool complete = manager->input_thread_complete && manager->peer_thread_complete;
+    bool complete = manager->io_thread_complete && manager->sock_reader_complete;
     SDL_UnlockMutex(manager->state_mutex);
     return complete;
 }
@@ -253,7 +277,7 @@ static void ssh_thread_main(void* data) {
             break;
         }
 
-        // Process control commands only; SSH_CMD_SEND_RAW_INPUT belongs to read_input_thread.
+        // Process control commands only; SSH_CMD_SEND_RAW_INPUT belongs to ssh_io_thread.
         // Peek first so we never dequeue a raw-input command — doing so and re-enqueuing it
         // creates a tight re-enqueue loop on multi-core hardware that starves the input
         // thread and floods the condition variable with signals, corrupting wolfSSH state.
@@ -298,16 +322,16 @@ static void ssh_thread_main(void* data) {
                         manager->thread_args.quit = false;
 
                         SDL_LockMutex(manager->state_mutex);
-                        manager->input_thread_active = false;
-                        manager->peer_thread_active = false;
-                        manager->input_thread_complete = false;
-                        manager->peer_thread_complete = false;
+                        manager->io_thread_active    = false;
+                        manager->sock_reader_active  = false;
+                        manager->io_thread_complete  = false;
+                        manager->sock_reader_complete = false;
                         SDL_UnlockMutex(manager->state_mutex);
 
-                        manager->read_input_thread_id = thread_create(read_input_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
-                        manager->read_peer_thread_id = thread_create(read_peer_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
+                        manager->io_thread_id = thread_create(ssh_io_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
+                        manager->sock_reader_thread_id = thread_create(sock_reader_thread, &manager->thread_args, SSH_IO_THREAD_STACK);
 
-                        if (manager->read_input_thread_id > 0 && manager->read_peer_thread_id > 0) {
+                        if (manager->io_thread_id > 0 && manager->sock_reader_thread_id > 0) {
                             event.type = SSH_EVENT_CONNECTED;
                             event.gen = my_gen;
                             strncpy(event.connected.hostname, cmd.connect.hostname,
@@ -321,17 +345,17 @@ static void ssh_thread_main(void* data) {
                             // Mark it done preemptively so wait_for_io_threads doesn't block on it.
                             SDL_LockMutex(manager->state_mutex);
                             manager->thread_args.quit = true;
-                            if (manager->read_input_thread_id <= 0)
-                                manager->input_thread_complete = true;
-                            if (manager->read_peer_thread_id <= 0)
-                                manager->peer_thread_complete = true;
+                            if (manager->io_thread_id <= 0)
+                                manager->io_thread_complete = true;
+                            if (manager->sock_reader_thread_id <= 0)
+                                manager->sock_reader_complete = true;
                             SDL_UnlockMutex(manager->state_mutex);
 
                             wait_for_io_threads(manager, 2000);
                             ssh_client_cleanup(&manager->ssh_client);
                             ssh_connected = false;
-                            manager->read_input_thread_id = 0;
-                            manager->read_peer_thread_id = 0;
+                            manager->io_thread_id = 0;
+                            manager->sock_reader_thread_id = 0;
 
                             event.type = SSH_EVENT_ERROR;
                             event.gen = my_gen;
@@ -371,8 +395,8 @@ static void ssh_thread_main(void* data) {
                         ssh_connected = false;
 
                         // Reset thread handles
-                        manager->read_input_thread_id = 0;
-                        manager->read_peer_thread_id = 0;
+                        manager->io_thread_id = 0;
+                        manager->sock_reader_thread_id = 0;
 
                         // Do NOT post SSH_EVENT_DISCONNECTED here: the peer thread already
                         // posted it when it detected the remote close, which is what
@@ -410,8 +434,8 @@ static void ssh_thread_main(void* data) {
         }
 
         // Block until a control command arrives or the quit-check timeout fires.
-        // Also wait when SSH_CMD_SEND_RAW_INPUT is at the head (the input thread
-        // owns those; waking here only wastes cycles and adds mutex contention).
+        // Also wait when SSH_CMD_SEND_RAW_INPUT is at the head (ssh_io_thread owns
+        // those; waking here only wastes cycles and adds mutex contention).
         SDL_LockMutex(manager->cmd_queue_mutex);
         if (manager->cmd_queue_count == 0 ||
             manager->cmd_queue[manager->cmd_queue_head].type == SSH_CMD_SEND_RAW_INPUT) {
@@ -469,12 +493,11 @@ static bool queue_put_cmd(ssh_thread_manager_t* manager, const ssh_cmd_t* cmd) {
     manager->cmd_queue_tail = (manager->cmd_queue_tail + 1) % SSH_CMD_QUEUE_SIZE;
     manager->cmd_queue_count++;
 
-    // Route the wakeup to the right consumer: raw-input commands wake the I/O
-    // thread exclusively; control commands wake the SSH main thread exclusively.
-    // Keeping these separate prevents the tight re-enqueue busy-loop that was
-    // flooding both threads with signals whenever a keystroke was queued.
+    // Route the wakeup to the right consumer: raw-input commands wake ssh_io_thread;
+    // control commands wake ssh_thread_main. io_work_cond uses cmd_queue_mutex as its
+    // associated mutex, so the signal is safe to emit while the mutex is held here.
     if (cmd->type == SSH_CMD_SEND_RAW_INPUT) {
-        SDL_SignalCondition(manager->raw_input_cond);
+        SDL_SignalCondition(manager->io_work_cond);
     } else {
         SDL_SignalCondition(manager->cmd_cond);
     }
@@ -628,12 +651,12 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
     manager->worker_ready = false;
 
     // Initialize thread state tracking
-    manager->read_input_thread_id = 0;
-    manager->read_peer_thread_id = 0;
-    manager->input_thread_active = false;
-    manager->peer_thread_active = false;
-    manager->input_thread_complete = false;
-    manager->peer_thread_complete = false;
+    manager->io_thread_id = 0;
+    manager->sock_reader_thread_id = 0;
+    manager->io_thread_active    = false;
+    manager->sock_reader_active  = false;
+    manager->io_thread_complete  = false;
+    manager->sock_reader_complete = false;
 
     // Initialize thread arguments structure
     memset(&manager->thread_args, 0, sizeof(manager->thread_args));
@@ -698,9 +721,9 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         return false;
     }
 
-    manager->raw_input_cond = SDL_CreateCondition();
-    if (!manager->raw_input_cond) {
-        printf("SSH Thread Init: Failed to create raw-input condition: %s\n", SDL_GetError());
+    manager->io_work_cond = SDL_CreateCondition();
+    if (!manager->io_work_cond) {
+        printf("SSH Thread Init: Failed to create io_work condition: %s\n", SDL_GetError());
         SDL_DestroyCondition(manager->cmd_cond);
         SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
@@ -717,13 +740,13 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
     manager->event_queue_not_full_cond = SDL_CreateCondition();
     if (!manager->event_queue_not_full_cond) {
         printf("SSH Thread Init: Failed to create event-queue-not-full condition: %s\n", SDL_GetError());
-        SDL_DestroyCondition(manager->raw_input_cond);
+        SDL_DestroyCondition(manager->io_work_cond);
         SDL_DestroyCondition(manager->cmd_cond);
         SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         SDL_DestroyMutex(manager->event_queue_mutex);
         SDL_DestroyMutex(manager->state_mutex);
-        manager->raw_input_cond = NULL;
+        manager->io_work_cond = NULL;
         manager->cmd_cond = NULL;
         manager->state_cond = NULL;
         manager->cmd_queue_mutex = NULL;
@@ -736,14 +759,14 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
     if (!manager->term_buf_mutex) {
         printf("SSH Thread Init: Failed to create terminal ring buffer mutex: %s\n", SDL_GetError());
         SDL_DestroyCondition(manager->event_queue_not_full_cond);
-        SDL_DestroyCondition(manager->raw_input_cond);
+        SDL_DestroyCondition(manager->io_work_cond);
         SDL_DestroyCondition(manager->cmd_cond);
         SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
         SDL_DestroyMutex(manager->event_queue_mutex);
         SDL_DestroyMutex(manager->state_mutex);
         manager->event_queue_not_full_cond = NULL;
-        manager->raw_input_cond = NULL;
+        manager->io_work_cond = NULL;
         manager->cmd_cond = NULL;
         manager->state_cond = NULL;
         manager->cmd_queue_mutex = NULL;
@@ -765,7 +788,7 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         printf("SSH Thread Init: Failed to create thread (invalid pid)\n");
         SDL_DestroyMutex(manager->term_buf_mutex);
         SDL_DestroyCondition(manager->event_queue_not_full_cond);
-        SDL_DestroyCondition(manager->raw_input_cond);
+        SDL_DestroyCondition(manager->io_work_cond);
         SDL_DestroyCondition(manager->cmd_cond);
         SDL_DestroyCondition(manager->state_cond);
         SDL_DestroyMutex(manager->cmd_queue_mutex);
@@ -773,7 +796,7 @@ bool ssh_thread_init(ssh_thread_manager_t* manager) {
         SDL_DestroyMutex(manager->state_mutex);
         manager->term_buf_mutex = NULL;
         manager->event_queue_not_full_cond = NULL;
-        manager->raw_input_cond = NULL;
+        manager->io_work_cond = NULL;
         manager->cmd_cond = NULL;
         manager->state_cond = NULL;
         manager->cmd_queue_mutex = NULL;
@@ -871,9 +894,9 @@ void ssh_thread_shutdown(ssh_thread_manager_t* manager) {
         SDL_DestroyCondition(manager->event_queue_not_full_cond);
         manager->event_queue_not_full_cond = NULL;
     }
-    if (manager->raw_input_cond) {
-        SDL_DestroyCondition(manager->raw_input_cond);
-        manager->raw_input_cond = NULL;
+    if (manager->io_work_cond) {
+        SDL_DestroyCondition(manager->io_work_cond);
+        manager->io_work_cond = NULL;
     }
     if (manager->cmd_cond) {
         SDL_DestroyCondition(manager->cmd_cond);

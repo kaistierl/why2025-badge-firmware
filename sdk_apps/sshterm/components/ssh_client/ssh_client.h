@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "../ssh_manager/ssh_config.h"  /* SSH_CIPHER_RING_BUF_SIZE */
 
 // === SSH-SPECIFIC TYPE DEFINITIONS ===
 // These types are private to the SSH subsystem (ssh_client/ and ssh_manager/).
@@ -70,8 +71,18 @@ typedef struct ssh_client {
 
     void* ctx;           /**< WOLFSSH_CTX* (opaque) */
     void* ssh;           /**< WOLFSSH*     (opaque) */
-    void* wolfssh_mutex; /**< SDL_Mutex* — serialises wolfSSH_stream_send across threads */
     int socket_fd;
+
+    /* Cipher ring buffer: raw encrypted bytes written by sock_reader_thread, drained by
+     * wolfssh_io_recv_streaming (called from ssh_io_thread only). ssh_io_thread is the
+     * sole wolfSSH caller so no wolfssh_mutex is needed. */
+    uint8_t          cipher_rb_data[SSH_CIPHER_RING_BUF_SIZE];
+    size_t           cipher_rb_head;
+    size_t           cipher_rb_tail;
+    size_t           cipher_rb_count;
+    void*            cipher_rb_mutex;      /**< SDL_Mutex* protecting cipher_rb_* fields */
+    void*            cipher_rb_space_cond; /**< SDL_Condition* signalled by drain when space is freed */
+    volatile bool    socket_closed;        /**< Set by sock_reader_thread when read() returns 0 or -1 */
 
     struct {
         char stored_password[512];
@@ -193,6 +204,20 @@ ssh_error_code_t ssh_client_get_error_code(ssh_client_t* client);
  * @return Socket file descriptor, or -1 if not connected
  */
 int ssh_client_get_fd(ssh_client_t* client);
+
+/**
+ * Write raw cipher bytes into the cipher ring buffer (called from sock_reader_thread).
+ * Thread-safe. Drops data and returns false if the buffer is full.
+ * @return true if all bytes were written, false if dropped (buffer full)
+ */
+bool ssh_client_cipher_rb_write(ssh_client_t* client, const void* data, int len);
+
+/**
+ * Drain up to size bytes from the cipher ring buffer (called from wolfssh_io_recv_streaming).
+ * Non-blocking — returns 0 immediately when the buffer is empty.
+ * @return number of bytes copied, or 0 if empty
+ */
+int ssh_client_cipher_rb_drain(ssh_client_t* client, void* data, int size);
 
 /**
  * Cleanup SSH client resources

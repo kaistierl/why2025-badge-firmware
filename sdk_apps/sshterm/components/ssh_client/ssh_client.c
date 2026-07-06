@@ -471,13 +471,28 @@ bool ssh_client_init(ssh_client_t* client) {
         return false;
     }
 
-    // Serialises wolfSSH_stream_send across the two I/O threads (recv thread does
-    // NOT hold this mutex — doing so would deadlock sends when the server is quiet).
-    client->wolfssh_mutex = SDL_CreateMutex();
-    if (!client->wolfssh_mutex) {
-        printf("SSH: Failed to create wolfSSH send mutex\n");
-        ssh_set_error(client, SSH_ERR_MUTEX_FAILED, "Failed to create wolfSSH mutex");
+    // Cipher ring buffer: protects fields shared between sock_reader_thread (writer)
+    // and ssh_io_thread via wolfssh_io_recv_streaming (reader).
+    client->cipher_rb_head      = 0;
+    client->cipher_rb_tail      = 0;
+    client->cipher_rb_count     = 0;
+    client->socket_closed       = false;
+    client->cipher_rb_space_cond = NULL;
+    client->cipher_rb_mutex = SDL_CreateMutex();
+    if (!client->cipher_rb_mutex) {
+        printf("SSH: Failed to create cipher ring buffer mutex\n");
+        ssh_set_error(client, SSH_ERR_MUTEX_FAILED, "Failed to create cipher_rb mutex");
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->auth_state.auth_state_mutex = NULL;
+        return false;
+    }
+    client->cipher_rb_space_cond = SDL_CreateCondition();
+    if (!client->cipher_rb_space_cond) {
+        printf("SSH: Failed to create cipher_rb space condition\n");
+        ssh_set_error(client, SSH_ERR_MUTEX_FAILED, "Failed to create cipher_rb_space_cond");
+        SDL_DestroyMutex((SDL_Mutex*)client->cipher_rb_mutex);
+        SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
+        client->cipher_rb_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         return false;
     }
@@ -487,9 +502,9 @@ bool ssh_client_init(ssh_client_t* client) {
     if (wc_ret != 0) {
         printf("SSH: wolfCrypt_Init failed with error: %d\n", wc_ret);
         ssh_set_error(client, SSH_ERR_WOLFSSL_INIT, "Failed to initialize wolfCrypt");
-        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
+        SDL_DestroyMutex((SDL_Mutex*)client->cipher_rb_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
-        client->wolfssh_mutex = NULL;
+        client->cipher_rb_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         return false;
     }
@@ -500,9 +515,9 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rng_ret != 0) {
         printf("SSH: Failed to initialize RNG with error: %d\n", rng_ret);
         ssh_set_error(client, SSH_ERR_RNG_FAILED, "Failed to initialize RNG");
-        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
+        SDL_DestroyMutex((SDL_Mutex*)client->cipher_rb_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
-        client->wolfssh_mutex = NULL;
+        client->cipher_rb_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
@@ -514,9 +529,9 @@ bool ssh_client_init(ssh_client_t* client) {
         printf("SSH: RNG test failed with error: %d\n", rng_ret);
         wc_FreeRng(&rng);
         ssh_set_error(client, SSH_ERR_RNG_FAILED, "RNG functionality test failed");
-        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
+        SDL_DestroyMutex((SDL_Mutex*)client->cipher_rb_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
-        client->wolfssh_mutex = NULL;
+        client->cipher_rb_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
@@ -529,9 +544,9 @@ bool ssh_client_init(ssh_client_t* client) {
     if (rc != WS_SUCCESS) {
         printf("SSH: wolfSSH_Init failed with error: %d\n", rc);
         ssh_set_error(client, SSH_ERR_WOLFSSH_INIT, "Failed to initialize wolfSSH library");
-        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
+        SDL_DestroyMutex((SDL_Mutex*)client->cipher_rb_mutex);
         SDL_DestroyMutex((SDL_Mutex*)client->auth_state.auth_state_mutex);
-        client->wolfssh_mutex = NULL;
+        client->cipher_rb_mutex = NULL;
         client->auth_state.auth_state_mutex = NULL;
         wolfCrypt_Cleanup();
         return false;
@@ -645,11 +660,12 @@ static bool ssh_run_handshake(ssh_client_t* client) {
         client->state = SSH_STATE_CONNECTED;
         printf("SSH: Connection established successfully\n");
 
-        // Switch to the streaming recv. On local builds, wolfssh_io_recv_streaming
-        // uses select(10ms)+read() so ssh_io_thread can service sends each cycle.
-        // On hardware, it falls back to blocking read(); sends are handled by the
-        // separate read_input_thread (restored under #ifndef SSHTERM_LOCAL_BUILD).
+        // Switch to the streaming recv callback (drains cipher_rb, non-blocking).
+        // Also switch the I/O ctx from &socket_fd to the client so the callback
+        // can reach cipher_rb_drain(). sock_reader_thread feeds the ring buffer
+        // from this point on; the handshake used blocking read() via wolfssh_io_recv.
         wolfSSH_SetIORecv((WOLFSSH_CTX*)client->ctx, wolfssh_io_recv_streaming);
+        wolfSSH_SetIOReadCtx((WOLFSSH*)client->ssh, (void*)client);
 
         int pty_ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh,
                                                TERMINAL_COLS, TERMINAL_ROWS, 0, 0);
@@ -742,9 +758,8 @@ bool ssh_client_send(ssh_client_t* client, const char* data, size_t len) {
         return false;
     }
 
-    SDL_LockMutex((SDL_Mutex*)client->wolfssh_mutex);
+    // ssh_io_thread is the sole wolfSSH caller — no mutex needed.
     int bytes_written = wolfSSH_stream_send((WOLFSSH*)client->ssh, (byte*)data, (word32)len);
-    SDL_UnlockMutex((SDL_Mutex*)client->wolfssh_mutex);
 
     if (bytes_written < 0) {
         ssh_set_error(client, SSH_ERR_SEND_FAILED, "Failed to send data");
@@ -794,15 +809,9 @@ bool ssh_client_resize_pty(ssh_client_t* client, int width, int height) {
         return false;
     }
 
-    SDL_LockMutex((SDL_Mutex*)client->wolfssh_mutex);
+    // Must be called from ssh_io_thread (sole wolfSSH caller).
     int ret = wolfSSH_ChangeTerminalSize((WOLFSSH*)client->ssh, width, height, 0, 0);
-    SDL_UnlockMutex((SDL_Mutex*)client->wolfssh_mutex);
-
-    if (ret != WS_SUCCESS) {
-        return false;
-    }
-
-    return true;
+    return (ret == WS_SUCCESS);
 }
 
 bool ssh_client_send_signal(ssh_client_t* client, const char* signal_name) {
@@ -872,9 +881,13 @@ void ssh_client_cleanup(ssh_client_t* client) {
         client->socket_fd = -1;
     }
 
-    if (client->wolfssh_mutex) {
-        SDL_DestroyMutex((SDL_Mutex*)client->wolfssh_mutex);
-        client->wolfssh_mutex = NULL;
+    if (client->cipher_rb_space_cond) {
+        SDL_DestroyCondition((SDL_Condition*)client->cipher_rb_space_cond);
+        client->cipher_rb_space_cond = NULL;
+    }
+    if (client->cipher_rb_mutex) {
+        SDL_DestroyMutex((SDL_Mutex*)client->cipher_rb_mutex);
+        client->cipher_rb_mutex = NULL;
     }
 
     // Securely clear authentication state
@@ -908,12 +921,69 @@ void ssh_client_cleanup(ssh_client_t* client) {
     printf("SSH: Cleanup completed\n");
 }
 
-// New functions to support wolfSSH threading pattern
-
 int ssh_client_get_fd(ssh_client_t* client) {
     if (!client) {
         return -1;
     }
     return client->socket_fd;
+}
+
+bool ssh_client_cipher_rb_write(ssh_client_t* client, const void* data, int len) {
+    if (!client || !data || len <= 0 || !client->cipher_rb_mutex) return false;
+
+    SDL_LockMutex((SDL_Mutex*)client->cipher_rb_mutex);
+
+    // Block until enough space is available (TCP backpressure: do not drop cipher bytes).
+    // A 100 ms timeout lets sock_reader_thread notice the quit flag on disconnect.
+    while (SSH_CIPHER_RING_BUF_SIZE - client->cipher_rb_count < (size_t)len) {
+        if (client->socket_closed) {
+            SDL_UnlockMutex((SDL_Mutex*)client->cipher_rb_mutex);
+            return false;
+        }
+        SDL_WaitConditionTimeout((SDL_Condition*)client->cipher_rb_space_cond,
+                                 (SDL_Mutex*)client->cipher_rb_mutex, 100);
+    }
+
+    size_t first = SSH_CIPHER_RING_BUF_SIZE - client->cipher_rb_tail;
+    if ((size_t)len <= first) {
+        memcpy(client->cipher_rb_data + client->cipher_rb_tail, data, (size_t)len);
+    } else {
+        memcpy(client->cipher_rb_data + client->cipher_rb_tail, data, first);
+        memcpy(client->cipher_rb_data, (const uint8_t*)data + first, (size_t)len - first);
+    }
+    client->cipher_rb_tail  = (client->cipher_rb_tail + (size_t)len) % SSH_CIPHER_RING_BUF_SIZE;
+    client->cipher_rb_count += (size_t)len;
+
+    SDL_UnlockMutex((SDL_Mutex*)client->cipher_rb_mutex);
+    return true;
+}
+
+int ssh_client_cipher_rb_drain(ssh_client_t* client, void* data, int size) {
+    if (!client || !data || size <= 0 || !client->cipher_rb_mutex) return 0;
+
+    SDL_LockMutex((SDL_Mutex*)client->cipher_rb_mutex);
+
+    size_t to_read = client->cipher_rb_count < (size_t)size
+                     ? client->cipher_rb_count : (size_t)size;
+    if (to_read == 0) {
+        SDL_UnlockMutex((SDL_Mutex*)client->cipher_rb_mutex);
+        return 0;
+    }
+
+    size_t first = SSH_CIPHER_RING_BUF_SIZE - client->cipher_rb_head;
+    if (to_read <= first) {
+        memcpy(data, client->cipher_rb_data + client->cipher_rb_head, to_read);
+    } else {
+        memcpy(data, client->cipher_rb_data + client->cipher_rb_head, first);
+        memcpy((uint8_t*)data + first, client->cipher_rb_data, to_read - first);
+    }
+    client->cipher_rb_head  = (client->cipher_rb_head + to_read) % SSH_CIPHER_RING_BUF_SIZE;
+    client->cipher_rb_count -= to_read;
+
+    // Signal sock_reader_thread that space has been freed.
+    SDL_SignalCondition((SDL_Condition*)client->cipher_rb_space_cond);
+
+    SDL_UnlockMutex((SDL_Mutex*)client->cipher_rb_mutex);
+    return (int)to_read;
 }
 
