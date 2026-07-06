@@ -25,7 +25,14 @@ typedef struct {
 
     // Screen buffer with color info
     render_cell_t screen[TERMINAL_ROWS * TERMINAL_COLS];
-    bool dirty;
+
+    // Per-cell dirty tracking; dirty_count = sum of cell_dirty[]
+    uint8_t cell_dirty[TERMINAL_ROWS * TERMINAL_COLS];
+    int     dirty_count;
+
+    // Offscreen backbuffer: accumulates all cell draws, blitted to screen on present.
+    // Avoids any dependence on GPU swap-chain buffer preservation.
+    SDL_Texture* backbuf;
 
     // cursor
     int   cx, cy;
@@ -42,7 +49,7 @@ static RState g;
 // ---- helpers ----
 static inline int idx(int x, int y) {
     if (x < 0 || x >= TERMINAL_COLS || y < 0 || y >= TERMINAL_ROWS) {
-        return -1;  // Invalid coordinates
+        return -1;
     }
     return y * TERMINAL_COLS + x;
 }
@@ -53,7 +60,7 @@ static inline int glyph_index(uint32_t cp) {
            : (int)(cp - FONT_FIRST_CHAR);
 }
 
-// Fill a solid rect (ints → floats)
+// Fill a solid rect (ints → floats); draws to whatever SDL render target is active
 static inline void fill_rect(int x, int y, int w, int h) {
     SDL_FRect r = { (float)x, (float)y, (float)w, (float)h };
     SDL_RenderFillRect(g.ren, &r);
@@ -87,6 +94,14 @@ static void draw_glyph_runs(uint32_t cp, int px, int py, uint32_t fg_rgb) {
     }
 }
 
+// Mark a cell dirty if not already marked
+static inline void mark_dirty(int i) {
+    if (i >= 0 && !g.cell_dirty[i]) {
+        g.cell_dirty[i] = 1;
+        g.dirty_count++;
+    }
+}
+
 // ---- Public API ----
 bool renderer_init(SDL_Window* window, SDL_Renderer* renderer) {
     memset(&g, 0, sizeof(g));
@@ -104,7 +119,6 @@ bool renderer_init(SDL_Window* window, SDL_Renderer* renderer) {
     for (int i = 0; i < TERMINAL_ROWS * TERMINAL_COLS; i++) {
         g.screen[i] = blank;
     }
-    g.dirty = true;
 
     // cursor
     g.cx = g.cy = 0;
@@ -112,23 +126,62 @@ bool renderer_init(SDL_Window* window, SDL_Renderer* renderer) {
     g.cursor_on = true;
     g.last_blink_ms = SDL_GetTicks();
 
+    // Create offscreen backbuffer: all partial updates are drawn here; the backbuf is
+    // blitted to the screen on each present, so we are never reliant on the GPU swap
+    // chain preserving buffer contents between frames.
+    SDL_PixelFormat fmt = SDL_GetWindowPixelFormat(g.win);
+    if (fmt == SDL_PIXELFORMAT_UNKNOWN) fmt = SDL_PIXELFORMAT_ARGB8888;
+    g.backbuf = SDL_CreateTexture(g.ren, fmt, SDL_TEXTUREACCESS_TARGET,
+                                  g.win_w, g.win_h);
+    if (!g.backbuf) {
+        SDL_Log("renderer_init: failed to create backbuf: %s", SDL_GetError());
+        return false;
+    }
+
+    // Initialize backbuf to black and draw the static padding strips once
+    SDL_SetRenderTarget(g.ren, g.backbuf);
+    SDL_SetRenderDrawBlendMode(g.ren, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(g.ren, 0, 0, 0, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(g.ren);
+    if (PADDING_Y > 0) {
+        fill_rect(0, 0, g.win_w, PADDING_Y);
+    }
+    const int grid_bottom = PADDING_Y + TERMINAL_ROWS * RENDER_CELL_H;
+    if (grid_bottom < g.win_h) {
+        fill_rect(0, grid_bottom, g.win_w, g.win_h - grid_bottom);
+    }
+    SDL_SetRenderTarget(g.ren, NULL);
+
+    // Mark all cells dirty so the first present draws the full initial screen
+    memset(g.cell_dirty, 1, sizeof(g.cell_dirty));
+    g.dirty_count = TERMINAL_ROWS * TERMINAL_COLS;
+
     return true;
 }
 
 void renderer_shutdown(void) {
+    if (g.backbuf) {
+        SDL_DestroyTexture(g.backbuf);
+    }
     memset(&g, 0, sizeof(g));
 }
 
 void renderer_set_cell(int x, int y, uint32_t cp, render_color_t fg, render_color_t bg) {
     if ((unsigned)x >= TERMINAL_COLS || (unsigned)y >= TERMINAL_ROWS) return;
-    
+
     int i = idx(x, y);
     if (i < 0) return;
-    
-    g.screen[i].cp = (cp >= 32 && cp <= 126) ? cp : ' '; // printable ASCII or space
-    g.screen[i].fg = fg;
-    g.screen[i].bg = bg;
-    g.dirty = true;
+
+    uint32_t new_cp = (cp >= 32 && cp <= 126) ? cp : ' ';
+
+    // Early-out: skip if content is identical (libvterm can re-damage unchanged cells)
+    render_cell_t* cell = &g.screen[i];
+    if (cell->cp == new_cp && cell->fg.rgb == fg.rgb && cell->bg.rgb == bg.rgb) return;
+
+    cell->cp = new_cp;
+    cell->fg = fg;
+    cell->bg = bg;
+    mark_dirty(i);
 }
 
 void renderer_scroll_up(int top, int bottom, int lines) {
@@ -153,7 +206,13 @@ void renderer_scroll_up(int top, int bottom, int lines) {
             if (i >= 0) g.screen[i] = blank;
         }
     }
-    g.dirty = true;
+
+    // Mark entire scroll region dirty: all rows shifted, bottom rows blanked
+    int start = top * TERMINAL_COLS;
+    int count = (bottom - top + 1) * TERMINAL_COLS;
+    for (int i = start; i < start + count; i++) {
+        if (!g.cell_dirty[i]) { g.cell_dirty[i] = 1; g.dirty_count++; }
+    }
 }
 
 void renderer_scroll_down(int top, int bottom, int lines) {
@@ -178,86 +237,81 @@ void renderer_scroll_down(int top, int bottom, int lines) {
             if (i >= 0) g.screen[i] = blank;
         }
     }
-    g.dirty = true;
+
+    // Mark entire scroll region dirty
+    int start = top * TERMINAL_COLS;
+    int count = (bottom - top + 1) * TERMINAL_COLS;
+    for (int i = start; i < start + count; i++) {
+        if (!g.cell_dirty[i]) { g.cell_dirty[i] = 1; g.dirty_count++; }
+    }
 }
 
 void renderer_set_cursor(int x, int y, bool visible) {
-    bool changed = false;
-    if ((unsigned)x < TERMINAL_COLS && g.cx != x) {
-        g.cx = x;
-        changed = true;
+    bool moved = false;
+    int old_cx = g.cx, old_cy = g.cy;
+
+    if ((unsigned)x < TERMINAL_COLS && g.cx != x) { g.cx = x; moved = true; }
+    if ((unsigned)y < TERMINAL_ROWS && g.cy != y) { g.cy = y; moved = true; }
+
+    bool vis_changed = (g.cursor_visible != visible);
+    if (vis_changed) g.cursor_visible = visible;
+
+    if (!moved && !vis_changed) return;
+
+    if (moved) {
+        // Old position: redraw without cursor underline
+        mark_dirty(idx(old_cx, old_cy));
     }
-    if ((unsigned)y < TERMINAL_ROWS && g.cy != y) {
-        g.cy = y;
-        changed = true;
-    }
-    if (g.cursor_visible != visible) {
-        g.cursor_visible = visible;
-        changed = true;
-    }
-    if (changed) g.dirty = true;
+    // New (or same) position: redraw with updated cursor state
+    mark_dirty(idx(g.cx, g.cy));
 }
 
 void renderer_present_if_dirty(uint32_t now_ms) {
-    // Check if cursor needs to blink
-    bool cursor_changed = false;
+    // Cursor blink: just mark the cursor cell dirty, no full redraw needed
     if (now_ms - g.last_blink_ms >= (uint32_t)CURSOR_BLINK_MS) {
         g.last_blink_ms = now_ms;
         g.cursor_on = !g.cursor_on;
-        cursor_changed = true;
+        mark_dirty(idx(g.cx, g.cy));
     }
 
-    // Only redraw if screen is dirty or cursor blinked
-    if (!g.dirty && !cursor_changed) return;
+    if (g.dirty_count == 0) return;
 
-    g.dirty = false;
-
-    // 1) Clear entire frame to black
+    // Draw dirty cells into the backbuffer
+    SDL_SetRenderTarget(g.ren, g.backbuf);
     SDL_SetRenderDrawBlendMode(g.ren, SDL_BLENDMODE_NONE);
-    SDL_SetRenderDrawColor(g.ren, 0, 0, 0, SDL_ALPHA_OPAQUE);
-    SDL_RenderClear(g.ren);
 
-    // 2) Draw top + bottom padding
-    if (PADDING_Y > 0) {
-        fill_rect(0, 0, g.win_w, PADDING_Y);
-    }
-    const int grid_bottom = PADDING_Y + TERMINAL_ROWS * RENDER_CELL_H;
-    if (grid_bottom < g.win_h) {
-        fill_rect(0, grid_bottom, g.win_w, g.win_h - grid_bottom);
-    }
-
-    // 3) Draw all glyphs
     for (int y = 0; y < TERMINAL_ROWS; y++) {
         for (int x = 0; x < TERMINAL_COLS; x++) {
-            int i = idx(x, y);
-            if (i < 0) continue;
-            
+            int i = y * TERMINAL_COLS + x;
+            if (!g.cell_dirty[i]) continue;
+
+            g.cell_dirty[i] = 0;
+            g.dirty_count--;
+
             const render_cell_t* cell = &g.screen[i];
             const int px = PADDING_X + x * RENDER_CELL_W;
             const int py = PADDING_Y + y * RENDER_CELL_H;
-            
-            // Draw background
-            if (cell->bg.rgb != 0x000000) { // If not black background
-                uint8_t r = (cell->bg.rgb >> 16) & 0xFF;
-                uint8_t g_val = (cell->bg.rgb >> 8) & 0xFF;
-                uint8_t b = cell->bg.rgb & 0xFF;
-                SDL_SetRenderDrawColor(g.ren, r, g_val, b, SDL_ALPHA_OPAQUE);
-                fill_rect(px, py, RENDER_CELL_W, RENDER_CELL_H);
-            }
-            
-            // Draw character
+
+            // Background: always fill (overwrites old glyph pixels; black is explicit, no clear needed)
+            uint8_t r  = (cell->bg.rgb >> 16) & 0xFF;
+            uint8_t gv = (cell->bg.rgb >> 8)  & 0xFF;
+            uint8_t b  =  cell->bg.rgb        & 0xFF;
+            SDL_SetRenderDrawColor(g.ren, r, gv, b, SDL_ALPHA_OPAQUE);
+            fill_rect(px, py, RENDER_CELL_W, RENDER_CELL_H);
+
+            // Glyph
             draw_glyph_runs(cell->cp, px, py, cell->fg.rgb);
+
+            // Cursor underline drawn as part of this cell's pass
+            if (g.cursor_visible && g.cursor_on && x == g.cx && y == g.cy) {
+                SDL_SetRenderDrawColor(g.ren, 0, 255, 140, 255);
+                fill_rect(px, py + RENDER_CELL_H - 2, RENDER_CELL_W, 2);
+            }
         }
     }
 
-    // 4) Underline cursor
-    if (g.cursor_visible && g.cursor_on) {
-        SDL_SetRenderDrawColor(g.ren, 0, 255, 140, 255);
-        fill_rect(PADDING_X + g.cx * RENDER_CELL_W,
-                  PADDING_Y + g.cy * RENDER_CELL_H + RENDER_CELL_H - 2,
-                  RENDER_CELL_W, 2);
-    }
-
-    // 5) Present
+    // Blit the full backbuffer to screen and present
+    SDL_SetRenderTarget(g.ren, NULL);
+    SDL_RenderTexture(g.ren, g.backbuf, NULL, NULL);
     SDL_RenderPresent(g.ren);
 }
